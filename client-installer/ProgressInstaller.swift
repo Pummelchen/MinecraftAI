@@ -8,7 +8,7 @@ private let telemetryLogger = Logger(
 )
 
 final class InstallerApp: NSObject, NSApplicationDelegate {
-    private let installerVersion = "1.2"
+    private let installerVersion = "1.2.1"
     private let sessionID = UUID().uuidString.lowercased()
     private var window: NSWindow!
     private let titleLabel = NSTextField(labelWithString: "Pummelchen Client Installer")
@@ -70,13 +70,18 @@ final class InstallerApp: NSObject, NSApplicationDelegate {
 
         logView.isEditable = false
         logView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        logView.textColor = .labelColor
-        logView.backgroundColor = .textBackgroundColor
+        logView.drawsBackground = true
+        logView.textColor = .black
+        logView.backgroundColor = .white
+        logView.insertionPointColor = .black
 
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.documentView = logView
         scrollView.borderType = .bezelBorder
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = .white
+        scrollView.contentView.backgroundColor = .white
 
         openLogButton.target = self
         openLogButton.action = #selector(openLog)
@@ -234,7 +239,13 @@ final class InstallerApp: NSObject, NSApplicationDelegate {
     }
 
     private func appendLog(_ line: String) {
-        let text = NSAttributedString(string: line + "\n")
+        let text = NSAttributedString(
+            string: line + "\n",
+            attributes: [
+                .font: logView.font ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+                .foregroundColor: NSColor.black,
+            ]
+        )
         logView.textStorage?.append(text)
         logView.scrollRangeToVisible(NSRange(location: logView.string.count, length: 0))
     }
