@@ -458,6 +458,8 @@ def set_mod_state(
     note: str,
     entry_type: str | None = None,
     installation: str | None = None,
+    file_role: str = "server_file",
+    path_hint: str | None = None,
 ) -> None:
     row = conn.execute("SELECT * FROM mods WHERE id = ?", (mod_id,)).fetchone()
     if not row:
@@ -531,18 +533,20 @@ def set_mod_state(
         (mod_id, kind, url, host, slug, resolved_source, file_id, channel),
     )
     conn.execute("DELETE FROM mod_files WHERE mod_id = ?", (mod_id,))
+    stored_path_hint = path_hint or str(SERVER_DIR / "mods" if installed_server else SERVER_DIR / "mods.failed")
     for filename in files:
         conn.execute(
             """
             INSERT INTO mod_files(
                 mod_id, role, file_name, path_hint, installed_on_server,
                 included_in_client, status
-            ) VALUES (?, 'server_file', ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 mod_id,
+                file_role,
                 filename,
-                str(SERVER_DIR / "mods" if installed_server else SERVER_DIR / "mods.failed"),
+                stored_path_hint,
                 int(installed_server),
                 int(included_client),
                 server_status,

@@ -356,7 +356,7 @@ install_neoforge_profile() {
   local installer="$PACK_DIR/neoforge-26.1.2.71-installer.jar"
   [ -f "$installer" ] || fail "NeoForge client installer jar is missing."
   echo "Installing NeoForge client profile..."
-  if "$java_bin" -jar "$installer" --install-client; then
+  if (cd "$LOG_DIR" && "$java_bin" -jar "$installer" --install-client); then
     echo "NeoForge client installer completed."
     return 0
   fi

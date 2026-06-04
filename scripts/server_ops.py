@@ -410,11 +410,15 @@ def score_risks(conn: sqlite3.Connection, server_instance_id: int) -> int:
 
 def file_path_for(server_dir: Path, file_row: sqlite3.Row) -> Path | None:
     name = str(file_row["file_name"])
+    role = str(file_row["role"] or "")
     candidates = []
     if int(file_row["installed_on_server"] or 0):
-        candidates.append(server_dir / "mods" / name)
+        if role == "server_datapack":
+            candidates.append(server_dir / "server-datapacks" / name)
+            candidates.append(server_dir / "world" / "datapacks" / name)
+        else:
+            candidates.append(server_dir / "mods" / name)
     if int(file_row["included_in_client"] or 0):
-        role = str(file_row["role"] or "")
         if role == "shaderpack":
             candidates.append(server_dir / "client-package" / "shaderpacks" / name)
         elif name.endswith(".zip"):
@@ -433,6 +437,10 @@ def sync_instance_files(conn: sqlite3.Connection, server_instance_id: int, serve
     count = 0
     for mod in fetch_mod_rows(conn):
         mod_id = int(mod["id"])
+        conn.execute(
+            "DELETE FROM mod_server_files WHERE server_instance_id = ? AND mod_id = ?",
+            (server_instance_id, mod_id),
+        )
         urls = source_urls(conn, mod_id)
         primary_url = urls[0] if urls else str(mod["primary_url"] or "")
         files = mod_files(conn, mod_id)

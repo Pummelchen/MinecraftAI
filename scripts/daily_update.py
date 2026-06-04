@@ -463,11 +463,42 @@ def client_section_for(file_name: str, role: str) -> str:
     return "mods"
 
 
+def is_datapack_candidate(mod: sqlite3.Row, project: dict[str, Any], file_info: dict[str, Any]) -> bool:
+    file_name = str(file_info.get("fileName") or "").lower()
+    source_url = str(mod["primary_url"] or processor.stable_project_url(project) or "").lower()
+    entry_type = str(mod["entry_type"] or "").lower().replace(" ", "")
+    project_type = str(project.get("project_type") or "").lower()
+    if project_type == "datapack" or "datapack" in entry_type:
+        return True
+    if "/data-packs/" in source_url or "/datapack/" in source_url:
+        return True
+    return file_name.endswith(".zip") and "datapack" in file_name
+
+
+def server_section_for(mod: sqlite3.Row, project: dict[str, Any], file_info: dict[str, Any]) -> str:
+    if is_datapack_candidate(mod, project, file_info):
+        return "server-datapacks"
+    return "mods"
+
+
 def remove_client_file(server_dir: Path, file_name: str) -> None:
     for section in ("mods", "resourcepacks", "shaderpacks"):
         path = server_dir / "client-package" / section / file_name
         if path.exists():
             path.unlink()
+
+
+def move_existing_server_files(server_dir: Path, file_names: Sequence[str], rollback_dir: Path) -> list[tuple[Path, Path]]:
+    moved: list[tuple[Path, Path]] = []
+    for name in file_names:
+        for section in ("mods", "server-datapacks"):
+            path = server_dir / section / name
+            if path.exists():
+                dst = rollback_dir / section / name
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(path), str(dst))
+                moved.append((dst, path))
+    return moved
 
 
 def apply_client_only(
@@ -560,14 +591,11 @@ def apply_server_update(
     label = f"daily_update_{mod['canonical_key']}_{dt.datetime.now(dt.UTC).strftime('%Y%m%d_%H%M%S')}"
     rollback_dir = server_dir / "mods.rollback" / label
     rollback_dir.mkdir(parents=True, exist_ok=True)
-    moved: list[tuple[Path, Path]] = []
-    for name in old_files:
-        path = server_dir / "mods" / name
-        if path.exists():
-            dst = rollback_dir / name
-            shutil.move(str(path), str(dst))
-            moved.append((dst, path))
-    target = server_dir / "mods" / downloaded.name
+    moved = move_existing_server_files(server_dir, old_files, rollback_dir)
+    server_section = server_section_for(mod, project, file_info)
+    server_datapack = server_section == "server-datapacks"
+    target = server_dir / server_section / downloaded.name
+    target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(downloaded, target)
     try:
         ok, test_status, error_count, severe, log_path = processor.run_server_test(label, timeout)
@@ -607,9 +635,10 @@ def apply_server_update(
     try:
         for name in old_files:
             remove_client_file(server_dir, name)
-        client_target = server_dir / "client-package" / "mods" / target.name
-        client_target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(target, client_target)
+        if not server_datapack:
+            client_target = server_dir / "client-package" / "mods" / target.name
+            client_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(target, client_target)
         package_path, digest = rebuild_client_package(server_dir)
     except Exception as exc:
         restore_client_package(server_dir, client_backup)
@@ -645,11 +674,19 @@ def apply_server_update(
         file_info=file_info,
         status="OK",
         server_status="OK",
-        client_package="Included",
+        client_package="Not included" if server_datapack else "Included",
         installed_server=True,
-        included_client=True,
+        included_client=not server_datapack,
         files=[target.name],
-        note=f"Daily updater accepted {target.name}; boot test {label} reached Done with no severe filtered errors.",
+        note=(
+            f"Daily updater accepted server datapack {target.name}; boot test {label} reached Done with no severe filtered errors."
+            if server_datapack
+            else f"Daily updater accepted {target.name}; boot test {label} reached Done with no severe filtered errors."
+        ),
+        entry_type="Datapack" if server_datapack else None,
+        installation="Server only" if server_datapack else None,
+        file_role="server_datapack" if server_datapack else "server_file",
+        path_hint=str(server_dir / server_section),
     )
     processor.insert_test_run(conn, mod_id, label, test_status, error_count, log_path, "Accepted by daily updater.")
     conn.commit()
@@ -669,7 +706,11 @@ def apply_server_update(
         log_path=log_path,
         package_sha=digest,
         visible=True,
-        notes=f"Server boot test passed and client package rebuilt: {package_path.name}",
+        notes=(
+            f"Server datapack boot test passed; client package rebuilt without datapack: {package_path.name}"
+            if server_datapack
+            else f"Server boot test passed and client package rebuilt: {package_path.name}"
+        ),
     )
     return True
 
