@@ -146,6 +146,206 @@ printf '[mods]\nfixture.jar\t%s\tsha256:%s\n' "$SIZE" "$HASH" > "$MANIFEST_PACKA
 "$PYTHON_BIN" "$ROOT_DIR/scripts/check_client_manifest.py" "$MANIFEST_PACKAGE" --strict
 "$PYTHON_BIN" "$ROOT_DIR/scripts/check_client_manifest.py" "$ROOT_DIR/client-package"
 
+log "Resource pack metadata sanitizer"
+RESOURCE_PACKAGE="$TMP_DIR/resource-package"
+mkdir -p "$RESOURCE_PACKAGE/resourcepacks"
+"$PYTHON_BIN" - "$RESOURCE_PACKAGE/resourcepacks/bad-pack.zip" <<'PY'
+import json
+import sys
+import zipfile
+
+pack = {
+    "pack": {"pack_format": 15, "description": "fixture"},
+    "overlays": {
+        "entries": [
+            {
+                "directory": "26-1",
+                "formats": {"min_inclusive": 84, "max_inclusive": 999},
+                "min_format": 84,
+                "max_format": 999,
+            }
+        ]
+    },
+}
+with zipfile.ZipFile(sys.argv[1], "w") as archive:
+    archive.writestr("pack.mcmeta", json.dumps(pack))
+PY
+"$PYTHON_BIN" - "$RESOURCE_PACKAGE/resourcepacks/legacy-missing-formats.zip" <<'PY'
+import json
+import sys
+import zipfile
+
+pack = {
+    "pack": {"pack_format": 15, "description": "fixture"},
+    "overlays": {
+        "entries": [
+            {
+                "directory": "old",
+                "formats": [26, 512],
+                "min_format": 26,
+                "max_format": 512,
+            },
+            {
+                "directory": "newer",
+                "min_format": 71,
+                "max_format": 512,
+            },
+        ]
+    },
+}
+with zipfile.ZipFile(sys.argv[1], "w") as archive:
+    archive.writestr("pack.mcmeta", json.dumps(pack))
+PY
+"$PYTHON_BIN" "$ROOT_DIR/scripts/sanitize_resource_pack_metadata.py" "$RESOURCE_PACKAGE" --write \
+  | grep -q 'resource_pack_metadata_changes=2' || fail "resource pack sanitizer did not report changes"
+"$PYTHON_BIN" - "$RESOURCE_PACKAGE/resourcepacks/bad-pack.zip" <<'PY'
+import json
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    metadata = json.loads(archive.read("pack.mcmeta"))
+assert "formats" not in metadata["overlays"]["entries"][0], metadata
+PY
+"$PYTHON_BIN" - "$RESOURCE_PACKAGE/resourcepacks/legacy-missing-formats.zip" <<'PY'
+import json
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    metadata = json.loads(archive.read("pack.mcmeta"))
+entry = metadata["overlays"]["entries"][1]
+assert entry["formats"] == [71, 512], metadata
+PY
+
+log "Client mod dependency checker"
+DEP_PACKAGE="$TMP_DIR/dependency-package"
+mkdir -p "$DEP_PACKAGE/mods"
+"$PYTHON_BIN" - "$DEP_PACKAGE/mods" <<'PY'
+from pathlib import Path
+import sys
+import zipfile
+
+mods = Path(sys.argv[1])
+
+def write_mod(name, toml):
+    with zipfile.ZipFile(mods / name, "w") as archive:
+        archive.writestr("META-INF/neoforge.mods.toml", toml)
+
+write_mod("client-a.jar", '''
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "MIT"
+[[mods]]
+modId = "client_a"
+version = "1.0.0"
+displayName = "Client A"
+description = "fixture"
+[[dependencies.client_a]]
+modId = "client_b"
+type = "required"
+versionRange = "[0.2.3,)"
+ordering = "NONE"
+side = "BOTH"
+[[dependencies.client_a]]
+modId = "minecraft"
+type = "required"
+versionRange = "[26.1,26.2)"
+ordering = "NONE"
+side = "CLIENT"
+''')
+write_mod("client-b.jar", '''
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "MIT"
+[[mods]]
+modId = "client_b"
+version = "0.2.3"
+displayName = "Client B"
+description = "fixture"
+''')
+PY
+"$PYTHON_BIN" "$ROOT_DIR/scripts/check_client_mod_dependencies.py" "$DEP_PACKAGE" \
+  --minecraft-version 26.1.2 --neoforge-version 26.1.2.71
+"$PYTHON_BIN" - "$DEP_PACKAGE/mods/client-b.jar" <<'PY'
+from pathlib import Path
+import sys
+Path(sys.argv[1]).unlink()
+PY
+if "$PYTHON_BIN" "$ROOT_DIR/scripts/check_client_mod_dependencies.py" "$DEP_PACKAGE" \
+  --minecraft-version 26.1.2 --neoforge-version 26.1.2.71 >/tmp/pummelchen-depcheck.$$ 2>&1; then
+  cat /tmp/pummelchen-depcheck.$$ >&2
+  rm -f /tmp/pummelchen-depcheck.$$
+  fail "dependency checker did not catch missing client dependency"
+fi
+rm -f /tmp/pummelchen-depcheck.$$
+
+log "macOS client smoke launcher fixture"
+SMOKE_MC="$TMP_DIR/client-smoke-mc"
+mkdir -p "$SMOKE_MC/versions/26.1.2" "$SMOKE_MC/versions/neoforge-26.1.2.71" \
+  "$SMOKE_MC/libraries/com/example/clientlib/1.0.0"
+touch "$TMP_DIR/fake-java" \
+  "$SMOKE_MC/versions/26.1.2/26.1.2.jar" \
+  "$SMOKE_MC/libraries/com/example/clientlib/1.0.0/clientlib-1.0.0.jar"
+"$PYTHON_BIN" - "$SMOKE_MC" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+(root / "versions/26.1.2/26.1.2.json").write_text(json.dumps({
+    "id": "26.1.2",
+    "mainClass": "net.minecraft.client.main.Main",
+    "assetIndex": {"id": "30"},
+    "arguments": {
+        "jvm": [
+            {"rules": [{"action": "allow", "os": {"name": "osx"}}], "value": "-XstartOnFirstThread"},
+            "-Djava.library.path=${natives_directory}",
+            "-cp",
+            "${classpath}",
+        ],
+        "game": [
+            "--username", "${auth_player_name}",
+            "--version", "${version_name}",
+            "--gameDir", "${game_directory}",
+            {"rules": [{"action": "allow", "features": {"has_custom_resolution": True}}],
+             "value": ["--width", "${resolution_width}", "--height", "${resolution_height}"]},
+            {"rules": [{"action": "allow", "features": {"has_quick_plays_support": True}}],
+             "value": ["--quickPlayPath", "${quickPlayPath}"]},
+            {"rules": [{"action": "allow", "features": {"is_quick_play_multiplayer": True}}],
+             "value": ["--quickPlayMultiplayer", "${quickPlayMultiplayer}"]},
+        ],
+    },
+    "libraries": [
+        {"downloads": {"artifact": {"path": "com/example/clientlib/1.0.0/clientlib-1.0.0.jar"}}}
+    ],
+}), encoding="utf-8")
+(root / "versions/neoforge-26.1.2.71/neoforge-26.1.2.71.json").write_text(json.dumps({
+    "id": "neoforge-26.1.2.71",
+    "inheritsFrom": "26.1.2",
+    "mainClass": "net.neoforged.fml.startup.Client",
+    "arguments": {
+        "game": ["--fml.neoForgeVersion", "26.1.2.71"],
+        "jvm": ["-DlibraryDirectory=${library_directory}"],
+    },
+}), encoding="utf-8")
+PY
+"$PYTHON_BIN" "$ROOT_DIR/scripts/macos_client_launch_smoke.py" \
+  --minecraft-dir "$SMOKE_MC" \
+  --java-bin "$TMP_DIR/fake-java" \
+  --force \
+  --print-command > "$TMP_DIR/client-smoke-command.txt"
+grep -q -- "--width" "$TMP_DIR/client-smoke-command.txt" || fail "client smoke command omitted resolution args"
+grep -q -- "1280" "$TMP_DIR/client-smoke-command.txt" || fail "client smoke command omitted resolved width"
+if grep -q -- "quickPlay" "$TMP_DIR/client-smoke-command.txt"; then
+  cat "$TMP_DIR/client-smoke-command.txt" >&2
+  fail "client smoke command included disabled quick-play args"
+fi
+if grep -q -- '${' "$TMP_DIR/client-smoke-command.txt"; then
+  cat "$TMP_DIR/client-smoke-command.txt" >&2
+  fail "client smoke command left unresolved placeholders"
+fi
+
 log "Generated status site"
 SITE_OUT="$TMP_DIR/site"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/generate_status_site.py" --db "$DB" --server-dir "$SERVER" --output-dir "$SITE_OUT" --public-url "http://127.0.0.1:7788"

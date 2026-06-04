@@ -28,6 +28,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import process_url_batch as processor
 import release_manager
 import server_ops
+import sanitize_resource_pack_metadata
 from moddb import connect, init_db, slugify, source_kind, utc_now
 
 
@@ -271,6 +272,7 @@ def create_mrpack(server_dir: Path) -> Path:
 
 def rebuild_client_package(server_dir: Path) -> tuple[Path, str]:
     package_dir = server_dir / "client-package"
+    sanitize_resource_pack_metadata.sanitize_path(package_dir, write=True)
     write_manifest(package_dir, package_dir / "manifest.txt")
     create_mrpack(server_dir)
     zip_path = server_dir / CLIENT_ZIP_NAME

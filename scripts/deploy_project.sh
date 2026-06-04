@@ -162,9 +162,15 @@ install -m 0644 nginx/pummelchen-server.conf /etc/nginx/sites-available/pummelch
 ln -sfn /etc/nginx/sites-available/pummelchen-server.conf /etc/nginx/sites-enabled/pummelchen-server.conf
 nginx -t
 
+SANITIZE_OUTPUT="$(python3 scripts/sanitize_resource_pack_metadata.py "$SERVER_DIR/client-package" --write)"
+printf '%s\n' "$SANITIZE_OUTPUT"
+if printf '%s\n' "$SANITIZE_OUTPUT" | grep -Eq 'resource_pack_metadata_changes=[1-9]'; then
+  python3 scripts/daily_update.py --db "$PROJECT_DIR/data/minecraft_mods.sqlite" --server-dir "$SERVER_DIR" rebuild-client
+fi
 python3 scripts/generate_status_site.py --db "$PROJECT_DIR/data/minecraft_mods.sqlite" --server-dir "$SERVER_DIR" --output-dir "$PROJECT_DIR/site/public" --public-url "http://91.99.176.243:7788"
 python3 scripts/live_stats_feed.py --db "$PROJECT_DIR/data/minecraft_mods.sqlite" --server-dir "$SERVER_DIR" --output "$PROJECT_DIR/site/public/live-stats.json"
 python3 scripts/release_manager.py --db "$PROJECT_DIR/data/minecraft_mods.sqlite" --server-dir "$SERVER_DIR" --public-downloads "$PROJECT_DIR/site/public/downloads" current-json >/dev/null 2>&1 || true
+python3 scripts/check_client_mod_dependencies.py "$SERVER_DIR/client-package" --minecraft-version 26.1.2 --neoforge-version 26.1.2.71
 
 if [ "$CREATE_RELEASE" = "1" ]; then
   python3 scripts/release_manager.py \

@@ -63,10 +63,23 @@ build host before rebuilding a client package if
   worlds, chunk-generation proxy tests, and manual join windows.
 - `scripts/check_client_manifest.py` - validates client package manifest syntax,
   checksums, and strict parity when package files are present.
+- `scripts/check_client_mod_dependencies.py` - scans NeoForge mod metadata,
+  including embedded jar-in-jar libraries, and fails the client package when a
+  required client-side dependency or Minecraft/NeoForge version range is
+  missing.
+- `scripts/sanitize_resource_pack_metadata.py` - repairs known pack metadata
+  schema drift that can crash the Minecraft client during resource-pack
+  discovery, including legacy overlay `formats` gaps and deprecated new overlay
+  `formats` keys.
+- `scripts/macos_client_launch_smoke.py` - local macOS-only smoke launcher that
+  uses the installed Minecraft launcher metadata, strips disabled quick-play
+  placeholders, runs NeoForge directly, watches `latest.log`/crash reports, and
+  terminates after the client reaches a startup marker.
 - `scripts/validate_project.sh` - automated quality gate for Python compile,
   shell syntax, schema migration, release/rollback fixture, manifest checks,
-  generated website, live stats, exporter, installer-event receiver, load-lab
-  dry run, monitoring JSON, and optional Nginx syntax.
+  resource-pack metadata repair, client dependency validation, generated
+  website, live stats, exporter, installer-event receiver, load-lab dry run,
+  monitoring JSON, and optional Nginx syntax.
 - `scripts/deploy_project.sh` - validated deployment script for copying
   project-owned files to the VPS, installing/reloading services, smoke-testing,
   and optionally creating a deploy release.
@@ -130,12 +143,19 @@ As of the 2026-06-04 macOS installer rollout:
   the VPS at `/var/minecraft_26.1.2/user_jvm_args.txt`.
 - The rebuilt one-touch client package is
   `/var/minecraft_26.1.2/minecraft_26.1.2_client_macos_apple_silicon.zip`.
+- Active tested release:
+  `release_20260604_193955_deploy`.
 - Current ZIP SHA256:
-  `8f257ba5d170d9792a0b3dd26b9139458b4e683b779a96a60074dcce2dffbe5e`.
+  `d5979386be446ea0fb215db524897976574f0788753c10166530f6d18f76ed97`.
 - Current MRPack SHA256:
-  `d8d0e74d24b1d1ab6a388e3aa6cf2968963552914f762a150f050beb56c833cd`.
+  `abed3858c5487bd2c70b90cfe6a555f56ff56d228b433903a19e01ca21360b74`.
 - Current macOS installer DMG SHA256:
-  `3415c63b4792be3e3d41918d78f1c9f369b80232ee84e0e2e7ba0b822c8bf5c5`.
+  `60561dc06cc03c6b8fb231221b7ccad01adf60e9a95326d1d5df7192b92e1d2d`.
+- The 2026-06-04 client launch repair added OELib for Yumemigusa, replaced
+  HealingBed with the 26.1.2 NeoForge build, repaired Structory Towers pack
+  metadata, and verified the installed macOS client with
+  `scripts/macos_client_launch_smoke.py` until the client reached a startup
+  marker.
 - Final update validation `daily_update_clumps_20260604_110950` reached
   `STATUS=started` after Spark, Architectury API, ChocoCraft, and Clumps were
   active together.
@@ -291,6 +311,19 @@ installs systemd/Nginx/Prometheus/Grafana config, regenerates the status page,
 smoke-tests HTTP and the metrics exporter, and checks SQLite integrity.
 
 GitHub Actions runs `scripts/validate_project.sh` on pushes and pull requests.
+
+After client-package changes, also run the real local macOS client smoke on a
+machine with the Minecraft client installed:
+
+```bash
+python3 scripts/check_client_mod_dependencies.py "$HOME/Library/Application Support/minecraft/mods" --minecraft-version 26.1.2 --neoforge-version 26.1.2.71
+python3 scripts/sanitize_resource_pack_metadata.py "$HOME/Library/Application Support/minecraft" --write
+python3 scripts/macos_client_launch_smoke.py --timeout 600
+```
+
+The smoke launcher is intentionally not part of CI because it opens the local
+Minecraft client and depends on installed launcher assets, native libraries, and
+an Apple Silicon Java runtime.
 
 ## Observability
 
