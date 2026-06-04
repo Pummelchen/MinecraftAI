@@ -357,8 +357,28 @@ grep -q "Pummelchen Server" "$SITE_OUT/index.html" || fail "status site title mi
 log "Live stats and exporter"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/live_stats_feed.py" --db "$DB" --server-dir "$SERVER" --output "$TMP_DIR/live-stats.json" --state "$TMP_DIR/live-state.json"
 grep -q "Active release" "$TMP_DIR/live-stats.json" || fail "live stats missing release data"
-grep -q '"Client pack": "11 B"' "$TMP_DIR/live-stats.json" || fail "live stats missing client package size"
-grep -q "$CLIENT_ZIP_SHA" "$TMP_DIR/live-stats.json" || fail "live stats missing client package checksum"
+"$PYTHON_BIN" - "$TMP_DIR/live-stats.json" "$CLIENT_ZIP_SHA" "$ROOT_DIR/scripts" <<'PY'
+import json
+import sys
+
+stats_path, expected_sha, scripts_dir = sys.argv[1:]
+sys.path.insert(0, scripts_dir)
+import live_stats_feed
+
+payload = json.loads(open(stats_path, encoding="utf-8").read())
+stats = payload["stats"]
+metrics = payload["metrics"]
+assert stats["Client pack"] == "11 B", "live stats missing client package size"
+assert stats["Client pack SHA256"] == expected_sha, "live stats missing client package checksum"
+assert live_stats_feed.clamp_percent(138.1) == 100.0, "percent clamp does not cap overload values"
+for key in ("cpu_percent", "load1_percent", "ram_used_percent", "disk_used_percent", "disk_free_percent"):
+    assert key in metrics, f"live stats missing {key}"
+    assert 0 <= float(metrics[key]) <= 100, f"{key} is outside 0-100"
+for sample in payload["history"]:
+    for key in ("cpu_percent", "load1_percent", "ram_used_percent", "disk_used_percent", "disk_free_percent"):
+        if key in sample:
+            assert 0 <= float(sample[key]) <= 100, f"history {key} is outside 0-100"
+PY
 "$PYTHON_BIN" "$ROOT_DIR/scripts/minecraft_metrics_exporter.py" --db "$DB" --server-dir "$SERVER" --state "$TMP_DIR/metrics-state.json" --once | grep -q "pummelchen_minecraft_up"
 
 log "Installer event receiver"

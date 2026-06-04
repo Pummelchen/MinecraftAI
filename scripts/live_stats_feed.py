@@ -38,10 +38,14 @@ def human_bytes(value: float) -> str:
     return f"{size:.1f} TB"
 
 
+def clamp_percent(value: float) -> float:
+    return max(0.0, min(100.0, value))
+
+
 def percent(value: float, total: float) -> str:
     if not total:
         return "0%"
-    return f"{(value / total) * 100:.1f}%"
+    return f"{clamp_percent((value / total) * 100):.1f}%"
 
 
 def parse_meminfo() -> dict[str, int]:
@@ -64,7 +68,9 @@ def read_load_percent(cpu_count: int | None) -> tuple[list[float], str]:
     if not cpu_count:
         return loads, "Unknown"
     labels = ("1m", "5m", "15m")
-    return loads, " / ".join(f"{label} {(load / cpu_count) * 100:.1f}%" for label, load in zip(labels, loads))
+    return loads, " / ".join(
+        f"{label} {clamp_percent((load / cpu_count) * 100):.1f}%" for label, load in zip(labels, loads)
+    )
 
 
 def read_cpu_times() -> dict[str, int] | None:
@@ -86,7 +92,24 @@ def cpu_usage_percent(previous: dict[str, int] | None, current: dict[str, int] |
     idle_delta = current["idle"] - previous["idle"]
     if total_delta <= 0:
         return 0.0
-    return max(0.0, min(100.0, ((total_delta - idle_delta) / total_delta) * 100))
+    return clamp_percent(((total_delta - idle_delta) / total_delta) * 100)
+
+
+def normalize_history_sample(sample: dict[str, Any], disk_total_gb: float) -> dict[str, Any]:
+    normalized = dict(sample)
+    for key in ("cpu_percent", "load1_percent", "ram_used_percent", "disk_used_percent", "disk_free_percent"):
+        if key in normalized:
+            try:
+                normalized[key] = round(clamp_percent(float(normalized[key])), 2)
+            except (TypeError, ValueError):
+                normalized.pop(key, None)
+    if "disk_free_percent" not in normalized and "disk_free_gb" in normalized and disk_total_gb > 0:
+        try:
+            free_percent = (float(normalized["disk_free_gb"]) / disk_total_gb) * 100
+            normalized["disk_free_percent"] = round(clamp_percent(free_percent), 2)
+        except (TypeError, ValueError):
+            pass
+    return normalized
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -173,21 +196,28 @@ def build_payload(
     mem_total = mem.get("MemTotal", 0)
     mem_available = mem.get("MemAvailable", 0)
     mem_used = max(mem_total - mem_available, 0)
-    mem_used_percent = (mem_used / mem_total) * 100 if mem_total else 0.0
+    mem_used_percent = clamp_percent((mem_used / mem_total) * 100) if mem_total else 0.0
 
     disk = shutil.disk_usage(server_dir if server_dir.exists() else "/")
-    disk_used_percent = (disk.used / disk.total) * 100 if disk.total else 0.0
+    disk_used_percent = clamp_percent((disk.used / disk.total) * 100) if disk.total else 0.0
+    disk_free_percent = clamp_percent((disk.free / disk.total) * 100) if disk.total else 0.0
     disk_free_gb = disk.free / (1024 ** 3)
+    disk_total_gb = disk.total / (1024 ** 3)
 
     sample = {
         "t": now.isoformat(timespec="seconds"),
         "cpu_percent": round(cpu_percent, 2),
-        "load1_percent": round((loads[0] / cpu_count) * 100, 2),
+        "load1_percent": round(clamp_percent((loads[0] / cpu_count) * 100), 2),
         "ram_used_percent": round(mem_used_percent, 2),
         "disk_used_percent": round(disk_used_percent, 2),
         "disk_free_gb": round(disk_free_gb, 2),
+        "disk_free_percent": round(disk_free_percent, 2),
     }
-    history = list(state.get("history") or [])
+    history = [
+        normalize_history_sample(item, disk_total_gb)
+        for item in list(state.get("history") or [])
+        if isinstance(item, dict)
+    ]
     history.append(sample)
     history = history[-history_limit:]
 

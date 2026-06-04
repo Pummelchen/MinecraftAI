@@ -89,7 +89,7 @@ def human_bytes(value: float) -> str:
 def pct(used: float, total: float) -> str:
     if not total:
         return "0%"
-    return f"{(used / total) * 100:.1f}%"
+    return f"{max(0.0, min(100.0, (used / total) * 100)):.1f}%"
 
 
 def load_percent(load_values: list[str], cpu_count: int | None) -> str:
@@ -99,7 +99,7 @@ def load_percent(load_values: list[str], cpu_count: int | None) -> str:
     values = []
     for label, value in zip(labels, load_values):
         try:
-            values.append(f"{label} {(float(value) / cpu_count) * 100:.1f}%")
+            values.append(f"{label} {max(0.0, min(100.0, (float(value) / cpu_count) * 100)):.1f}%")
         except ValueError:
             values.append(f"{label} Unknown")
     return " / ".join(values)
@@ -981,8 +981,8 @@ def render_page(
           <canvas data-live-chart="ram_used_percent" width="520" height="176" aria-label="RAM usage graph"></canvas>
         </article>
         <article class="chart-card">
-          <div class="chart-head"><h3>Disk Free</h3><strong class="chart-value" data-live-metric="disk_free_gb">--</strong></div>
-          <canvas data-live-chart="disk_free_gb" width="520" height="176" aria-label="Free disk space graph"></canvas>
+          <div class="chart-head"><h3>Disk Free</h3><strong class="chart-value" data-live-metric="disk_free_percent">--</strong></div>
+          <canvas data-live-chart="disk_free_percent" width="520" height="176" aria-label="Free disk space percentage graph"></canvas>
         </article>
       </div>
     </section>
@@ -1042,15 +1042,27 @@ Pummelchen Server</pre>
   <script>
     const liveMetricConfig = {{
       cpu_percent: {{ suffix: '%', label: 'CPU Usage', min: 0, max: 100 }},
-      load1_percent: {{ suffix: '%', label: 'Load 1m', min: 0, max: null }},
+      load1_percent: {{ suffix: '%', label: 'Load 1m', min: 0, max: 100 }},
       ram_used_percent: {{ suffix: '%', label: 'RAM Used', min: 0, max: 100 }},
-      disk_free_gb: {{ suffix: ' GB', label: 'Disk Free', min: null, max: null }}
+      disk_free_percent: {{ suffix: '%', label: 'Disk Free', min: 0, max: 100 }}
     }};
-    function formatLiveMetric(value, key) {{
-      const number = Number(value);
+    function boundedLiveValue(value, config) {{
+      let number = Number(value);
       if (!Number.isFinite(number)) return '--';
+      if (Number.isFinite(config.min)) number = Math.max(config.min, number);
+      if (Number.isFinite(config.max)) number = Math.min(config.max, number);
+      return number;
+    }}
+    function formatLiveMetric(value, key, metrics = {{}}) {{
       const config = liveMetricConfig[key] || {{ suffix: '' }};
-      const decimals = key === 'disk_free_gb' ? 1 : 1;
+      const number = boundedLiveValue(value, config);
+      if (number === '--') return '--';
+      if (key === 'disk_free_percent') {{
+        const freeGb = Number(metrics.disk_free_gb);
+        const freeText = Number.isFinite(freeGb) ? `${{Math.max(0, freeGb).toFixed(1)}} GB / ` : '';
+        return `${{freeText}}${{number.toFixed(1)}}%`;
+      }}
+      const decimals = 1;
       return `${{number.toFixed(decimals)}}${{config.suffix || ''}}`;
     }}
     function updateLiveCards(stats) {{
@@ -1085,8 +1097,9 @@ Pummelchen Server</pre>
         context.lineTo(width, y);
         context.stroke();
       }}
+      const config = liveMetricConfig[key] || {{}};
       const values = (samples || [])
-        .map(sample => Number(sample[key]))
+        .map(sample => boundedLiveValue(sample[key], config))
         .filter(value => Number.isFinite(value));
       if (values.length < 2) {{
         context.fillStyle = '#667163';
@@ -1094,18 +1107,10 @@ Pummelchen Server</pre>
         context.fillText('Waiting for samples', 12 * dpr, 26 * dpr);
         return;
       }}
-      const config = liveMetricConfig[key] || {{}};
       let min = config.min;
       let max = config.max;
       if (min === null || min === undefined) min = Math.min(...values);
       if (max === null || max === undefined) max = Math.max(100, ...values);
-      if (key === 'disk_free_gb') {{
-        min = Math.min(...values);
-        max = Math.max(...values);
-        const span = Math.max(1, max - min);
-        min = Math.max(0, min - span * 0.15);
-        max = max + span * 0.15;
-      }}
       if (max <= min) max = min + 1;
       const xStep = width / Math.max(1, values.length - 1);
       context.strokeStyle = '#2f7d4a';
@@ -1124,7 +1129,7 @@ Pummelchen Server</pre>
       const metrics = payload.metrics || {{}};
       document.querySelectorAll('[data-live-metric]').forEach(node => {{
         const key = node.dataset.liveMetric || '';
-        node.textContent = formatLiveMetric(metrics[key], key);
+        node.textContent = formatLiveMetric(metrics[key], key, metrics);
       }});
       document.querySelectorAll('canvas[data-live-chart]').forEach(canvas => {{
         drawLiveChart(canvas, payload.history || [], canvas.dataset.liveChart || '');

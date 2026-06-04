@@ -262,7 +262,9 @@ recorded as a completed installer session with a timestamp in
 
 The stats area polls `/live-stats.json` every 30 seconds and updates the CPU
 usage, load average, RAM, disk, client package metadata, and compact history
-graphs directly in the browser without a page reload.
+graphs directly in the browser without a page reload. Player-facing percentage
+metrics are normalized to a 0-100% range; disk free space is shown as GB plus
+free percent.
 
 ## Releases And Rollback
 
