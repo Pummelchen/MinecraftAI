@@ -1018,7 +1018,7 @@ Pummelchen Server</pre>
 
     <section id="updates">
       <h2>Tested Updates</h2>
-      <p class="note">Only successful updates from the last {UPDATE_LOG_DAYS} days are shown here. Failed candidates, dry-run scan results, and older successful updates stay in SQLite for review but are not published to this page.</p>
+      <p class="note">Only successful updates from the last {UPDATE_LOG_DAYS} days are shown here.</p>
       {render_updates(updates)}
       <nav class="jump-links" aria-label="Mod list jumps">
         <a class="button secondary" href="#server-mods">Server-Side Mods</a>
