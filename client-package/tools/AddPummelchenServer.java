@@ -5,7 +5,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
 
 public final class AddPummelchenServer {
     private static final byte TAG_END = 0;
@@ -27,14 +30,21 @@ public final class AddPummelchenServer {
         byte[] next;
         if (Files.exists(serversDat)) {
             byte[] existing = Files.readAllBytes(serversDat);
-            if (new String(existing, java.nio.charset.StandardCharsets.ISO_8859_1).contains(serverAddress)) {
-                System.out.println("Pummelchen server entry already exists.");
-                return;
-            }
-            backup(serversDat);
             try {
-                next = appendServer(existing, serverName, serverAddress);
+                UpsertResult result = upsertServer(existing, serverName, serverAddress);
+                if (!result.changed) {
+                    System.out.println("Pummelchen server entry already exists.");
+                    return;
+                }
+                backup(serversDat);
+                next = result.data;
+                if (result.removedDuplicates > 0) {
+                    System.out.printf("Removed %d duplicate Pummelchen server entr%s.%n",
+                        result.removedDuplicates,
+                        result.removedDuplicates == 1 ? "y" : "ies");
+                }
             } catch (RuntimeException ex) {
+                backup(serversDat);
                 next = singleServerFile(serverName, serverAddress);
             }
         } else {
@@ -49,14 +59,13 @@ public final class AddPummelchenServer {
         Files.copy(file, file.resolveSibling("servers.dat.pummelchen-backup-" + stamp), StandardCopyOption.REPLACE_EXISTING);
     }
 
-    private static byte[] appendServer(byte[] data, String name, String ip) throws IOException {
+    private static UpsertResult upsertServer(byte[] data, String name, String ip) throws IOException {
         Cursor cursor = new Cursor(data);
         if (cursor.u8() != TAG_COMPOUND) {
             throw new IllegalArgumentException("root is not a compound");
         }
         cursor.utf();
         while (cursor.pos < data.length) {
-            int tagStart = cursor.pos;
             int type = cursor.u8();
             if (type == TAG_END) {
                 break;
@@ -67,26 +76,114 @@ public final class AddPummelchenServer {
                 int childType = cursor.u8();
                 int countPos = cursor.pos;
                 int count = cursor.i32();
-                int compoundsStart = cursor.pos;
                 if (childType != TAG_COMPOUND || count < 0) {
                     throw new IllegalArgumentException("servers list is not a compound list");
                 }
+                List<byte[]> entries = new ArrayList<>(count);
                 for (int i = 0; i < count; i++) {
+                    int entryStart = cursor.pos;
                     skipCompoundPayload(cursor);
+                    int entryEnd = cursor.pos;
+                    entries.add(Arrays.copyOfRange(data, entryStart, entryEnd));
                 }
                 int compoundsEnd = cursor.pos;
+                List<byte[]> nextEntries = dedupeAndUpsert(entries, name, ip);
+                boolean changed = nextEntries.size() != entries.size();
+                if (!changed) {
+                    for (int i = 0; i < entries.size(); i++) {
+                        if (!Arrays.equals(entries.get(i), nextEntries.get(i))) {
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+                if (!changed) {
+                    return new UpsertResult(data, false, 0);
+                }
                 ByteArrayOutputStream out = new ByteArrayOutputStream(data.length + 256);
                 out.write(data, 0, countPos);
-                writeInt(out, count + 1);
-                out.write(data, compoundsStart, compoundsEnd - compoundsStart);
-                out.write(serverCompound(name, ip));
+                writeInt(out, nextEntries.size());
+                for (byte[] entry : nextEntries) {
+                    out.write(entry);
+                }
                 out.write(data, compoundsEnd, data.length - compoundsEnd);
-                return out.toByteArray();
+                int removed = Math.max(0, entries.size() - nextEntries.size());
+                return new UpsertResult(out.toByteArray(), true, removed);
             }
             cursor.pos = payloadStart;
             skipPayload(cursor, type);
         }
-        return singleServerFile(name, ip);
+        return new UpsertResult(singleServerFile(name, ip), true, 0);
+    }
+
+    private static List<byte[]> dedupeAndUpsert(List<byte[]> entries, String name, String ip) throws IOException {
+        String targetAddress = normalizeAddress(ip);
+        List<byte[]> next = new ArrayList<>(entries.size() + 1);
+        boolean inserted = false;
+        for (byte[] entry : entries) {
+            ServerEntry server = readServerEntry(entry);
+            boolean sameAddress = targetAddress.equals(normalizeAddress(server.ip));
+            boolean sameName = server.name != null && server.name.equalsIgnoreCase(name);
+            if (sameAddress || sameName) {
+                if (!inserted) {
+                    next.add(serverCompound(name, ip));
+                    inserted = true;
+                }
+                continue;
+            }
+            next.add(entry);
+        }
+        if (!inserted) {
+            next.add(serverCompound(name, ip));
+        }
+        return next;
+    }
+
+    private static ServerEntry readServerEntry(byte[] compoundPayload) {
+        Cursor cursor = new Cursor(compoundPayload);
+        String name = null;
+        String ip = null;
+        while (cursor.pos < compoundPayload.length) {
+            int type = cursor.u8();
+            if (type == TAG_END) {
+                return new ServerEntry(name, ip);
+            }
+            String tagName = cursor.utf();
+            if (type == TAG_STRING && "name".equals(tagName)) {
+                name = cursor.utf();
+            } else if (type == TAG_STRING && "ip".equals(tagName)) {
+                ip = cursor.utf();
+            } else {
+                skipPayload(cursor, type);
+            }
+        }
+        throw new IllegalArgumentException("unterminated server compound");
+    }
+
+    private static String normalizeAddress(String address) {
+        if (address == null) {
+            return "";
+        }
+        String value = address.trim().toLowerCase(Locale.ROOT);
+        if (value.isEmpty()) {
+            return value;
+        }
+        if (value.startsWith("[") && value.contains("]")) {
+            int close = value.indexOf(']');
+            if (close == value.length() - 1) {
+                return value + ":25565";
+            }
+            return value;
+        }
+        int firstColon = value.indexOf(':');
+        int lastColon = value.lastIndexOf(':');
+        if (firstColon < 0) {
+            return value + ":25565";
+        }
+        if (firstColon == lastColon && lastColon == value.length() - 1) {
+            return value.substring(0, lastColon) + ":25565";
+        }
+        return value;
     }
 
     private static byte[] singleServerFile(String name, String ip) throws IOException {
@@ -166,6 +263,28 @@ public final class AddPummelchenServer {
         out.write((value >>> 16) & 0xff);
         out.write((value >>> 8) & 0xff);
         out.write(value & 0xff);
+    }
+
+    private static final class ServerEntry {
+        final String name;
+        final String ip;
+
+        ServerEntry(String name, String ip) {
+            this.name = name;
+            this.ip = ip;
+        }
+    }
+
+    private static final class UpsertResult {
+        final byte[] data;
+        final boolean changed;
+        final int removedDuplicates;
+
+        UpsertResult(byte[] data, boolean changed, int removedDuplicates) {
+            this.data = data;
+            this.changed = changed;
+            this.removedDuplicates = removedDuplicates;
+        }
     }
 
     private static final class Cursor {

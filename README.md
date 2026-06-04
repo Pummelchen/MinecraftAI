@@ -86,7 +86,8 @@ build host before rebuilding a client package if
 - `client-package/Install Mods.command` - managed macOS client installer used by
   the DMG after the current client package is downloaded.
 - `client-package/tools/AddPummelchenServer.java` - idempotent `servers.dat`
-  updater that adds the Pummelchen Server entry to the vanilla launcher data.
+  updater that adds or repairs one Pummelchen Server entry by normalized
+  address/name and removes duplicates.
 - `client-package/tools/pummelchen-auto-update.sh` - installed background
   per-file client sync from the VPS manifest.
 - `client-package/tools/pummelchen-client-doctor.sh` - installed diagnostic
@@ -210,9 +211,10 @@ the current release, shows how many mods/resource packs/shader packs are in the
 pack, downloads the current verified ZIP package on first install, installs or
 updates a user-local Temurin Java 25 Apple Silicon runtime when needed, syncs
 mods, resource packs, and shader packs, installs the NeoForge client profile,
-adds the `Pummelchen Server` entry to `servers.dat`, verifies hashes, and opens
-the Minecraft Launcher when the client is ready. It also installs a user
-LaunchAgent for `/Users/<user>/Library/Application Support/Pummelchen/bin/pummelchen-auto-update.sh`.
+adds or repairs exactly one `Pummelchen Server` entry in `servers.dat`, verifies
+hashes, and opens the Minecraft Launcher when the client is ready. It also
+installs a user LaunchAgent for
+`/Users/<user>/Library/Application Support/Pummelchen/bin/pummelchen-auto-update.sh`.
 After the first install, clients resolve `/downloads/current-release.json` and
 sync from `/downloads/releases/<release-id>/client-sync-manifest.tsv`, so every
 sync run targets a specific tested release. The legacy

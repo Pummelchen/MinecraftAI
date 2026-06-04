@@ -25,6 +25,9 @@ MC_DIR="${MINECRAFT_DIR:-${MC_DIR:-$HOME/Library/Application Support/minecraft}}
 PUMMELCHEN_HOME="${PUMMELCHEN_HOME:-$HOME/Library/Application Support/Pummelchen}"
 LOG_DIR="${PUMMELCHEN_LOG_DIR:-$HOME/Library/Logs/Pummelchen}"
 CACHE_DIR="${PUMMELCHEN_CACHE_DIR:-$HOME/Library/Caches/Pummelchen}"
+SERVER_NAME="${PUMMELCHEN_SERVER_NAME:-${SERVER_NAME:-Pummelchen Server}}"
+SERVER_ADDRESS="${PUMMELCHEN_SERVER_ADDRESS:-${SERVER_ADDRESS:-91.99.176.243:25565}}"
+JAVA_BIN="${PUMMELCHEN_JAVA_BIN:-${JAVA_BIN:-java}}"
 STATE_DIR="$MC_DIR/.pummelchen"
 RELEASE_POINTER_URL="${PUMMELCHEN_RELEASE_POINTER_URL:-${BASE_URL%/}/downloads/current-release.json}"
 MANIFEST_URL="${PUMMELCHEN_SYNC_MANIFEST_URL:-}"
@@ -257,6 +260,24 @@ sync_files() {
   printf '%s\n' "$changed"
 }
 
+repair_server_entry() {
+  local helper="$PUMMELCHEN_HOME/bin/AddPummelchenServer.java"
+  [ -f "$helper" ] || return 0
+  if [ -x "$JAVA_BIN" ]; then
+    "$JAVA_BIN" "$helper" "$MC_DIR" "$SERVER_NAME" "$SERVER_ADDRESS" || {
+      log "Could not repair Minecraft server list with configured Java: $JAVA_BIN"
+      return 0
+    }
+    return 0
+  fi
+  if command -v "$JAVA_BIN" >/dev/null 2>&1; then
+    "$JAVA_BIN" "$helper" "$MC_DIR" "$SERVER_NAME" "$SERVER_ADDRESS" || {
+      log "Could not repair Minecraft server list with Java command: $JAVA_BIN"
+      return 0
+    }
+  fi
+}
+
 WORK_DIR=""
 LOCK_HELD=0
 cleanup() {
@@ -312,6 +333,7 @@ mkdir -p "$MC_DIR/mods" "$MC_DIR/resourcepacks" "$MC_DIR/shaderpacks" "$DOWNLOAD
 remove_stale_managed_files "$WANTED_MANIFEST" "$CURRENT_KEYS" "$PREVIOUS_KEYS"
 CHANGED_COUNT="$(sync_files "$WANTED_MANIFEST" "$DOWNLOAD_DIR" | tail -n 1)"
 move_unmanaged_mods "$WANTED_MANIFEST" "$WANTED_MODS"
+repair_server_entry
 
 cp "$WANTED_MANIFEST" "$STATE_DIR/client-sync-manifest.tsv"
 write_legacy_manifest "$WANTED_MANIFEST"

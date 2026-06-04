@@ -45,6 +45,27 @@ while IFS= read -r path; do
   bash -n "$path"
 done < <(find "$ROOT_DIR/scripts" "$ROOT_DIR/client-package" "$ROOT_DIR/client-installer" -type f \( -name '*.sh' -o -name '*.command' \) | sort)
 
+if command -v java >/dev/null 2>&1; then
+  log "Minecraft server list helper"
+  SERVER_LIST_MC="$TMP_DIR/server-list-mc"
+  java "$ROOT_DIR/client-package/tools/AddPummelchenServer.java" \
+    "$SERVER_LIST_MC" "Old Pummelchen" "91.99.176.243" >/dev/null
+  java "$ROOT_DIR/client-package/tools/AddPummelchenServer.java" \
+    "$SERVER_LIST_MC" "Pummelchen Server" "91.99.176.243:25565" >/dev/null
+  java "$ROOT_DIR/client-package/tools/AddPummelchenServer.java" \
+    "$SERVER_LIST_MC" "Pummelchen Server" "91.99.176.243:25565" >/dev/null
+  "$PYTHON_BIN" - "$SERVER_LIST_MC/servers.dat" <<'PY'
+from pathlib import Path
+import sys
+
+data = Path(sys.argv[1]).read_bytes()
+assert data.count(b"91.99.176.243:25565") == 1, "Pummelchen address was not deduplicated"
+assert data.count(b"91.99.176.243") == 1, "Pummelchen host appears more than once"
+assert data.count(b"Pummelchen Server") == 1, "Pummelchen name appears more than once"
+assert b"Old Pummelchen" not in data, "old equivalent default-port entry was not replaced"
+PY
+fi
+
 if [ "$(uname -s)" = "Darwin" ] && command -v swiftc >/dev/null 2>&1; then
   log "Swift installer compile"
   swiftc "$ROOT_DIR/client-installer/ProgressInstaller.swift" \

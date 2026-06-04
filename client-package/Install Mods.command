@@ -390,6 +390,7 @@ xml_escape() {
 install_auto_updater() {
   local updater_src="$PACK_DIR/tools/pummelchen-auto-update.sh"
   local doctor_src="$PACK_DIR/tools/pummelchen-client-doctor.sh"
+  local server_helper_src="$PACK_DIR/tools/AddPummelchenServer.java"
   local token_src="$PACK_DIR/tools/upload-token.txt"
   [ -f "$updater_src" ] || {
     echo "Auto-updater payload is not present in this package; skipping LaunchAgent install."
@@ -402,6 +403,7 @@ install_auto_updater() {
   local bin_dir="$PUMMELCHEN_HOME/bin"
   local updater_dst="$bin_dir/pummelchen-auto-update.sh"
   local doctor_dst="$bin_dir/pummelchen-client-doctor.sh"
+  local server_helper_dst="$bin_dir/AddPummelchenServer.java"
   local config_path="$PUMMELCHEN_HOME/client.conf"
   local launch_agents="$HOME/Library/LaunchAgents"
   local plist_path="$launch_agents/com.pummelchen.client-updater.plist"
@@ -428,6 +430,10 @@ install_auto_updater() {
     cp "$doctor_src" "$doctor_dst"
     chmod +x "$doctor_dst"
   fi
+  if [ -f "$server_helper_src" ]; then
+    cp "$server_helper_src" "$server_helper_dst"
+    chmod 0644 "$server_helper_dst"
+  fi
 
   {
     printf 'PUMMELCHEN_BASE_URL=%s\n' "$(shell_quote "$PUBLIC_URL")"
@@ -435,6 +441,7 @@ install_auto_updater() {
     printf 'MINECRAFT_DIR=%s\n' "$(shell_quote "$MC_DIR")"
     printf 'PUMMELCHEN_SERVER_NAME=%s\n' "$(shell_quote "$SERVER_NAME")"
     printf 'PUMMELCHEN_SERVER_ADDRESS=%s\n' "$(shell_quote "$SERVER_ADDRESS")"
+    printf 'PUMMELCHEN_JAVA_BIN=%s\n' "$(shell_quote "$JAVA_BIN")"
     printf 'PUMMELCHEN_LOG_UPLOAD_URL=%s\n' "$(shell_quote "${PUBLIC_URL%/}/client-logs/upload")"
     printf 'PUMMELCHEN_LOG_UPLOAD_TOKEN=%s\n' "$(shell_quote "$upload_token")"
   } > "$config_path"
