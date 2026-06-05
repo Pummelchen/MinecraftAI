@@ -456,6 +456,57 @@ CREATE TABLE IF NOT EXISTS mod_acceptance_items (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS mod_acceptance_releases (
+    id INTEGER PRIMARY KEY,
+    release_key TEXT NOT NULL UNIQUE,
+    server_instance_id INTEGER REFERENCES server_instances(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    status TEXT NOT NULL,
+    bundle_size INTEGER NOT NULL,
+    active_file_count INTEGER NOT NULL DEFAULT 0,
+    level_count INTEGER NOT NULL DEFAULT 0,
+    top_block_id INTEGER,
+    notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS mod_acceptance_blocks (
+    id INTEGER PRIMARY KEY,
+    acceptance_release_id INTEGER NOT NULL REFERENCES mod_acceptance_releases(id) ON DELETE CASCADE,
+    parent_left_block_id INTEGER REFERENCES mod_acceptance_blocks(id) ON DELETE SET NULL,
+    parent_right_block_id INTEGER REFERENCES mod_acceptance_blocks(id) ON DELETE SET NULL,
+    level INTEGER NOT NULL,
+    ordinal INTEGER NOT NULL,
+    block_key TEXT NOT NULL,
+    status TEXT NOT NULL,
+    target_file_names TEXT NOT NULL,
+    included_file_names TEXT,
+    missing_dependencies TEXT,
+    run_label TEXT,
+    log_path TEXT,
+    boot_seconds REAL,
+    idle_seconds REAL,
+    error_count INTEGER,
+    severe_error_count INTEGER,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(acceptance_release_id, level, ordinal)
+);
+
+CREATE TABLE IF NOT EXISTS codex_fixed_mods (
+    id INTEGER PRIMARY KEY,
+    original_mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,
+    fixed_mod_id INTEGER NOT NULL REFERENCES mods(id) ON DELETE CASCADE,
+    original_file_name TEXT,
+    fixed_file_name TEXT NOT NULL,
+    fixed_file_path TEXT NOT NULL,
+    patch_notes TEXT,
+    patch_path TEXT,
+    created_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    UNIQUE(original_mod_id, fixed_file_name)
+);
+
 CREATE TABLE IF NOT EXISTS headless_client_runs (
     id INTEGER PRIMARY KEY,
     server_instance_id INTEGER REFERENCES server_instances(id) ON DELETE SET NULL,
@@ -548,6 +599,10 @@ CREATE INDEX IF NOT EXISTS idx_load_lab_samples_run ON load_lab_samples(run_id, 
 CREATE INDEX IF NOT EXISTS idx_mod_acceptance_runs_instance ON mod_acceptance_runs(server_instance_id, run_type, started_at);
 CREATE INDEX IF NOT EXISTS idx_mod_acceptance_items_run ON mod_acceptance_items(acceptance_run_id, stage, ordinal);
 CREATE INDEX IF NOT EXISTS idx_mod_acceptance_items_mod ON mod_acceptance_items(mod_id, stage, created_at);
+CREATE INDEX IF NOT EXISTS idx_mod_acceptance_releases_key ON mod_acceptance_releases(release_key);
+CREATE INDEX IF NOT EXISTS idx_mod_acceptance_blocks_release ON mod_acceptance_blocks(acceptance_release_id, level, ordinal);
+CREATE INDEX IF NOT EXISTS idx_mod_acceptance_blocks_status ON mod_acceptance_blocks(status, level);
+CREATE INDEX IF NOT EXISTS idx_codex_fixed_mods_original ON codex_fixed_mods(original_mod_id, status);
 CREATE INDEX IF NOT EXISTS idx_headless_client_runs_status ON headless_client_runs(status, started_at);
 CREATE INDEX IF NOT EXISTS idx_headless_client_runs_release ON headless_client_runs(release_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_client_installer_sessions_status ON client_installer_sessions(status, first_seen_at);

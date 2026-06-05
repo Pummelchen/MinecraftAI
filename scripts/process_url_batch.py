@@ -666,6 +666,10 @@ def run_isolated_acceptance_test(label: str, files: Sequence[Path], db_path: Pat
         "--idle-seconds",
         "45",
         "--include-active-deps",
+        "--candidate-group-size",
+        "10",
+        "--random-seed",
+        label,
         *[str(path) for path in files],
     ]
     proc = subprocess.run(

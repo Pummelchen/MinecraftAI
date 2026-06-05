@@ -289,6 +289,68 @@ PY
   | grep -q 'active_server_jars=2' || fail "mod acceptance lab plan did not scan fixture jars"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/mod_acceptance_lab.py" --db "$DB" --server-dir "$ACCEPTANCE_SERVER" run-singles --dry-run --limit 1 \
   | grep -q 'active_server_jars=1' || fail "mod acceptance lab dry-run did not select fixture jar"
+"$PYTHON_BIN" "$ROOT_DIR/scripts/mod_acceptance_lab.py" --db "$DB" --server-dir "$ACCEPTANCE_SERVER" --bundle-size 1 run-pyramid --dry-run \
+  | grep -q 'max_levels_if_all_pass=2' || fail "mod acceptance pyramid dry-run did not report rollup levels"
+"$PYTHON_BIN" "$ROOT_DIR/scripts/mod_acceptance_lab.py" --db "$DB" --server-dir "$ACCEPTANCE_SERVER" run-files --dry-run \
+  --candidate-group-size 2 "$ACCEPTANCE_SERVER/mods/pummelchen-dependent-1.0.0.jar" \
+  | grep -q 'context_files=1' || fail "candidate acceptance did not add known-working context"
+FIXED_JAR="$TMP_DIR/codex-fixed-fixture.jar"
+printf 'fixed jar\n' > "$FIXED_JAR"
+ORIGINAL_MOD_ID="$("$PYTHON_BIN" - "$DB" <<'PY'
+import datetime as dt
+import hashlib
+import sqlite3
+import sys
+
+conn = sqlite3.connect(sys.argv[1])
+now = dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat()
+cur = conn.execute(
+    "INSERT INTO imports(imported_at, source_file, spreadsheet_id, sheet_name, source_range, row_count) "
+    "VALUES (?, 'fixture', '', 'fixture', '', 1)",
+    (now,),
+)
+import_id = cur.lastrowid
+payload = "broken-fixture".encode()
+cur = conn.execute(
+    """
+    INSERT INTO mods(
+        import_id, original_sheet_row, category, name, canonical_key, installation,
+        entry_type, tested, target_mc, server_status, client_package,
+        last_tested, active_status, status_rank, primary_url, row_hash, created_at, updated_at
+    )
+    VALUES (?, 1, 'Fixture', 'Broken Fixture', 'broken-fixture', '', 'Mod', '',
+            '26.1.2', 'Rejected', '', '', 'failed', 30,
+            'https://example.test/broken-fixture', ?, ?, ?)
+    """,
+    (import_id, hashlib.sha256(payload).hexdigest(), now, now),
+)
+mod_id = cur.lastrowid
+conn.execute(
+    "INSERT INTO mod_files(mod_id, role, file_name, path_hint, installed_on_server, included_in_client, status) "
+    "VALUES (?, 'server_file', 'broken-fixture.jar', 'broken-fixture.jar', 0, 0, 'Rejected')",
+    (mod_id,),
+)
+conn.commit()
+print(mod_id)
+PY
+)"
+"$PYTHON_BIN" "$ROOT_DIR/scripts/mod_acceptance_lab.py" --db "$DB" --server-dir "$ACCEPTANCE_SERVER" register-fixed \
+  --original-mod-id "$ORIGINAL_MOD_ID" --fixed-jar "$FIXED_JAR" --patch-notes "fixture repair" \
+  | grep -q 'status=candidate' || fail "Codex_Fixed registration did not complete"
+"$PYTHON_BIN" - "$DB" "$ORIGINAL_MOD_ID" <<'PY' || fail "Codex_Fixed registration did not persist linked duplicate"
+import sqlite3
+import sys
+
+conn = sqlite3.connect(sys.argv[1])
+original_id = int(sys.argv[2])
+row = conn.execute(
+    "SELECT m.category, m.duplicate_of_id, c.status "
+    "FROM codex_fixed_mods c JOIN mods m ON m.id = c.fixed_mod_id "
+    "WHERE c.original_mod_id = ?",
+    (original_id,),
+).fetchone()
+assert row == ("Codex_Fixed", original_id, "candidate"), row
+PY
 
 log "Headless client lab fixture"
 HEADLESS_SERVER="$TMP_DIR/headless-server"

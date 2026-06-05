@@ -64,7 +64,8 @@ build host before rebuilding a client package if
   worlds, chunk-generation proxy tests, and manual join windows.
 - `scripts/mod_acceptance_lab.py` - isolated pre-live mod acceptance lab. It
   creates throwaway NeoForge servers, tests one mod plus its required dependency
-  closure, and then tests deterministic bundles of 25 active mods.
+  closure plus known-working context, and then rolls 10-mod blocks upward into
+  dated acceptance releases.
 - `scripts/headless_client_lab.py` - VPS real-client smoke lab. It syncs the
   active client package, launches HeadlessMC/HMC-Specifics under Xvfb or an
   existing X display, joins the server, walks, captures renderer/log evidence,
@@ -361,24 +362,37 @@ simple user-facing view; Grafana is the operator cockpit.
 New mods and updates should pass the acceptance lab before they are installed in
 the live pack. The lab uses the filesystem `mods/` directory as the source of
 truth, parses NeoForge TOML metadata to include required dependencies, boots a
-temporary server on a non-live port, and writes results to
-`mod_acceptance_runs` and `mod_acceptance_items`.
+temporary server on a non-live port, and writes candidate results to
+`mod_acceptance_runs` and `mod_acceptance_items`. Full active-pack acceptance is
+stored as dated pyramid releases in `mod_acceptance_releases` and
+`mod_acceptance_blocks`.
 
 ```bash
 python3 scripts/mod_acceptance_lab.py init
 python3 scripts/mod_acceptance_lab.py plan
 python3 scripts/mod_acceptance_lab.py run-singles --limit 10
-python3 scripts/mod_acceptance_lab.py run-bundles --bundle-size 25 --limit 1
+python3 scripts/mod_acceptance_lab.py run-bundles --limit 1
+python3 scripts/mod_acceptance_lab.py run-pyramid
 python3 scripts/mod_acceptance_lab.py run-files --include-active-deps /path/to/candidate.jar
+python3 scripts/mod_acceptance_lab.py register-fixed --original-mod-id 123 --fixed-jar /path/to/fixed.jar --patch-notes "Short repair note"
 ```
 
 The acceptance order is:
 
-1. Candidate jar plus required dependency closure in an isolated throwaway server.
+1. Candidate jar plus required dependency closure and 9 deterministic random
+   known-working active mods in an isolated throwaway server.
 2. Full-pack boot test after the candidate passes isolation.
-3. Bundle tests in groups of 25 active mods.
-4. Headless real-client join/walk smoke test for the active client release.
-5. Gameplay/load lab scenarios for player-facing survival checks.
+3. Level-0 bundle tests in groups of 10 active mods.
+4. Pyramid rollups: passing adjacent blocks are merged and retested until one
+   passing block remains, recorded as `YYYY-MM-DD_Vn`.
+5. Headless real-client join/walk smoke test for the active client release.
+6. Gameplay/load lab scenarios for player-facing survival checks.
+
+Failed mods stay out of the live server and should be investigated one at a
+time in isolated lab servers. If a small repair is fully understood, register
+the repaired jar as a linked `Codex_Fixed` duplicate with `register-fixed`; the
+original remains marked failed while the fixed copy carries its own checksum,
+patch notes, and promotion status.
 
 ## Headless Client Lab
 

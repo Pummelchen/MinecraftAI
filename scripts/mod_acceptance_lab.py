@@ -16,6 +16,7 @@ import dataclasses
 import datetime as dt
 import hashlib
 import os
+import random
 import re
 import shutil
 import signal
@@ -39,7 +40,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import process_url_batch as processor
 import server_ops
-from moddb import connect, init_db, utc_now
+from moddb import connect, init_db, row_hash, slugify, utc_now
 
 
 DEFAULT_DB = Path("/var/minecraft_mods/data/minecraft_mods.sqlite")
@@ -47,7 +48,7 @@ DEFAULT_SERVER_DIR = Path("/var/minecraft_26.1.2")
 DEFAULT_LAB_ROOT = Path("/var/minecraft_mods/mod_acceptance_lab")
 DEFAULT_SERVER_KEY = "minecraft_26_1_2"
 DEFAULT_DISPLAY_NAME = "Pummelchen Server"
-DEFAULT_BUNDLE_SIZE = 25
+DEFAULT_BUNDLE_SIZE = 10
 IGNORED_DEPENDENCIES = {
     "java",
     "minecraft",
@@ -88,6 +89,17 @@ class LabResult:
     error_count: int
     severe_errors: tuple[str, ...]
     notes: str
+
+
+@dataclasses.dataclass(frozen=True)
+class AcceptanceBlock:
+    id: int
+    level: int
+    ordinal: int
+    block_key: str
+    status: str
+    targets: tuple[ModJar, ...]
+    included: tuple[ModJar, ...]
 
 
 def safe_label(value: str) -> str:
@@ -639,6 +651,222 @@ def print_plan(jars: Sequence[ModJar], bundle_size: int) -> None:
         print(f"... {len(jars) - 20} more")
 
 
+def jar_by_name(jars: Sequence[ModJar]) -> dict[str, ModJar]:
+    return {jar.file_name.lower(): jar for jar in jars}
+
+
+def names_text(jars: Sequence[ModJar]) -> str:
+    return "\n".join(jar.file_name for jar in jars)
+
+
+def parse_names(text: str) -> list[str]:
+    return [line.strip() for line in (text or "").splitlines() if line.strip()]
+
+
+def next_release_key(conn: sqlite3.Connection) -> str:
+    today = dt.datetime.now(dt.UTC).date().isoformat()
+    rows = conn.execute(
+        "SELECT release_key FROM mod_acceptance_releases WHERE release_key LIKE ?",
+        (today + "_V%",),
+    ).fetchall()
+    max_version = 0
+    for row in rows:
+        match = re.search(r"_V(\d+)$", str(row["release_key"]))
+        if match:
+            max_version = max(max_version, int(match.group(1)))
+    return f"{today}_V{max_version + 1}"
+
+
+def create_acceptance_release(
+    conn: sqlite3.Connection,
+    args: argparse.Namespace,
+    *,
+    release_key: str,
+    active_count: int,
+) -> int:
+    cur = conn.execute(
+        """
+        INSERT INTO mod_acceptance_releases(
+            release_key, server_instance_id, created_at, status, bundle_size,
+            active_file_count, notes
+        ) VALUES (?, ?, ?, 'running', ?, ?, ?)
+        """,
+        (
+            release_key,
+            server_instance_id(conn, args),
+            utc_now(),
+            args.bundle_size,
+            active_count,
+            "Hierarchical acceptance pyramid: level 0 blocks, then adjacent block rollups.",
+        ),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def finish_acceptance_release(
+    conn: sqlite3.Connection,
+    release_id: int,
+    *,
+    status: str,
+    level_count: int,
+    top_block_id: int | None,
+    notes: str,
+) -> None:
+    conn.execute(
+        """
+        UPDATE mod_acceptance_releases
+        SET completed_at = ?, status = ?, level_count = ?, top_block_id = ?, notes = ?
+        WHERE id = ?
+        """,
+        (utc_now(), status, level_count, top_block_id, notes, release_id),
+    )
+    conn.commit()
+
+
+def insert_block(
+    conn: sqlite3.Connection,
+    release_id: int,
+    *,
+    parent_left_id: int | None,
+    parent_right_id: int | None,
+    level: int,
+    ordinal: int,
+    status: str,
+    targets: Sequence[ModJar],
+    included: Sequence[ModJar],
+    missing: Sequence[str],
+    result: LabResult | None,
+    notes: str,
+) -> int:
+    block_key = f"L{level:02d}_B{ordinal:03d}"
+    cur = conn.execute(
+        """
+        INSERT INTO mod_acceptance_blocks(
+            acceptance_release_id, parent_left_block_id, parent_right_block_id,
+            level, ordinal, block_key, status, target_file_names,
+            included_file_names, missing_dependencies, run_label, log_path,
+            boot_seconds, idle_seconds, error_count, severe_error_count,
+            notes, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            release_id,
+            parent_left_id,
+            parent_right_id,
+            level,
+            ordinal,
+            block_key,
+            status,
+            names_text(targets),
+            names_text(included),
+            "\n".join(missing),
+            Path(result.log_path).stem if result else "",
+            str(result.log_path) if result else "",
+            result.boot_seconds if result else None,
+            result.idle_seconds if result else None,
+            result.error_count if result else None,
+            len(result.severe_errors) if result else None,
+            notes,
+            utc_now(),
+        ),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def latest_working_file_names(conn: sqlite3.Connection) -> set[str]:
+    rows = conn.execute(
+        """
+        SELECT target_file_names, included_file_names
+        FROM mod_acceptance_blocks
+        WHERE status = 'passed'
+        UNION ALL
+        SELECT target_file_names, included_file_names
+        FROM mod_acceptance_items
+        WHERE status = 'passed'
+        """
+    ).fetchall()
+    names: set[str] = set()
+    for row in rows:
+        for column in ("target_file_names", "included_file_names"):
+            for name in parse_names(str(row[column] or "")):
+                names.add(name.lower())
+    return names
+
+
+def choose_known_working_context(
+    conn: sqlite3.Connection,
+    active: Sequence[ModJar],
+    *,
+    excluded_paths: set[Path],
+    count: int,
+    seed: str,
+) -> list[ModJar]:
+    if count <= 0:
+        return []
+    active_pool = [jar for jar in active if jar.path not in excluded_paths]
+    known_names = latest_working_file_names(conn)
+    preferred = [jar for jar in active_pool if jar.file_name.lower() in known_names]
+    pool = preferred if len(preferred) >= count else active_pool
+    rng = random.Random(seed)
+    pool = list(pool)
+    rng.shuffle(pool)
+    return sorted(pool[:count], key=lambda jar: jar.file_name.lower())
+
+
+def block_from_db(row: sqlite3.Row, active_by_name: dict[str, ModJar]) -> AcceptanceBlock:
+    targets = tuple(
+        active_by_name[name.lower()]
+        for name in parse_names(str(row["target_file_names"] or ""))
+        if name.lower() in active_by_name
+    )
+    included = tuple(
+        active_by_name[name.lower()]
+        for name in parse_names(str(row["included_file_names"] or ""))
+        if name.lower() in active_by_name
+    )
+    return AcceptanceBlock(
+        id=int(row["id"]),
+        level=int(row["level"]),
+        ordinal=int(row["ordinal"]),
+        block_key=str(row["block_key"]),
+        status=str(row["status"]),
+        targets=targets,
+        included=included,
+    )
+
+
+def run_pyramid_block(
+    *,
+    args: argparse.Namespace,
+    release_key: str,
+    work_root: Path,
+    log_root: Path,
+    level: int,
+    ordinal: int,
+    targets: Sequence[ModJar],
+    active: Sequence[ModJar],
+) -> tuple[str, list[ModJar], list[str], LabResult | None, str]:
+    included, missing = dependency_closure(targets, active)
+    if missing:
+        return "blocked", included, missing, None, "missing dependency mod ids: " + ", ".join(missing)
+    item_label = safe_label(f"{release_key}_L{level:02d}_B{ordinal:03d}")
+    result = run_lab_server(
+        source_server=args.server_dir,
+        work_dir=work_root / item_label,
+        log_path=log_root / f"{item_label}.log",
+        jars=included,
+        boot_timeout=args.boot_timeout,
+        idle_seconds=args.idle_seconds,
+        heap_mb=args.heap_mb,
+        exercise_radius=args.exercise_radius,
+    )
+    if not args.keep_lab:
+        shutil.rmtree(work_root / item_label, ignore_errors=True)
+    return result.status, included, [], result, result.notes
+
+
 def run_singles(args: argparse.Namespace) -> int:
     run_label = args.run_label or now_label("single_mod_acceptance")
     with connect(args.db) as conn:
@@ -791,19 +1019,200 @@ def run_bundles(args: argparse.Namespace) -> int:
     return 0 if final_status == "passed" else 1
 
 
+def run_pyramid(args: argparse.Namespace) -> int:
+    release_key = args.release_key
+    with connect(args.db) as conn:
+        init_db(conn)
+        active = active_server_jars(args.server_dir, conn)
+        if not release_key:
+            release_key = next_release_key(conn)
+        if args.dry_run:
+            bundles = bundle_targets(active, args.bundle_size)
+            print(f"release_key={release_key}")
+            print(f"active_server_jars={len(active)}")
+            print(f"bundle_size={args.bundle_size}")
+            print(f"level0_blocks={len(bundles)}")
+            level_count = 1
+            block_count = len(bundles)
+            while block_count > 1:
+                block_count = (block_count + 1) // 2
+                level_count += 1
+            print(f"max_levels_if_all_pass={level_count}")
+            return 0
+        args.lab_root.mkdir(parents=True, exist_ok=True)
+        release_id = create_acceptance_release(conn, args, release_key=release_key, active_count=len(active))
+        work_root = args.lab_root / "work" / release_key
+        log_root = args.lab_root / "logs" / release_key
+        active_by_name = jar_by_name(active)
+
+        current_blocks: list[AcceptanceBlock] = []
+        final_status = "passed"
+        level = 0
+        bundles = bundle_targets(active, args.bundle_size)
+        selected_bundles = bundles[args.offset :]
+        if args.limit:
+            selected_bundles = selected_bundles[: args.limit]
+        tested_all_level0 = args.offset == 0 and (not args.limit or args.limit >= len(bundles))
+        for ordinal, bundle in enumerate(selected_bundles, start=1 + args.offset):
+            status, included, missing, result, notes = run_pyramid_block(
+                args=args,
+                release_key=release_key,
+                work_root=work_root,
+                log_root=log_root,
+                level=0,
+                ordinal=ordinal,
+                targets=bundle,
+                active=active,
+            )
+            block_id = insert_block(
+                conn,
+                release_id,
+                parent_left_id=None,
+                parent_right_id=None,
+                level=0,
+                ordinal=ordinal,
+                status=status,
+                targets=bundle,
+                included=included,
+                missing=missing,
+                result=result,
+                notes=notes,
+            )
+            print(f"{release_key} L0 block {ordinal}/{len(bundles)} {status} targets={len(bundle)} included={len(included)}", flush=True)
+            if status == "passed":
+                row = conn.execute("SELECT * FROM mod_acceptance_blocks WHERE id = ?", (block_id,)).fetchone()
+                current_blocks.append(block_from_db(row, active_by_name))
+            else:
+                final_status = "failed"
+
+        level_count = 1
+        top_block_id: int | None = current_blocks[0].id if len(current_blocks) == 1 else None
+        while len(current_blocks) > 1 and (not args.max_level or level + 1 <= args.max_level):
+            level += 1
+            level_count = level + 1
+            next_blocks: list[AcceptanceBlock] = []
+            ordinal = 1
+            index = 0
+            while index < len(current_blocks):
+                left = current_blocks[index]
+                right = current_blocks[index + 1] if index + 1 < len(current_blocks) else None
+                if right is None:
+                    targets = list(left.targets)
+                    included = list(left.included)
+                    block_id = insert_block(
+                        conn,
+                        release_id,
+                        parent_left_id=left.id,
+                        parent_right_id=None,
+                        level=level,
+                        ordinal=ordinal,
+                        status="passed",
+                        targets=targets,
+                        included=included,
+                        missing=(),
+                        result=None,
+                        notes=f"Carried forward unpaired passing block {left.block_key}.",
+                    )
+                    row = conn.execute("SELECT * FROM mod_acceptance_blocks WHERE id = ?", (block_id,)).fetchone()
+                    next_blocks.append(block_from_db(row, active_by_name))
+                    print(f"{release_key} L{level} block {ordinal} carried {left.block_key}", flush=True)
+                    ordinal += 1
+                    index += 1
+                    continue
+                target_map = {jar.path: jar for jar in (*left.targets, *right.targets)}
+                targets = sorted(target_map.values(), key=lambda jar: jar.file_name.lower())
+                status, included, missing, result, notes = run_pyramid_block(
+                    args=args,
+                    release_key=release_key,
+                    work_root=work_root,
+                    log_root=log_root,
+                    level=level,
+                    ordinal=ordinal,
+                    targets=targets,
+                    active=active,
+                )
+                block_id = insert_block(
+                    conn,
+                    release_id,
+                    parent_left_id=left.id,
+                    parent_right_id=right.id,
+                    level=level,
+                    ordinal=ordinal,
+                    status=status,
+                    targets=targets,
+                    included=included,
+                    missing=missing,
+                    result=result,
+                    notes=notes,
+                )
+                print(
+                    f"{release_key} L{level} block {ordinal} {status} parents={left.block_key}+{right.block_key} "
+                    f"targets={len(targets)} included={len(included)}",
+                    flush=True,
+                )
+                if status == "passed":
+                    row = conn.execute("SELECT * FROM mod_acceptance_blocks WHERE id = ?", (block_id,)).fetchone()
+                    next_blocks.append(block_from_db(row, active_by_name))
+                else:
+                    final_status = "failed"
+                ordinal += 1
+                index += 2
+            current_blocks = next_blocks
+            if len(current_blocks) == 1:
+                top_block_id = current_blocks[0].id
+
+        collapsed_all = tested_all_level0 and top_block_id is not None and len(current_blocks) == 1
+        if final_status == "passed" and collapsed_all:
+            notes = "All active mods collapsed into one passing acceptance block."
+        elif current_blocks:
+            notes = f"Partial pyramid: {len(current_blocks)} passing block(s) remain after failed/blocked blocks."
+            final_status = "partial"
+        else:
+            notes = "No passing blocks remain."
+            final_status = "failed"
+        finish_acceptance_release(
+            conn,
+            release_id,
+            status=final_status,
+            level_count=level_count,
+            top_block_id=top_block_id,
+            notes=notes,
+        )
+    print(f"release_key={release_key}")
+    print(f"status={final_status}")
+    return 0 if final_status == "passed" else 1
+
+
 def run_files(args: argparse.Namespace) -> int:
     run_label = args.run_label or now_label("candidate_acceptance")
     with connect(args.db) as conn:
         init_db(conn)
         targets = external_jars(args.files)
         available = list(targets)
-        if args.include_active_deps:
-            available.extend(active_server_jars(args.server_dir, conn))
-        included, missing = dependency_closure(targets, available)
+        active = active_server_jars(args.server_dir, conn) if args.include_active_deps or args.candidate_group_size else []
+        if active:
+            available.extend(active)
+        context: list[ModJar] = []
+        if args.candidate_group_size > len(targets):
+            context = choose_known_working_context(
+                conn,
+                active,
+                excluded_paths={jar.path for jar in targets},
+                count=args.candidate_group_size - len(targets),
+                seed=args.random_seed or run_label,
+            )
+        test_targets = list(targets) + context
+        included, missing = dependency_closure(test_targets, available)
         if args.dry_run:
             print(f"candidate_files={len(targets)}")
+            print(f"context_files={len(context)}")
             print(f"included_files={len(included)}")
             print("missing_dependencies=" + ",".join(missing))
+            if context:
+                print("--- context ---")
+                for jar in context:
+                    print(jar.file_name)
+                print("--- included ---")
             for jar in included:
                 print(jar.file_name)
             return 0 if not missing else 2
@@ -848,7 +1257,15 @@ def run_files(args: argparse.Namespace) -> int:
             included=included,
             missing=(),
             result=result,
-            notes=result.notes,
+            notes=(
+                result.notes
+                + (
+                    f"; candidate block context: {len(context)} known-working mod(s): "
+                    + ", ".join(jar.file_name for jar in context)
+                    if context
+                    else ""
+                )
+            ),
         )
         finish_run(conn, run_id, result.status)
     if not args.keep_lab:
@@ -861,6 +1278,248 @@ def run_files(args: argparse.Namespace) -> int:
         for line in result.severe_errors[:20]:
             print(line)
     return 0 if result.status == "passed" else 1
+
+
+def fixed_status_fields(status: str) -> tuple[str, int, str]:
+    if status == "active":
+        return "ok", 40, "Codex_Fixed active"
+    if status == "rejected":
+        return "failed", 30, "Codex_Fixed rejected"
+    if status == "obsolete":
+        return "skipped", 20, "Codex_Fixed obsolete"
+    return "unknown", 10, "Codex_Fixed candidate"
+
+
+def original_file_name(conn: sqlite3.Connection, mod_id: int, explicit: str) -> str:
+    if explicit:
+        return Path(explicit).name
+    row = conn.execute(
+        """
+        SELECT file_name
+        FROM mod_server_files
+        WHERE mod_id = ?
+        ORDER BY installed_on_server DESC, included_in_client DESC, last_synced DESC, id DESC
+        LIMIT 1
+        """,
+        (mod_id,),
+    ).fetchone()
+    if row and row["file_name"]:
+        return str(row["file_name"])
+    row = conn.execute(
+        """
+        SELECT file_name
+        FROM mod_files
+        WHERE mod_id = ?
+        ORDER BY installed_on_server DESC, included_in_client DESC, id DESC
+        LIMIT 1
+        """,
+        (mod_id,),
+    ).fetchone()
+    return str(row["file_name"]) if row and row["file_name"] else ""
+
+
+def register_fixed_mod(args: argparse.Namespace) -> int:
+    fixed_jar = args.fixed_jar.expanduser().resolve()
+    if not fixed_jar.exists() or not fixed_jar.is_file():
+        raise SystemExit(f"fixed jar not found: {fixed_jar}")
+    with connect(args.db) as conn:
+        init_db(conn)
+        original = conn.execute("SELECT * FROM mods WHERE id = ?", (args.original_mod_id,)).fetchone()
+        if not original:
+            raise SystemExit(f"original mod id not found: {args.original_mod_id}")
+
+        now = utc_now()
+        active_status, rank, server_status = fixed_status_fields(args.status)
+        fixed_name = f"Codex_Fixed: {original['name']}"
+        canonical_key = f"{slugify(str(original['canonical_key'] or original['name']))}-codex-fixed-{slugify(fixed_jar.stem)}"
+        notes = args.patch_notes.strip()
+        original_file = original_file_name(conn, int(original["id"]), args.original_file_name)
+        file_sha = sha256_file(fixed_jar)
+        file_size = fixed_jar.stat().st_size
+        patch_path = str(args.patch_path.expanduser().resolve()) if args.patch_path else ""
+
+        existing = conn.execute(
+            "SELECT fixed_mod_id FROM codex_fixed_mods WHERE original_mod_id = ? AND fixed_file_name = ?",
+            (int(original["id"]), fixed_jar.name),
+        ).fetchone()
+        if existing:
+            fixed_mod_id = int(existing["fixed_mod_id"])
+            conn.execute(
+                """
+                UPDATE mods
+                SET name = ?, canonical_key = ?, category = 'Codex_Fixed',
+                    server_status = ?, active_status = ?, status_rank = ?,
+                    primary_url = ?, row_hash = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    fixed_name,
+                    canonical_key,
+                    server_status,
+                    active_status,
+                    rank,
+                    str(original["primary_url"] or ""),
+                    row_hash([fixed_name, str(fixed_jar), notes, args.status]),
+                    now,
+                    fixed_mod_id,
+                ),
+            )
+            conn.execute("DELETE FROM source_urls WHERE mod_id = ?", (fixed_mod_id,))
+            conn.execute("DELETE FROM mod_files WHERE mod_id = ?", (fixed_mod_id,))
+        else:
+            cur = conn.execute(
+                """
+                INSERT INTO imports(imported_at, source_file, spreadsheet_id, sheet_name, source_range, row_count)
+                VALUES (?, ?, '', 'Codex_Fixed', '', 1)
+                """,
+                (now, str(fixed_jar)),
+            )
+            import_id = int(cur.lastrowid)
+            cur = conn.execute(
+                """
+                INSERT INTO mods(
+                    import_id, original_sheet_row, category, name, canonical_key, installation,
+                    entry_type, tested, target_mc, server_status, client_package,
+                    last_tested, active_status, status_rank, primary_url, is_duplicate,
+                    duplicate_of_id, row_hash, created_at, updated_at
+                )
+                VALUES (?, 0, 'Codex_Fixed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+                """,
+                (
+                    import_id,
+                    fixed_name,
+                    canonical_key,
+                    "Codex repaired jar",
+                    str(original["entry_type"] or ""),
+                    args.status,
+                    str(original["target_mc"] or ""),
+                    server_status,
+                    "Included" if args.included_in_client else "",
+                    now,
+                    active_status,
+                    rank,
+                    str(original["primary_url"] or ""),
+                    int(original["id"]),
+                    row_hash([fixed_name, str(fixed_jar), notes, args.status]),
+                    now,
+                    now,
+                ),
+            )
+            fixed_mod_id = int(cur.lastrowid)
+
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO mod_notes(mod_id, notes_1, notes_2, migration_notes)
+            VALUES (?, ?, '', ?)
+            """,
+            (
+                fixed_mod_id,
+                notes,
+                f"Linked Codex_Fixed duplicate of mod id {int(original['id'])}; original file: {original_file or 'unknown'}.",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO source_urls(
+                mod_id, source_kind, url, host, project_slug, resolved_source,
+                file_id, release_channel, is_primary
+            )
+            VALUES (?, 'codex_fixed', ?, '', ?, ?, '', '', 1)
+            """,
+            (
+                fixed_mod_id,
+                str(fixed_jar),
+                canonical_key,
+                f"Codex fixed jar with sha256:{file_sha}",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO mod_files(
+                mod_id, role, file_name, path_hint, installed_on_server,
+                included_in_client, status
+            )
+            VALUES (?, 'server_file', ?, ?, ?, ?, ?)
+            """,
+            (
+                fixed_mod_id,
+                fixed_jar.name,
+                str(fixed_jar),
+                int(args.installed_on_server),
+                int(args.included_in_client),
+                server_status,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO codex_fixed_mods(
+                original_mod_id, fixed_mod_id, original_file_name, fixed_file_name,
+                fixed_file_path, patch_notes, patch_path, created_at, status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(original_mod_id, fixed_file_name) DO UPDATE SET
+                fixed_mod_id = excluded.fixed_mod_id,
+                original_file_name = excluded.original_file_name,
+                fixed_file_path = excluded.fixed_file_path,
+                patch_notes = excluded.patch_notes,
+                patch_path = excluded.patch_path,
+                status = excluded.status
+            """,
+            (
+                int(original["id"]),
+                fixed_mod_id,
+                original_file,
+                fixed_jar.name,
+                str(fixed_jar),
+                notes,
+                patch_path,
+                now,
+                args.status,
+            ),
+        )
+        instance_id = server_instance_id(conn, args)
+        if instance_id is not None:
+            conn.execute(
+                """
+                INSERT INTO mod_server_files(
+                    server_instance_id, mod_id, file_name, role, source_url,
+                    compatibility_status, installed_on_server, included_in_client,
+                    selected, file_sha256, file_size_bytes, release_channel, file_id,
+                    last_synced, notes
+                )
+                VALUES (?, ?, ?, 'server_file', ?, ?, ?, ?, ?, ?, ?, 'codex_fixed', '', ?, ?)
+                ON CONFLICT(server_instance_id, mod_id, file_name, role) DO UPDATE SET
+                    source_url = excluded.source_url,
+                    compatibility_status = excluded.compatibility_status,
+                    installed_on_server = excluded.installed_on_server,
+                    included_in_client = excluded.included_in_client,
+                    selected = excluded.selected,
+                    file_sha256 = excluded.file_sha256,
+                    file_size_bytes = excluded.file_size_bytes,
+                    last_synced = excluded.last_synced,
+                    notes = excluded.notes
+                """,
+                (
+                    instance_id,
+                    fixed_mod_id,
+                    fixed_jar.name,
+                    str(fixed_jar),
+                    f"codex_fixed_{args.status}",
+                    int(args.installed_on_server),
+                    int(args.included_in_client),
+                    int(args.status == "active"),
+                    file_sha,
+                    file_size,
+                    now,
+                    notes,
+                ),
+            )
+        conn.commit()
+    print(f"fixed_mod_id={fixed_mod_id}")
+    print(f"original_mod_id={args.original_mod_id}")
+    print(f"status={args.status}")
+    print(f"fixed_file={fixed_jar.name}")
+    return 0
 
 
 def init_database(args: argparse.Namespace) -> int:
@@ -903,10 +1562,25 @@ def build_parser() -> argparse.ArgumentParser:
     add_run_args(singles)
     bundles = sub.add_parser("run-bundles")
     add_run_args(bundles)
+    pyramid = sub.add_parser("run-pyramid")
+    add_run_args(pyramid)
+    pyramid.add_argument("--release-key", default="")
+    pyramid.add_argument("--max-level", type=int, default=0)
     files = sub.add_parser("run-files")
     add_run_args(files)
     files.add_argument("--include-active-deps", action="store_true")
+    files.add_argument("--candidate-group-size", type=int, default=DEFAULT_BUNDLE_SIZE)
+    files.add_argument("--random-seed", default="")
     files.add_argument("files", type=Path, nargs="+")
+    fixed = sub.add_parser("register-fixed")
+    fixed.add_argument("--original-mod-id", type=int, required=True)
+    fixed.add_argument("--fixed-jar", type=Path, required=True)
+    fixed.add_argument("--original-file-name", default="")
+    fixed.add_argument("--patch-notes", required=True)
+    fixed.add_argument("--patch-path", type=Path)
+    fixed.add_argument("--status", choices=["candidate", "active", "rejected", "obsolete"], default="candidate")
+    fixed.add_argument("--installed-on-server", action="store_true")
+    fixed.add_argument("--included-in-client", action="store_true")
     return parser
 
 
@@ -920,8 +1594,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_singles(args)
     if args.command == "run-bundles":
         return run_bundles(args)
+    if args.command == "run-pyramid":
+        return run_pyramid(args)
     if args.command == "run-files":
         return run_files(args)
+    if args.command == "register-fixed":
+        return register_fixed_mod(args)
     raise SystemExit(f"unknown command {args.command}")
 
 
