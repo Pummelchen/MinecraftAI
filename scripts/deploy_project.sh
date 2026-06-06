@@ -133,6 +133,7 @@ chmod +x scripts/*.py scripts/*.sh client-package/tools/*.sh "client-package/Ins
 
 bash scripts/validate_project.sh
 python3 scripts/moddb.py --db "$PROJECT_DIR/data/minecraft_mods.sqlite" init
+python3 scripts/moddb.py --db "$PROJECT_DIR/data/minecraft_mods.sqlite" normalize-statuses
 python3 scripts/release_manager.py --db "$PROJECT_DIR/data/minecraft_mods.sqlite" --server-dir "$SERVER_DIR" init
 python3 scripts/gameplay_load_lab.py --db "$PROJECT_DIR/data/minecraft_mods.sqlite" --server-dir "$SERVER_DIR" init
 python3 scripts/mod_acceptance_lab.py --db "$PROJECT_DIR/data/minecraft_mods.sqlite" --server-dir "$SERVER_DIR" init

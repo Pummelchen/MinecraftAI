@@ -97,6 +97,80 @@ DB="$TMP_DIR/minecraft_mods.sqlite"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/gameplay_load_lab.py" --db "$DB" init
 "$PYTHON_BIN" "$ROOT_DIR/scripts/mod_acceptance_lab.py" --db "$DB" init
 "$PYTHON_BIN" "$ROOT_DIR/scripts/headless_client_lab.py" --db "$DB" init
+"$PYTHON_BIN" - "$DB" <<'PY'
+import datetime as dt
+import hashlib
+import sqlite3
+import sys
+
+db = sys.argv[1]
+conn = sqlite3.connect(db)
+now = dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat()
+cur = conn.execute(
+    "INSERT INTO imports(imported_at, source_file, spreadsheet_id, sheet_name, source_range, row_count) "
+    "VALUES (?, 'status-fixture', '', 'fixture', '', 7)",
+    (now,),
+)
+import_id = cur.lastrowid
+rows = [
+    ("Await Fixture", "Skipped", "Skipped: no compatible stable release", "Not included"),
+    ("Dependency Fixture", "Skipped", "Skipped: requires Create 6.0.0+; no compatible Create NeoForge 26.1.x release found", "Not included"),
+    ("Reference Fixture", "Skipped", "Skipped: not a server mod", "Not included"),
+    ("Source Fixture", "Skipped", "No resolvable project", "Not included"),
+    ("Fixed Fixture", "candidate", "Codex_Fixed candidate", "Included"),
+    ("Duplicate Fixture", "OK", "OK", "Included"),
+    ("Duplicate Fixture Copy", "OK", "OK", "Included"),
+]
+ids = []
+for index, (name, tested, server_status, client_package) in enumerate(rows, start=1):
+    payload = f"{name}\0{server_status}".encode()
+    cur = conn.execute(
+        """
+        INSERT INTO mods(
+            import_id, original_sheet_row, category, name, canonical_key, installation,
+            entry_type, tested, target_mc, server_status, client_package,
+            last_tested, active_status, status_rank, primary_url, row_hash, created_at, updated_at
+        )
+        VALUES (?, ?, 'Fixture', ?, ?, '', 'Mod', ?, '26.1.2', ?, ?,
+                '', 'skipped', 20, ?, ?, ?, ?)
+        """,
+        (
+            import_id,
+            index,
+            name,
+            "duplicate-fixture" if "Duplicate Fixture" in name else name.lower().replace(" ", "-"),
+            tested,
+            server_status,
+            client_package,
+            "https://example.test/duplicate-fixture" if "Duplicate Fixture" in name else f"https://example.test/{index}",
+            hashlib.sha256(payload).hexdigest(),
+            now,
+            now,
+        ),
+    )
+    ids.append(cur.lastrowid)
+conn.execute("UPDATE mods SET duplicate_of_id = ?, is_duplicate = 1 WHERE id = ?", (ids[-2], ids[-1]))
+conn.execute("UPDATE mods SET duplicate_of_id = ?, is_duplicate = 1 WHERE id = ?", (ids[0], ids[4]))
+conn.commit()
+PY
+"$PYTHON_BIN" "$ROOT_DIR/scripts/moddb.py" --db "$DB" normalize-statuses \
+  | grep -q 'statuses_normalized=' || fail "status normalization command did not run"
+"$PYTHON_BIN" - "$DB" <<'PY' || fail "status normalization did not classify ambiguous skipped rows"
+import sqlite3
+import sys
+
+conn = sqlite3.connect(sys.argv[1])
+expected = {
+    "Await Fixture": "awaiting_compatible_release",
+    "Dependency Fixture": "blocked_by_dependency",
+    "Reference Fixture": "reference_only",
+    "Source Fixture": "source_unresolved",
+    "Fixed Fixture": "codex_fixed_candidate",
+    "Duplicate Fixture Copy": "duplicate",
+}
+rows = dict(conn.execute("SELECT name, active_status FROM mods WHERE name IN (%s)" % ",".join("?" for _ in expected), tuple(expected)).fetchall())
+assert rows == expected, rows
+PY
 
 log "Release-manager fixture"
 SERVER="$TMP_DIR/server"

@@ -218,10 +218,11 @@ The 2026-06-04 automation/update run added and tested:
 The earlier 2026-06-04 Create: Steam 'n' Rails URL batch processed 1 requested
 URL:
 
-- Create: Steam 'n' Rails was added to the SQLite watchlist and marked skipped:
-  no official NeoForge 26.1.x release exists yet. CurseForge project `688231`
-  and Modrinth project `ZzjhlDgM` are tracked; latest stable NeoForge-tagged
-  release found is `I6GhUCyk` for Minecraft 1.20.1.
+- Create: Steam 'n' Rails was added to the SQLite watchlist and marked
+  `awaiting_compatible_release`: no official NeoForge 26.1.x release exists
+  yet. CurseForge project `688231` and Modrinth project `ZzjhlDgM` are tracked;
+  latest stable NeoForge-tagged release found is `I6GhUCyk` for Minecraft
+  1.20.1.
 - It is not installed on the server and is not included in the Mac client
   package. Recheck when Create and Steam 'n' Rails publish compatible 26.1.x
   builds.
@@ -242,6 +243,33 @@ URL:
 - `scripts/process_url_batch.py` supports Modrinth project URLs in addition to
   CurseForge URLs, including Modrinth version selection, downloads, and required
   dependency handling.
+
+## Status Taxonomy
+
+`mods.active_status` is the top-level tracker status. Detailed reasons remain
+in `mods.server_status`, `mods.client_package`, and `mod_notes`.
+
+- `ok` - accepted and usable in the project.
+- `failed` - tested and rejected, crashed, or disabled.
+- `codex_fixed_candidate` - Codex-repaired duplicate exists, but needs explicit
+  final promotion or rejection.
+- `awaiting_compatible_release` - project is valid, but no compatible
+  NeoForge/Minecraft 26.1.x file exists yet.
+- `blocked_by_dependency` - project is valid, but a required dependency is
+  missing or incompatible.
+- `reference_only` - tracked for context, but not deployable as a server/client
+  mod.
+- `source_unresolved` - the URL or project could not be resolved into a usable
+  source.
+- `duplicate` - duplicate tracker row collapsed into a canonical row.
+- `pending` - imported or queued but not processed yet.
+- `unknown` - genuinely unclassified data that needs review.
+
+Normalize legacy rows after imports or manual DB edits:
+
+```bash
+python3 scripts/moddb.py --db data/minecraft_mods.sqlite normalize-statuses
+```
 
 ## Status Site
 
@@ -533,9 +561,10 @@ represented in the project:
 - Live stats: `/etc/systemd/system/pummelchen-live-stats.timer` refreshes the
   public `live-stats.json` feed every 30 seconds so the page can redraw CPU,
   load, RAM, disk, and client package metadata while it is open.
-- Watchlist/compatibility management: skipped mods such as Create: Steam 'n'
-  Rails remain in SQLite and are rechecked by the updater when compatible builds
-  appear.
+- Watchlist/compatibility management: mods marked
+  `awaiting_compatible_release` or `blocked_by_dependency`, such as Create:
+  Steam 'n' Rails, remain in SQLite and are rechecked by the updater when
+  compatible builds appear.
 
 The current seeded profile data is intentionally conservative: one full-pack
 baseline and one remove-one AutoFishing comparison. The AutoFishing single-run
@@ -560,6 +589,7 @@ python3 scripts/server_ops.py --db data/minecraft_mods.sqlite export-performance
 
 ```bash
 python3 scripts/moddb.py --db data/minecraft_mods.sqlite summary
+python3 scripts/moddb.py --db data/minecraft_mods.sqlite normalize-statuses
 python3 scripts/moddb.py --db data/minecraft_mods.sqlite export-clean-csv exports/minecraft_clean_sheet_2026-06-04.csv
 python3 scripts/moddb.py --db data/minecraft_mods.sqlite export-google-sheet-csv exports/minecraft_sqlite_status_2026-06-04.csv
 python3 scripts/moddb.py --db data/minecraft_mods.sqlite sql "SELECT name, active_status, server_status FROM mods WHERE active_status = 'failed'"

@@ -29,7 +29,7 @@ import process_url_batch as processor
 import release_manager
 import server_ops
 import sanitize_resource_pack_metadata
-from moddb import connect, init_db, slugify, source_kind, utc_now
+from moddb import UPDATE_SCAN_ACTIVE_STATUSES, connect, init_db, slugify, source_kind, utc_now
 
 
 DEFAULT_DB = Path("/var/minecraft_mods/data/minecraft_mods.sqlite")
@@ -921,16 +921,22 @@ def scan_and_apply(args: argparse.Namespace) -> int:
         backup_root = args.backup_dir or (args.db.parent.parent / "backups")
         backup_id = create_backup_snapshot(conn, server_id, args.server_dir, label, backup_root)
         run_id = start_update_run(conn, server_id, label, args.trigger, backup_id)
+        scan_statuses = tuple(UPDATE_SCAN_ACTIVE_STATUSES)
+        placeholders = ",".join("?" for _ in scan_statuses)
         rows = conn.execute(
-            """
+            f"""
             SELECT m.*
             FROM mods m
             WHERE m.duplicate_of_id IS NULL
-              AND m.active_status IN ('ok', 'skipped')
+              AND m.active_status IN ({placeholders})
             ORDER BY
-                CASE m.active_status WHEN 'skipped' THEN 0 ELSE 1 END,
+                CASE
+                    WHEN m.active_status IN ('awaiting_compatible_release', 'blocked_by_dependency', 'skipped') THEN 0
+                    ELSE 1
+                END,
                 lower(m.name)
-            """
+            """,
+            scan_statuses,
         ).fetchall()
         limit = args.limit or len(rows)
         try:
@@ -943,7 +949,8 @@ def scan_and_apply(args: argparse.Namespace) -> int:
                 project, file_info = candidate
                 new_name = str(file_info.get("fileName") or "")
                 old_files = selected_file_names(conn, int(mod["id"]))
-                if new_name in old_files and mod["active_status"] == "ok":
+                active_status = str(mod["active_status"] or "")
+                if new_name in old_files and active_status == "ok":
                     stats["skipped"] += 1
                     continue
                 if args.dry_run:
@@ -968,7 +975,7 @@ def scan_and_apply(args: argparse.Namespace) -> int:
                 server_side = any(
                     int(row["installed_on_server"] or 0) == 1
                     for row in conn.execute("SELECT installed_on_server FROM mod_files WHERE mod_id = ?", (int(mod["id"]),))
-                ) or mod["active_status"] == "skipped"
+                ) or active_status in {"awaiting_compatible_release", "blocked_by_dependency", "skipped"}
                 if server_side:
                     ok = apply_server_update(
                         conn,

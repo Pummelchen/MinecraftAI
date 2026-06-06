@@ -43,7 +43,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import process_url_batch as processor
 import headless_client_lab
 import server_ops
-from moddb import connect, init_db, row_hash, slugify, utc_now
+from moddb import ACTIVE_STATUS_RANKS, connect, init_db, row_hash, slugify, utc_now
 
 
 DEFAULT_DB = Path("/var/minecraft_mods/data/minecraft_mods.sqlite")
@@ -1418,12 +1418,12 @@ def run_files(args: argparse.Namespace) -> int:
 
 def fixed_status_fields(status: str) -> tuple[str, int, str]:
     if status == "active":
-        return "ok", 40, "Codex_Fixed active"
+        return "ok", ACTIVE_STATUS_RANKS["ok"], "Codex_Fixed active"
     if status == "rejected":
-        return "failed", 30, "Codex_Fixed rejected"
+        return "failed", ACTIVE_STATUS_RANKS["failed"], "Codex_Fixed rejected"
     if status == "obsolete":
-        return "skipped", 20, "Codex_Fixed obsolete"
-    return "unknown", 10, "Codex_Fixed candidate"
+        return "reference_only", ACTIVE_STATUS_RANKS["reference_only"], "Codex_Fixed obsolete"
+    return "codex_fixed_candidate", ACTIVE_STATUS_RANKS["codex_fixed_candidate"], "Codex_Fixed candidate"
 
 
 def original_file_name(conn: sqlite3.Connection, mod_id: int, explicit: str) -> str:

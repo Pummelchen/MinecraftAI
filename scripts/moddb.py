@@ -51,6 +51,44 @@ SHEET_VIEW_HEADERS = [
     "DB Notes",
 ]
 
+ACTIVE_STATUS_LABELS = {
+    "ok": "OK",
+    "failed": "Failed",
+    "codex_fixed_candidate": "Codex_Fixed Candidate",
+    "awaiting_compatible_release": "Awaiting Compatible Release",
+    "blocked_by_dependency": "Blocked By Dependency",
+    "reference_only": "Reference Only",
+    "source_unresolved": "Source Unresolved",
+    "duplicate": "Duplicate",
+    "pending": "Pending Review",
+    "unknown": "Unknown",
+}
+
+ACTIVE_STATUS_RANKS = {
+    "ok": 80,
+    "failed": 70,
+    "codex_fixed_candidate": 60,
+    "awaiting_compatible_release": 50,
+    "blocked_by_dependency": 40,
+    "reference_only": 30,
+    "source_unresolved": 20,
+    "duplicate": 10,
+    "pending": 5,
+    "unknown": 0,
+}
+
+STATUS_SORT_ORDER = {
+    status: index for index, status in enumerate(ACTIVE_STATUS_LABELS)
+}
+
+UPDATE_SCAN_ACTIVE_STATUSES = (
+    "ok",
+    "awaiting_compatible_release",
+    "blocked_by_dependency",
+    # Legacy value retained so older DBs remain scannable before normalization.
+    "skipped",
+)
+
 DB_SCHEMA = """
 PRAGMA foreign_keys = ON;
 
@@ -688,23 +726,98 @@ def is_section_row(cells: Sequence[str]) -> bool:
     return bool(clean_cell(cells[0])) and not any(clean_cell(c) for c in cells[1:])
 
 
-def status_rank(tested: str, server_status: str, client_package: str) -> tuple[str, int]:
-    text = " ".join([tested, server_status, client_package]).lower()
-    if "crash" in text or "failed" in text or "rejected" in text or "log error" in text:
-        return "failed", 30
-    if "skip" in text or "no compatible" in text or "not included" in text:
-        return "skipped", 20
+def active_status_label(active_status: str) -> str:
+    return ACTIVE_STATUS_LABELS.get(active_status, active_status.replace("_", " ").title())
+
+
+def classify_active_status(
+    tested: str,
+    server_status: str,
+    client_package: str,
+    *,
+    is_duplicate: bool = False,
+) -> str:
+    tested_lower = tested.strip().lower()
+    server_lower = server_status.strip().lower()
+    client_lower = client_package.strip().lower()
+    text = " ".join([tested_lower, server_lower, client_lower])
+    if "codex_fixed active" in text or "codex fixed active" in text:
+        return "ok"
+    if "codex_fixed rejected" in text or "codex fixed rejected" in text:
+        return "failed"
+    if "codex_fixed obsolete" in text or "codex fixed obsolete" in text:
+        return "reference_only"
+    if "codex_fixed candidate" in text or "codex fixed candidate" in text:
+        return "codex_fixed_candidate"
+    if is_duplicate:
+        return "duplicate"
+    if tested_lower == "pending" or server_lower.startswith("pending") or client_lower == "pending":
+        return "pending"
     if (
-        tested.lower() == "ok"
-        or server_status.lower() == "ok"
-        or "runtime ok" in text
-        or server_status.lower().startswith("client-only: included")
-        or server_status.lower().startswith("client dependency: included")
-        or client_package.lower() == "included"
-        or server_status.lower() == "installed"
+        "missing compatible dependency" in text
+        or "duplicate missing stable dependency" in text
+        or "requires create" in text
+        or "no compatible create" in text
     ):
-        return "ok", 40
-    return "unknown", 10
+        return "blocked_by_dependency"
+    if "no resolvable project" in text or "project not found" in text:
+        return "source_unresolved"
+    if "online reference" in text or "not a server mod" in text or "reference only" in text:
+        return "reference_only"
+    if "no compatible" in text or "no compatible stable release" in text:
+        return "awaiting_compatible_release"
+    if (
+        "crash" in text
+        or "failed" in text
+        or "rejected" in text
+        or "log error" in text
+        or "watchdog" in text
+        or "dependency rejected" in text
+    ):
+        return "failed"
+    if (
+        tested_lower == "ok"
+        or server_lower == "ok"
+        or "runtime ok" in text
+        or server_lower.startswith("client-only: included")
+        or server_lower.startswith("client dependency: included")
+        or client_lower == "included"
+        or server_lower == "installed"
+        or server_lower.startswith("clean-world ok")
+    ):
+        return "ok"
+    if "skip" in text or client_lower == "not included":
+        return "awaiting_compatible_release"
+    return "unknown"
+
+
+def status_rank(tested: str, server_status: str, client_package: str) -> tuple[str, int]:
+    active_status = classify_active_status(tested, server_status, client_package)
+    return active_status, ACTIVE_STATUS_RANKS[active_status]
+
+
+def normalize_all_active_statuses(conn: sqlite3.Connection) -> int:
+    changed = 0
+    now = utc_now()
+    rows = conn.execute(
+        "SELECT id, tested, server_status, client_package, active_status, status_rank, duplicate_of_id FROM mods"
+    ).fetchall()
+    for row in rows:
+        active_status = classify_active_status(
+            str(row["tested"] or ""),
+            str(row["server_status"] or ""),
+            str(row["client_package"] or ""),
+            is_duplicate=row["duplicate_of_id"] is not None,
+        )
+        rank = ACTIVE_STATUS_RANKS[active_status]
+        if row["active_status"] != active_status or int(row["status_rank"] or -1) != rank:
+            conn.execute(
+                "UPDATE mods SET active_status = ?, status_rank = ?, updated_at = ? WHERE id = ?",
+                (active_status, rank, now, int(row["id"])),
+            )
+            changed += 1
+    conn.commit()
+    return changed
 
 
 def source_kind(url: str) -> tuple[str, str, str]:
@@ -1099,8 +1212,14 @@ def sheet_view_rows(conn: sqlite3.Connection) -> list[list[str]]:
             CASE m.active_status
                 WHEN 'ok' THEN 0
                 WHEN 'failed' THEN 1
-                WHEN 'skipped' THEN 2
-                ELSE 3
+                WHEN 'codex_fixed_candidate' THEN 2
+                WHEN 'awaiting_compatible_release' THEN 3
+                WHEN 'blocked_by_dependency' THEN 4
+                WHEN 'reference_only' THEN 5
+                WHEN 'source_unresolved' THEN 6
+                WHEN 'duplicate' THEN 7
+                WHEN 'pending' THEN 8
+                ELSE 9
             END,
             LOWER(COALESCE(m.category, '')),
             LOWER(m.name)
@@ -1149,9 +1268,28 @@ def print_summary(conn: sqlite3.Connection) -> None:
     print(f"canonical_records={canonical}")
     print(f"duplicates_collapsed={duplicates}")
     for row in conn.execute(
-        "SELECT active_status, COUNT(*) AS c FROM mods GROUP BY active_status ORDER BY active_status"
+        """
+        SELECT active_status, COUNT(*) AS c
+        FROM mods
+        GROUP BY active_status
+        ORDER BY
+            CASE active_status
+                WHEN 'ok' THEN 0
+                WHEN 'failed' THEN 1
+                WHEN 'codex_fixed_candidate' THEN 2
+                WHEN 'awaiting_compatible_release' THEN 3
+                WHEN 'blocked_by_dependency' THEN 4
+                WHEN 'reference_only' THEN 5
+                WHEN 'source_unresolved' THEN 6
+                WHEN 'duplicate' THEN 7
+                WHEN 'pending' THEN 8
+                ELSE 9
+            END,
+            active_status
+        """
     ):
-        print(f"status.{row['active_status']}={row['c']}")
+        label = active_status_label(str(row["active_status"]))
+        print(f"status.{row['active_status']}={row['c']} # {label}")
     included = conn.execute(
         "SELECT COUNT(*) AS c FROM mods WHERE LOWER(client_package) = 'included'"
     ).fetchone()["c"]
@@ -1188,6 +1326,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("summary", help="Print database summary counts")
 
+    sub.add_parser("normalize-statuses", help="Rewrite mods.active_status to the current top-level taxonomy")
+
     sql_parser = sub.add_parser("sql", help="Run a read-only SQL query")
     sql_parser.add_argument("query")
     return parser
@@ -1218,6 +1358,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"rows_written={count}")
         elif args.command == "summary":
             print_summary(conn)
+        elif args.command == "normalize-statuses":
+            changed = normalize_all_active_statuses(conn)
+            print(f"statuses_normalized={changed}")
         elif args.command == "sql":
             if not args.query.lstrip().lower().startswith("select"):
                 raise ValueError("sql command only allows SELECT queries")

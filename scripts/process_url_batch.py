@@ -24,7 +24,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-from moddb import HEADERS, connect, row_hash, slugify, source_kind, utc_now
+from moddb import HEADERS, connect, row_hash, slugify, source_kind, status_rank, utc_now
 
 
 API_BASE = "https://api.curse.tools/v1/cf"
@@ -489,8 +489,7 @@ def set_mod_state(
         channel = release_channel(file_info)
         source_name = "Modrinth" if file_info.get("_source") == "modrinth" else "CurseForge"
         resolved_source = f"{source_name} {channel} release file {file_id}"
-    active_status = {"OK": "ok", "Failed": "failed", "Skipped": "skipped"}.get(status, status.lower())
-    rank = {"ok": 40, "failed": 30, "skipped": 20}.get(active_status, 10)
+    active_status, rank = status_rank(status, server_status, client_package)
     last_tested = today()
     server_file = "; ".join(files)
     migration_notes = note
