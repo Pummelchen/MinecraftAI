@@ -29,12 +29,7 @@ import sys
 import time
 import zipfile
 from pathlib import Path
-from typing import Any, Iterable, Sequence
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback.
-    tomllib = None  # type: ignore[assignment]
+from typing import Iterable, Sequence
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -44,6 +39,7 @@ import process_url_batch as processor
 import headless_client_lab
 import server_ops
 from moddb import ACTIVE_STATUS_RANKS, connect, init_db, row_hash, slugify, utc_now
+from neoforge_metadata import load_neoforge_metadata
 
 
 DEFAULT_DB = Path("/var/minecraft_mods/data/minecraft_mods.sqlite")
@@ -143,7 +139,7 @@ def safe_label(value: str) -> str:
 
 
 def now_label(prefix: str) -> str:
-    return f"{safe_label(prefix)}_{dt.datetime.now(dt.UTC).strftime('%Y%m%d_%H%M%S')}"
+    return f"{safe_label(prefix)}_{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
 
 def sha256_file(path: Path) -> str:
@@ -162,8 +158,6 @@ def toml_metadata(path: Path) -> tuple[set[str], set[str], list[str]]:
     mod_ids: set[str] = set()
     required: set[str] = set()
     warnings: list[str] = []
-    if tomllib is None:
-        return mod_ids, required, ["tomllib unavailable; metadata dependency scan skipped"]
     if not zipfile.is_zipfile(path):
         return mod_ids, required, ["not a zip/jar file"]
     metadata_paths = ("META-INF/neoforge.mods.toml", "META-INF/mods.toml")
@@ -174,7 +168,7 @@ def toml_metadata(path: Path) -> tuple[set[str], set[str], list[str]]:
                 if metadata_path not in existing:
                     continue
                 try:
-                    data = tomllib.loads(archive.read(metadata_path).decode("utf-8", errors="replace"))
+                    data = load_neoforge_metadata(archive.read(metadata_path))
                 except Exception as exc:
                     warnings.append(f"{metadata_path}: {type(exc).__name__}: {exc}")
                     continue
@@ -224,9 +218,7 @@ def toml_metadata(path: Path) -> tuple[set[str], set[str], list[str]]:
                                 for metadata_path in metadata_paths:
                                     if metadata_path not in nested_existing:
                                         continue
-                                    nested_data = tomllib.loads(
-                                        nested_archive.read(metadata_path).decode("utf-8", errors="replace")
-                                    )
+                                    nested_data = load_neoforge_metadata(nested_archive.read(metadata_path))
                                     for mod_entry in nested_data.get("mods") or []:
                                         mod_id = normalize_mod_id(str(mod_entry.get("modId") or ""))
                                         if mod_id:
@@ -800,7 +792,7 @@ def parse_names(text: str) -> list[str]:
 
 
 def next_release_key(conn: sqlite3.Connection) -> str:
-    today = dt.datetime.now(dt.UTC).date().isoformat()
+    today = dt.datetime.now(dt.timezone.utc).date().isoformat()
     rows = conn.execute(
         "SELECT release_key FROM mod_acceptance_releases WHERE release_key LIKE ?",
         (today + "_V%",),

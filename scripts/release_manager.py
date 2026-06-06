@@ -148,7 +148,7 @@ def normalize_public_permissions(root: Path) -> None:
 
 
 def release_id(label: str | None = None) -> str:
-    base = dt.datetime.now(dt.UTC).strftime("release_%Y%m%d_%H%M%S")
+    base = dt.datetime.now(dt.timezone.utc).strftime("release_%Y%m%d_%H%M%S")
     if label:
         clean = re.sub(r"[^A-Za-z0-9_.-]+", "-", label).strip("-")
         if clean:
@@ -577,7 +577,7 @@ def rollback_release(args: argparse.Namespace) -> int:
         if src.exists():
             hardlink_or_copy(src, args.server_dir / name)
     if args.restore_db:
-        backup = args.db.with_suffix(args.db.suffix + f".rollback-backup-{dt.datetime.now(dt.UTC).strftime('%Y%m%d%H%M%S')}")
+        backup = args.db.with_suffix(args.db.suffix + f".rollback-backup-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d%H%M%S')}")
         shutil.copy2(args.db, backup)
         shutil.copy2(release_dir / "db" / "minecraft_mods.sqlite", args.db)
         print(f"db_backup={backup}")

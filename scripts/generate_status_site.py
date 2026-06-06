@@ -199,7 +199,7 @@ def collect_stats(server_dir: Path) -> dict[str, str]:
     if sha_path.exists():
         sha = sha_path.read_text(encoding="utf-8", errors="replace").split()[0]
     return {
-        "Generated": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        "Generated": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "OS": os_release.get("PRETTY_NAME", platform.platform()),
         "Kernel": platform.release(),
         "Uptime": uptime_text(),

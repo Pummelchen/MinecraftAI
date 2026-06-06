@@ -446,6 +446,12 @@ Files in `server-config/config-overrides/` are copied into the live server
 `removeErroringEntities = true` so one broken ticking entity is removed instead
 of crashing the whole server; block-entity removal stays disabled.
 
+Live player operator permissions are intentionally capped at level 1 through
+`server-config/server.properties.override`. Expensive admin commands such as
+`/locate structure` can synchronously scan/generate chunks on a large modded
+world and trip the server watchdog. Run structure searches and other heavyweight
+diagnostics in the isolated lab or from VPS-side tooling, not from a live client.
+
 GitHub Actions runs `scripts/validate_project.sh` on pushes and pull requests.
 
 After client-package changes, also run the real local macOS client smoke on a

@@ -38,7 +38,7 @@ ERROR_RE = re.compile(
 
 
 def today() -> str:
-    return dt.datetime.now(dt.UTC).date().isoformat()
+    return dt.datetime.now(dt.timezone.utc).date().isoformat()
 
 
 def run_text(cmd: list[str], cwd: Path | None = None) -> str:
@@ -828,7 +828,7 @@ def profile_mod(
     if not baseline:
         raise SystemExit("no successful baseline profile exists for this server instance")
     mod = find_mod(conn, mod_key)
-    label = f"without_{mod['canonical_key']}_{dt.datetime.now(dt.UTC).strftime('%Y%m%d_%H%M%S')}"
+    label = f"without_{mod['canonical_key']}_{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     moved = move_mod_files(server_dir, int(mod["id"]), conn, label)
     try:
         metrics = run_profile(
@@ -1010,7 +1010,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 display_name=args.display_name,
                 server_dir=args.server_dir,
             )
-            label = f"baseline_{args.server_key}_{dt.datetime.now(dt.UTC).strftime('%Y%m%d_%H%M%S')}"
+            label = f"baseline_{args.server_key}_{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d_%H%M%S')}"
             metrics = run_profile(
                 server_dir=args.server_dir,
                 label=label,

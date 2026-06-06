@@ -95,7 +95,7 @@ CLIENT_ONLY_HINTS = (
 
 
 def today() -> str:
-    return dt.datetime.now(dt.UTC).date().isoformat()
+    return dt.datetime.now(dt.timezone.utc).date().isoformat()
 
 
 def safe_run_name(value: str) -> str:

@@ -110,7 +110,7 @@ def run_preflight(args: argparse.Namespace) -> int:
         print("release_pointer=ok")
         return 0
 
-    started = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+    started = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     tcp_latency = -1.0
     tcp_error = ""
     try:

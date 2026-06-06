@@ -7,11 +7,12 @@ import argparse
 import io
 import re
 import sys
-import tomllib
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
+
+from neoforge_metadata import load_neoforge_metadata
 
 
 SPECIAL_VERSIONS = {
@@ -101,7 +102,7 @@ def satisfies_range(actual: str, version_range: str) -> bool:
 def metadata_from_archive(archive: zipfile.ZipFile) -> dict[str, Any] | None:
     for name in ("META-INF/neoforge.mods.toml", "META-INF/mods.toml"):
         try:
-            return tomllib.loads(archive.read(name).decode("utf-8", errors="replace"))
+            return load_neoforge_metadata(archive.read(name))
         except KeyError:
             continue
     return None

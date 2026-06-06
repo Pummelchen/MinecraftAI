@@ -66,7 +66,7 @@ IGNORED_FATAL_PATTERNS = (
 
 def now_label(prefix: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", prefix).strip("_") or "headless_client"
-    return f"{safe}_{dt.datetime.now(dt.UTC).strftime('%Y%m%d_%H%M%S')}"
+    return f"{safe}_{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
 
 def hmc_download_urls(version: str) -> list[str]:

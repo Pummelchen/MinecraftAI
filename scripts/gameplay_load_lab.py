@@ -294,7 +294,7 @@ def finish_run(conn: sqlite3.Connection, run_id: int, samples: list[dict[str, fl
 
 def run_scenario(args: argparse.Namespace) -> int:
     scenario = SCENARIOS[args.scenario]
-    run_label = args.run_label or f"{args.scenario}_{dt.datetime.now(dt.UTC).strftime('%Y%m%d_%H%M%S')}"
+    run_label = args.run_label or f"{args.scenario}_{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     duration = args.duration or int(scenario["duration"])
     if args.dry_run:
         print(f"dry_run=1 scenario={args.scenario} duration={duration} server_dir={args.server_dir}")

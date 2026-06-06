@@ -40,7 +40,7 @@ RCON_COMMAND = 2
 
 
 def utc_now() -> dt.datetime:
-    return dt.datetime.now(dt.UTC).replace(microsecond=0)
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
 
 
 def read_json(path: Path) -> dict[str, Any]:

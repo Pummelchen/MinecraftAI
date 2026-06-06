@@ -186,7 +186,7 @@ def build_payload(
     db_path: Path,
     server_key: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    now = dt.datetime.now(dt.UTC)
+    now = dt.datetime.now(dt.timezone.utc)
     cpu_count = os.cpu_count() or 1
     current_cpu = read_cpu_times()
     cpu_percent = cpu_usage_percent(state.get("previous_cpu"), current_cpu)

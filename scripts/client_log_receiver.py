@@ -31,7 +31,7 @@ TERMINAL_SESSION_STATUSES = {"ok", "failed", "cancelled"}
 
 
 def utc_now() -> str:
-    return dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
 def safe_name(value: str, fallback: str) -> str:
@@ -259,7 +259,7 @@ class UploadHandler(BaseHTTPRequestHandler):
         if not original_name.endswith(".zip"):
             original_name += ".zip"
 
-        now = dt.datetime.now(dt.UTC)
+        now = dt.datetime.now(dt.timezone.utc)
         day_dir = self.server.upload_dir / now.strftime("%Y") / now.strftime("%m") / now.strftime("%d")
         day_dir.mkdir(parents=True, exist_ok=True)
         stored_name = f"{now.strftime('%Y%m%dT%H%M%SZ')}_{client_id}_{original_name}"

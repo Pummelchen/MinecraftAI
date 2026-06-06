@@ -68,7 +68,7 @@ USER_AGENT = "Codex Pummelchen Update Pipeline"
 
 
 def now_label(prefix: str) -> str:
-    return f"{prefix}_{dt.datetime.now(dt.UTC).strftime('%Y%m%d_%H%M%S')}"
+    return f"{prefix}_{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
 
 def api_json(url: str) -> dict[str, Any]:
@@ -647,7 +647,7 @@ def apply_client_only(
     section = client_section_for(str(file_info["fileName"]), role)
     target_dir = server_dir / "client-package" / section
     target_dir.mkdir(parents=True, exist_ok=True)
-    label = f"client_only_{mod['canonical_key']}_{dt.datetime.now(dt.UTC).strftime('%Y%m%d_%H%M%S')}"
+    label = f"client_only_{mod['canonical_key']}_{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     client_backup = snapshot_client_package(server_dir, label)
     try:
         for name in old_files:
@@ -720,7 +720,7 @@ def apply_server_update(
 ) -> bool:
     mod_id = int(mod["id"])
     old_files = selected_file_names(conn, mod_id)
-    label = f"daily_update_{mod['canonical_key']}_{dt.datetime.now(dt.UTC).strftime('%Y%m%d_%H%M%S')}"
+    label = f"daily_update_{mod['canonical_key']}_{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     server_section = server_section_for(mod, project, file_info)
     server_datapack = server_section == "server-datapacks"
     if not server_datapack:

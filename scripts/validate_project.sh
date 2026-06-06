@@ -124,7 +124,7 @@ import sys
 
 db = sys.argv[1]
 conn = sqlite3.connect(db)
-now = dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat()
+now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 cur = conn.execute(
     "INSERT INTO imports(imported_at, source_file, spreadsheet_id, sheet_name, source_range, row_count) "
     "VALUES (?, 'status-fixture', '', 'fixture', '', 7)",
@@ -512,7 +512,7 @@ import sqlite3
 import sys
 
 conn = sqlite3.connect(sys.argv[1])
-now = dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat()
+now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 cur = conn.execute(
     "INSERT INTO imports(imported_at, source_file, spreadsheet_id, sheet_name, source_range, row_count) "
     "VALUES (?, 'fixture', '', 'fixture', '', 1)",
@@ -566,7 +566,7 @@ import sqlite3
 import sys
 
 conn = sqlite3.connect(sys.argv[1])
-now = dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat()
+now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 cur = conn.execute(
     "INSERT INTO mod_acceptance_releases(release_key, created_at, status, bundle_size, active_file_count, notes) "
     "VALUES ('qa_acceptance', ?, 'running', 2, 2, 'fixture')",
@@ -597,7 +597,7 @@ import sqlite3
 import sys
 
 conn = sqlite3.connect(sys.argv[1])
-now = dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat()
+now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 release_id = conn.execute(
     "SELECT id FROM mod_acceptance_releases WHERE release_key = 'qa_acceptance'"
 ).fetchone()[0]
