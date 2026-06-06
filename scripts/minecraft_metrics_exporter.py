@@ -25,12 +25,18 @@ if str(SCRIPT_DIR) not in sys.path:
 DEFAULT_DB = Path("/var/minecraft_mods/data/minecraft_mods.sqlite")
 DEFAULT_SERVER_DIR = Path("/var/minecraft_26.1.2")
 DEFAULT_STATE = Path("/var/minecraft_mods/site/minecraft-metrics-state.json")
+DEFAULT_RELEASE_POINTER = Path("/var/minecraft_mods/site/public/downloads/current-release.json")
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_MINECRAFT_PORT = 25565
 DEFAULT_EXPORTER_PORT = 7792
+DEFAULT_RCON_HOST = "127.0.0.1"
 ERROR_RE = re.compile(r"\b(ERROR|FATAL)\b|Exception|Crash report|Failed to start", re.IGNORECASE)
 TPS_RE = re.compile(r"\bTPS\b[^0-9]*(\d+(?:\.\d+)?)", re.IGNORECASE)
 MSPT_RE = re.compile(r"\bMSPT\b[^0-9]*(\d+(?:\.\d+)?)", re.IGNORECASE)
+MC_COLOR_RE = re.compile(r"§.")
+FLOAT_RE = re.compile(r"\d+(?:\.\d+)?")
+RCON_AUTH = 3
+RCON_COMMAND = 2
 
 
 def utc_now() -> dt.datetime:
@@ -114,6 +120,109 @@ def minecraft_status(host: str, port: int, timeout: float = 1.5) -> dict[str, An
     json_length, read = decode_varint_from_bytes(payload, offset)
     offset += read
     return json.loads(payload[offset : offset + json_length].decode("utf-8"))
+
+
+def read_properties(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
+def rcon_settings(server_dir: Path, password_file: Path | None, explicit_port: int | None) -> tuple[int, str] | None:
+    password = ""
+    if password_file and password_file.exists():
+        password = password_file.read_text(encoding="utf-8", errors="replace").strip()
+    properties = read_properties(server_dir / "server.properties")
+    if not password:
+        if properties.get("enable-rcon", "false").lower() != "true":
+            return None
+        password = properties.get("rcon.password", "").strip()
+    if not password:
+        return None
+    try:
+        port = explicit_port or int(properties.get("rcon.port") or "25575")
+    except ValueError:
+        port = explicit_port or 25575
+    return port, password
+
+
+def rcon_packet(request_id: int, packet_type: int, payload: str) -> bytes:
+    body = struct.pack("<ii", request_id, packet_type) + payload.encode("utf-8") + b"\x00\x00"
+    return struct.pack("<i", len(body)) + body
+
+
+def read_rcon_packet(sock: socket.socket) -> tuple[int, int, str]:
+    header = read_exact(sock, 4)
+    (length,) = struct.unpack("<i", header)
+    if length < 10 or length > 1_048_576:
+        raise OSError(f"invalid RCON packet length {length}")
+    body = read_exact(sock, length)
+    request_id, packet_type = struct.unpack("<ii", body[:8])
+    payload = body[8:-2].decode("utf-8", errors="replace")
+    return request_id, packet_type, payload
+
+
+def rcon_command(host: str, port: int, password: str, command: str, timeout: float) -> str:
+    with socket.create_connection((host, port), timeout=timeout) as sock:
+        sock.settimeout(timeout)
+        sock.sendall(rcon_packet(1, RCON_AUTH, password))
+        auth_id, _auth_type, _auth_payload = read_rcon_packet(sock)
+        if auth_id == -1:
+            raise PermissionError("RCON authentication failed")
+        sock.sendall(rcon_packet(2, RCON_COMMAND, command))
+        response_id, _response_type, response = read_rcon_packet(sock)
+        if response_id != 2:
+            raise OSError("unexpected RCON response id")
+        return response
+
+
+def first_metric_value(output: str, label: str) -> float | None:
+    compact = MC_COLOR_RE.sub("", output)
+    for raw_line in compact.splitlines():
+        line = " ".join(raw_line.split())
+        label_index = line.lower().find(label.lower())
+        if label_index < 0:
+            continue
+        labeled_segment = line[label_index:]
+        _head, separator, tail = labeled_segment.partition(":")
+        search_area = tail if separator else labeled_segment
+        match = FLOAT_RE.search(search_area)
+        if match:
+            return float(match.group(0))
+    return None
+
+
+def parse_spark_tps(output: str) -> dict[str, float]:
+    values = {"spark_tps": -1.0, "spark_mspt": -1.0}
+    tps = first_metric_value(output, "TPS")
+    if tps is not None:
+        values["spark_tps"] = min(max(tps, 0.0), 20.0)
+    mspt = first_metric_value(output, "MSPT")
+    if mspt is not None:
+        values["spark_mspt"] = max(mspt, 0.0)
+    return values
+
+
+def spark_metrics(args: argparse.Namespace) -> dict[str, float]:
+    values = {"rcon_up": 0.0, "spark_tps": -1.0, "spark_mspt": -1.0}
+    settings = rcon_settings(args.server_dir, args.rcon_password_file, args.rcon_port)
+    if not settings:
+        return values
+    port, password = settings
+    try:
+        output = rcon_command(args.rcon_host, port, password, args.spark_tps_command, args.rcon_timeout)
+    except Exception:
+        return values
+    values["rcon_up"] = 1.0
+    values.update(parse_spark_tps(output))
+    return values
 
 
 def decode_varint_from_bytes(data: bytes, offset: int) -> tuple[int, int]:
@@ -366,6 +475,28 @@ def active_release(db_path: Path, server_key: str) -> dict[str, str]:
         return {}
 
 
+def release_pointer_metrics(path: Path, active_release_id: str, now: float) -> dict[str, float]:
+    values = {
+        "release_pointer_present": 0.0,
+        "release_pointer_age_seconds": -1.0,
+        "release_pointer_matches_active": 0.0,
+    }
+    try:
+        stat = path.stat()
+    except OSError:
+        values["release_pointer_matches_active"] = 1.0 if not active_release_id else 0.0
+        return values
+    values["release_pointer_present"] = 1.0
+    values["release_pointer_age_seconds"] = max(now - stat.st_mtime, 0.0)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return values
+    pointer_release_id = str(payload.get("release_id") or "")
+    values["release_pointer_matches_active"] = 1.0 if pointer_release_id == active_release_id else 0.0
+    return values
+
+
 def region_rate(region_files: int, state: dict[str, Any], now: float) -> tuple[float, dict[str, Any]]:
     previous = state.get("regions") or {}
     rate = 0.0
@@ -384,8 +515,11 @@ def build_metrics(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     regions = count_region_files(args.server_dir)
     region_files_rate, region_state = region_rate(regions, state, now)
     log_values = latest_log_metrics(args.server_dir)
+    spark_values = spark_metrics(args)
     crash_values = crash_metrics(args.server_dir)
     update_values = update_metrics(args.db)
+    effective_tps = spark_values["spark_tps"] if spark_values["spark_tps"] >= 0 else log_values["latest_tps"]
+    effective_mspt = spark_values["spark_mspt"] if spark_values["spark_mspt"] >= 0 else log_values["latest_mspt"]
 
     server_up = 0.0
     players_online = 0.0
@@ -402,6 +536,7 @@ def build_metrics(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     release = active_release(args.db, args.server_key)
     label_release = release.get("release_id", "")
     label_status = release.get("status", "")
+    release_pointer = release_pointer_metrics(args.current_release_json, label_release, now)
 
     metrics: list[tuple[str, float, str]] = [
         ("pummelchen_minecraft_up", server_up, "Minecraft server-list ping status."),
@@ -418,13 +553,19 @@ def build_metrics(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         ("pummelchen_minecraft_region_file_rate", region_files_rate, "New region files per second since previous scrape."),
         ("pummelchen_minecraft_tcp_connections", float(tcp_connection_count(args.minecraft_port)), "Established TCP connections to the Minecraft port."),
         ("pummelchen_minecraft_log_errors_total", log_values["log_errors_total"], "Best-effort ERROR/FATAL/exception lines in the latest log tail."),
-        ("pummelchen_minecraft_tps", log_values["latest_tps"], "Best-effort latest TPS parsed from logs, or -1 when unavailable."),
-        ("pummelchen_minecraft_mspt", log_values["latest_mspt"], "Best-effort latest MSPT parsed from logs, or -1 when unavailable."),
+        ("pummelchen_minecraft_rcon_up", spark_values["rcon_up"], "Whether optional local RCON metrics collection succeeded."),
+        ("pummelchen_minecraft_spark_tps", spark_values["spark_tps"], "Latest TPS from Spark over local RCON, or -1 when unavailable."),
+        ("pummelchen_minecraft_spark_mspt", spark_values["spark_mspt"], "Latest MSPT from Spark over local RCON, or -1 when unavailable."),
+        ("pummelchen_minecraft_tps", effective_tps, "Latest TPS from Spark/RCON when available, else best-effort log parse, or -1."),
+        ("pummelchen_minecraft_mspt", effective_mspt, "Latest MSPT from Spark/RCON when available, else best-effort log parse, or -1."),
         ("pummelchen_minecraft_crash_reports_total", crash_values["crash_reports_total"], "Crash report file count."),
         ("pummelchen_minecraft_latest_crash_timestamp_seconds", crash_values["latest_crash_timestamp_seconds"], "Newest crash report mtime as a Unix timestamp."),
         ("pummelchen_mod_updates_success_total", update_values["mod_updates_success_total"], "Successful mod update events recorded in SQLite."),
         ("pummelchen_mod_updates_failed_total", update_values["mod_updates_failed_total"], "Failed mod update events recorded in SQLite."),
         ("pummelchen_mod_updates_latest_timestamp_seconds", update_values["mod_updates_latest_timestamp_seconds"], "Newest update test timestamp from SQLite."),
+        ("pummelchen_release_pointer_present", release_pointer["release_pointer_present"], "Whether current-release.json exists for client auto-update."),
+        ("pummelchen_release_pointer_age_seconds", release_pointer["release_pointer_age_seconds"], "Age of current-release.json in seconds, or -1 when missing."),
+        ("pummelchen_release_pointer_matches_active", release_pointer["release_pointer_matches_active"], "Whether current-release.json release_id matches the active SQLite release."),
     ]
 
     lines = [
@@ -488,10 +629,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--server-dir", type=Path, default=DEFAULT_SERVER_DIR)
     parser.add_argument("--server-key", default="minecraft_26_1_2")
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
+    parser.add_argument("--current-release-json", type=Path, default=DEFAULT_RELEASE_POINTER)
     parser.add_argument("--listen-host", default=DEFAULT_HOST)
     parser.add_argument("--listen-port", type=int, default=DEFAULT_EXPORTER_PORT)
     parser.add_argument("--minecraft-host", default=DEFAULT_HOST)
     parser.add_argument("--minecraft-port", type=int, default=DEFAULT_MINECRAFT_PORT)
+    parser.add_argument("--rcon-host", default=DEFAULT_RCON_HOST)
+    parser.add_argument("--rcon-port", type=int)
+    parser.add_argument("--rcon-password-file", type=Path)
+    parser.add_argument("--rcon-timeout", type=float, default=2.0)
+    parser.add_argument("--spark-tps-command", default="spark tps")
     parser.add_argument("--once", action="store_true", help="Print one metrics payload and exit.")
     return parser
 

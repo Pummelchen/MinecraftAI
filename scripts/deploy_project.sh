@@ -196,7 +196,9 @@ systemctl enable pummelchen-minecraft.service
 systemctl restart pummelchen-client-log-receiver.service pummelchen-minecraft-metrics.service
 
 if [ -d /etc/prometheus ]; then
+  install -d -m 0755 /etc/prometheus/pummelchen-rules
   install -m 0644 monitoring/prometheus.yml /etc/prometheus/prometheus.yml
+  install -m 0644 monitoring/alert-rules/*.yml /etc/prometheus/pummelchen-rules/
   systemctl reload-or-restart prometheus.service || true
 fi
 

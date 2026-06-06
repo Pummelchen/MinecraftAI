@@ -1,0 +1,101 @@
+groups:
+  - name: pummelchen.rules
+    rules:
+      - alert: PummelchenMinecraftDown
+        expr: pummelchen_minecraft_up == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: Pummelchen Minecraft status ping is down
+          description: The Minecraft server has not answered the status ping for more than 3 minutes.
+
+      - alert: PummelchenMinecraftProcessMissing
+        expr: pummelchen_minecraft_java_process_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Pummelchen Minecraft Java process is missing
+          description: The exporter cannot find the Java process for the configured server directory.
+
+      - alert: PummelchenRecentCrash
+        expr: time() - pummelchen_minecraft_latest_crash_timestamp_seconds < 900
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Pummelchen Minecraft wrote a recent crash report
+          description: A crash report appeared in the last 15 minutes.
+
+      - alert: PummelchenHighHeapUse
+        expr: pummelchen_minecraft_heap_committed_bytes > 0 and pummelchen_minecraft_heap_used_bytes / pummelchen_minecraft_heap_committed_bytes > 0.90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Pummelchen Minecraft heap usage is high
+          description: JVM heap used has stayed above 90% of committed heap for 10 minutes.
+
+      - alert: PummelchenHighResidentMemory
+        expr: pummelchen_minecraft_process_rss_bytes > 3800000000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Pummelchen Minecraft RSS is near the configured heap ceiling
+          description: Resident memory has stayed above 3.8 GB for 10 minutes.
+
+      - alert: PummelchenLowTPS
+        expr: pummelchen_minecraft_tps >= 0 and pummelchen_minecraft_tps < 18
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Pummelchen Minecraft TPS is low
+          description: TPS has stayed below 18 for 5 minutes.
+
+      - alert: PummelchenHighMSPT
+        expr: pummelchen_minecraft_mspt >= 0 and pummelchen_minecraft_mspt > 45
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Pummelchen Minecraft MSPT is high
+          description: MSPT has stayed above 45 for 5 minutes.
+
+      - alert: PummelchenLowRootDisk
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Pummelchen VPS root disk is low
+          description: Root filesystem free space has stayed below 15% for 10 minutes.
+
+      - alert: PummelchenReleasePointerMissing
+        expr: pummelchen_release_pointer_present == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Pummelchen client release pointer is missing
+          description: current-release.json is not present, so installed clients cannot resolve the pinned release.
+
+      - alert: PummelchenReleasePointerMismatch
+        expr: pummelchen_release_pointer_matches_active == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Pummelchen client release pointer does not match SQLite
+          description: current-release.json points at a different release than the active pack release in SQLite.
+
+      - alert: PummelchenReleasePointerStale
+        expr: pummelchen_release_pointer_age_seconds > 604800
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Pummelchen client release pointer is older than one week
+          description: The published client release pointer has not been rewritten for more than seven days.

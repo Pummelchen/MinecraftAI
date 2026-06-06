@@ -132,6 +132,8 @@ validate client-facing behavior.
 - Add `scripts/minecraft_metrics_exporter.py`.
 - Add `systemd/pummelchen-minecraft-metrics.service`.
 - Add Prometheus job `pummelchen_minecraft`.
+- Add Prometheus alert rules for server health, resource pressure, crashes, and
+  stale release pointers.
 - Add Grafana provisioning and dashboard JSON under `monitoring/grafana`.
 - Extend `live_stats_feed.py` with Minecraft runtime summary fields.
 - Extend `generate_status_site.py` to show summary stat cards.
@@ -141,16 +143,23 @@ validate client-facing behavior.
 - Player count via Minecraft status ping.
 - Process memory/CPU via `/proc`.
 - Heap via `jcmd` when available.
-- TPS/MSPT via log pattern parsing when available, otherwise `-1`.
+- TPS/MSPT via optional RCON/Spark when RCON is firewalled away from the public
+  internet and `/var/minecraft_mods/secrets/rcon.password` exists; otherwise log
+  pattern parsing when available, or `-1`.
 - Chunk growth via world region-file count/rate.
 - Crash counters via `crash-reports`.
 - Update events via SQLite.
+- Release pointer presence, age, and SQLite active-release match via
+  `current-release.json`.
 - Disk/network details rely on node exporter and Grafana panels.
 
 ### Acceptance Checks
 
 - `curl http://127.0.0.1:7792/metrics` returns Prometheus text.
 - Prometheus config includes `127.0.0.1:7792`.
+- Prometheus rule validation passes for `monitoring/alert-rules/*.yml`.
+- Metrics include `pummelchen_release_pointer_present` and
+  `pummelchen_release_pointer_matches_active`.
 - Website `live-stats.json` includes `minecraft` summary.
 
 ## Upgrade 3: CI/CD And Git
@@ -173,14 +182,18 @@ validate client-facing behavior.
   - Status-site generation.
   - Client manifest parse.
   - Secret exclusion check.
+  - Prometheus alert-rule validation.
   - Nginx syntax when nginx is installed.
 - Deploy covers:
   - Local validation.
   - Rsync project files to `/var/minecraft_mods`.
   - Install systemd/nginx/cron configs.
+  - Install Prometheus scrape config and alert rules when Prometheus is present.
   - Reload services.
   - Run VPS validation.
   - Optionally create an active release.
+- Fresh-host package bootstrap is a separate explicit step through
+  `scripts/provision_vps_packages.sh`. Deploy does not run apt implicitly.
 
 ### Acceptance Checks
 
@@ -224,10 +237,11 @@ validate client-facing behavior.
 
 ## Known Limits After This Pass
 
-- TPS/MSPT is best-effort unless a mod or command emits parseable values.
-- Player joins are supported as a manual join window; full bot simulation is a
-  later step.
-- Grafana is provisioned by files, but installing Grafana itself depends on VPS
-  package policy.
+- TPS/MSPT is authoritative only when local RCON/Spark is enabled; otherwise it
+  remains best-effort log parsing or `-1`.
+- Player joins are supported as a manual join window plus concurrent status-ping
+  preflight; full protocol-compatible bot simulation is a later step.
+- Grafana is provisioned by files, but installing Grafana itself remains an
+  explicit package bootstrap decision.
 - Release rollback defaults to file/package rollback; DB restore is explicit to
   avoid losing later operational logs.

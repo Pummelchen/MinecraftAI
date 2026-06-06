@@ -4,6 +4,9 @@ global:
   external_labels:
     monitor: pummelchen-vps
 
+rule_files:
+  - /etc/prometheus/pummelchen-rules/*.yml
+
 scrape_configs:
   - job_name: prometheus
     static_configs:

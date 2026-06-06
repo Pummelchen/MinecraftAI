@@ -925,6 +925,7 @@ mkdir -p "$CLEAN_PROJECT/downloads/stale-cache" \
   "$CLEAN_PROJECT/test_sources/pyramid_old" \
   "$CLEAN_PROJECT/headless_client_lab/game/mods" \
   "$CLEAN_PROJECT/headless_client_lab/game/resourcepacks" \
+  "$CLEAN_PROJECT/client_log_uploads/2026/01/01" \
   "$SERVER/codex-downloads/daily_update" \
   "$SERVER/mods.rollback/old-update" \
   "$PUBLIC/releases"
@@ -932,18 +933,24 @@ printf 'stale\n' > "$CLEAN_PROJECT/downloads/stale-cache/file.tmp"
 printf 'source\n' > "$CLEAN_PROJECT/test_sources/pyramid_old/source.jar"
 printf 'headless\n' > "$CLEAN_PROJECT/headless_client_lab/game/mods/cache.jar"
 printf 'resource\n' > "$CLEAN_PROJECT/headless_client_lab/game/resourcepacks/cache.zip"
+printf 'diagnostic\n' > "$CLEAN_PROJECT/client_log_uploads/2026/01/01/client.zip"
+printf 'partial\n' > "$CLEAN_PROJECT/client_log_uploads/2026/01/01/.upload-stalled"
 printf 'download\n' > "$SERVER/codex-downloads/daily_update/cache.jar"
 printf 'rollback\n' > "$SERVER/mods.rollback/old-update/mod.jar"
 ln -s "$RELEASES/missing/public" "$PUBLIC/releases/release_missing_cleanup"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/release_manager.py" \
   --db "$DB" --server-dir "$SERVER" --release-root "$RELEASES" --public-downloads "$PUBLIC" \
   cleanup --project-root "$CLEAN_PROJECT" --keep-releases 0 --temp-max-age-hours 0 \
-  --rollback-keep-days 0 --lab-keep-days 0 --include-headless-cache >/dev/null
+  --rollback-keep-days 0 --lab-keep-days 0 --client-upload-keep-days 0 \
+  --client-uploads "$CLEAN_PROJECT/client_log_uploads" --upload-temp-max-age-hours 0 \
+  --include-headless-cache >/dev/null
 [ -d "$RELEASES/qa_release_1" ] || fail "cleanup removed active release"
 [ ! -e "$PUBLIC/releases/release_missing_cleanup" ] || fail "cleanup kept stale public release link"
 [ ! -e "$CLEAN_PROJECT/downloads/stale-cache" ] || fail "cleanup kept project download cache"
 [ ! -e "$CLEAN_PROJECT/test_sources/pyramid_old" ] || fail "cleanup kept recreatable test source"
 [ ! -e "$CLEAN_PROJECT/headless_client_lab/game/mods" ] || fail "cleanup kept headless mod cache"
+[ ! -e "$CLEAN_PROJECT/client_log_uploads/2026/01/01/client.zip" ] || fail "cleanup kept old client upload"
+[ ! -e "$CLEAN_PROJECT/client_log_uploads/2026/01/01/.upload-stalled" ] || fail "cleanup kept stale upload temp"
 [ ! -e "$SERVER/codex-downloads/daily_update" ] || fail "cleanup kept server download cache"
 [ ! -e "$SERVER/mods.rollback/old-update" ] || fail "cleanup kept old rollback snapshot"
 "$PYTHON_BIN" - "$DB" <<'PY' || fail "cleanup event was not recorded"
@@ -1446,7 +1453,25 @@ for sample in payload["history"]:
         if key in sample:
             assert 0 <= float(sample[key]) <= 100, f"history {key} is outside 0-100"
 PY
-"$PYTHON_BIN" "$ROOT_DIR/scripts/minecraft_metrics_exporter.py" --db "$DB" --server-dir "$SERVER" --state "$TMP_DIR/metrics-state.json" --once | grep -q "pummelchen_minecraft_up"
+METRICS_OUT="$TMP_DIR/metrics.prom"
+"$PYTHON_BIN" "$ROOT_DIR/scripts/minecraft_metrics_exporter.py" \
+  --db "$DB" --server-dir "$SERVER" --state "$TMP_DIR/metrics-state.json" \
+  --current-release-json "$PUBLIC/current-release.json" --once > "$METRICS_OUT"
+grep -q "pummelchen_minecraft_up" "$METRICS_OUT" || fail "metrics exporter missing minecraft status metric"
+grep -q "pummelchen_release_pointer_present 1.000000" "$METRICS_OUT" || fail "metrics exporter missed release pointer"
+grep -q "pummelchen_release_pointer_matches_active 1.000000" "$METRICS_OUT" || fail "metrics exporter missed active release pointer match"
+"$PYTHON_BIN" - "$ROOT_DIR/scripts" <<'PY' || fail "Spark parser fixture failed"
+import sys
+sys.path.insert(0, sys.argv[1])
+import minecraft_metrics_exporter as exporter
+
+parsed = exporter.parse_spark_tps("TPS from last 5s, 10s, 1m: 20.0, 19.98, 19.95 MSPT: 12.4")
+assert parsed["spark_tps"] == 20.0
+assert parsed["spark_mspt"] == 12.4
+missing = exporter.parse_spark_tps("spark is installed but no tps data was returned")
+assert missing["spark_tps"] == -1.0
+assert missing["spark_mspt"] == -1.0
+PY
 
 log "Installer event receiver"
 RECEIVER_PORT="$("$PYTHON_BIN" - <<'PY'
@@ -1538,9 +1563,23 @@ PY
 
 log "Load-lab dry run"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/gameplay_load_lab.py" --db "$DB" --server-dir "$SERVER" run fresh_world_idle --dry-run
+PRECHECK_RELEASE="$TMP_DIR/current-release.json"
+cat > "$PRECHECK_RELEASE" <<'JSON'
+{
+  "release_id": "qa_release_1",
+  "manifest_url": "/downloads/releases/qa_release_1/client-sync-manifest.tsv",
+  "client_zip_url": "/downloads/releases/qa_release_1/minecraft_26.1.2_client_macos_apple_silicon.zip",
+  "client_zip_sha256": "c98cd7baae991701c27820f9507ba6e76aa7d098a8b5379e05aa0bef220bf4ef"
+}
+JSON
+"$PYTHON_BIN" "$ROOT_DIR/scripts/load_preflight.py" --current-release-json "$PRECHECK_RELEASE" --status-clients 3 --dry-run
 
 log "Monitoring JSON"
 "$PYTHON_BIN" -m json.tool "$ROOT_DIR/monitoring/grafana/dashboards/pummelchen-overview.json" >/dev/null
+"$PYTHON_BIN" "$ROOT_DIR/scripts/validate_prometheus_rules.py" "$ROOT_DIR"/monitoring/alert-rules/*.yml
+if command -v promtool >/dev/null 2>&1; then
+  promtool check rules "$ROOT_DIR"/monitoring/alert-rules/*.yml
+fi
 
 if command -v nginx >/dev/null 2>&1; then
   log "Nginx syntax"

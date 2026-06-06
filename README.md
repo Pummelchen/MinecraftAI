@@ -60,6 +60,9 @@ build host before rebuilding a client package if
 - `scripts/release_manager.py` - creates, validates, activates, publishes, and
   rolls back immutable pack releases containing server files, client manifests,
   package artifacts, DB snapshot, changelog, and checksums.
+- `scripts/load_preflight.py` - lightweight network/release preflight for TCP
+  reachability, concurrent Minecraft status pings, and current-release pointer
+  validation before larger play sessions.
 - `scripts/gameplay_load_lab.py` - repeatable gameplay/load scenarios for fresh
   worlds, chunk-generation proxy tests, and manual join windows.
 - `scripts/mod_acceptance_lab.py` - isolated pre-live mod acceptance lab. It
@@ -103,6 +106,11 @@ build host before rebuilding a client package if
 - `scripts/deploy_project.sh` - validated deployment script for copying
   project-owned files to the VPS, installing/reloading services, smoke-testing,
   and optionally creating a deploy release.
+- `scripts/provision_vps_packages.sh` - explicit fresh-VPS Debian package
+  bootstrap for Nginx, Prometheus exporters, Python, SQLite, Java, and optional
+  Grafana. Normal deploys do not run apt.
+- `scripts/validate_prometheus_rules.py` - stdlib safety check for project-owned
+  Prometheus alert rules when `promtool` is not installed locally.
 - `scripts/build_mac_client_dmg.sh` - builds the one-touch macOS Apple Silicon
   visual installer DMG. The small DMG resolves the active release pointer, shows
   install progress and planned mod/resource/shader counts, downloads and
@@ -134,6 +142,9 @@ build host before rebuilding a client package if
 - `nginx/pummelchen-server.conf` - project-owned Nginx site config for port
   `7788`.
 - `monitoring/` - project-owned Prometheus scrape config and exporter defaults.
+- `monitoring/alert-rules/` - project-owned Prometheus alerts for server down,
+  process missing, recent crashes, high memory, low TPS/high MSPT, low disk,
+  and stale or mismatched client release pointers.
 - `monitoring/grafana/` - Grafana datasource/dashboard provisioning for the
   Pummelchen operator cockpit.
 - `cron/pummelchen-daily-update` - noon UTC updater cron definition.
@@ -327,6 +338,10 @@ adds or repairs exactly one `Pummelchen Server` entry in `servers.dat`, verifies
 hashes, and opens the Minecraft Launcher when the client is ready. It also
 installs a user LaunchAgent for
 `/Users/<user>/Library/Application Support/Pummelchen/bin/pummelchen-auto-update.sh`.
+The DMG is currently unsigned and not notarized because the project has no Apple
+Developer account. First launch therefore uses the normal macOS manual override
+path; the installer still verifies every downloaded package with SHA256 before
+installing files.
 After the first install, clients resolve `/downloads/current-release.json` and
 sync from `/downloads/releases/<release-id>/client-sync-manifest.tsv`, so every
 sync run targets a specific tested release. The legacy
@@ -342,7 +357,9 @@ reports are uploaded automatically.
 Client diagnostic bundles are stored on the VPS under
 `/var/minecraft_mods/client_log_uploads/YYYY/MM/DD/` and indexed in SQLite table
 `client_log_uploads`. The upload endpoint is proxied by Nginx at
-`/client-logs/upload` to the localhost receiver on port `7791`.
+`/client-logs/upload` to the localhost receiver on port `7791`. Release cleanup
+removes diagnostic ZIP uploads older than 30 days, deletes stale partial upload
+files after one hour, and prunes empty upload directories.
 
 The DMG installer also reports lightweight setup events immediately to
 `/client-logs/installer-event`. The Swift app sends `app_started` before the
@@ -393,7 +410,8 @@ Release pruning keeps the active release plus the requested number of inactive
 rollback releases, removes older generated release directories and public
 download links, and records a `prune` event in SQLite. The broader `cleanup`
 command also removes dangling public release links, server/project download
-caches, old rollback snapshots, old test logs, and optionally recreatable
+caches, old rollback snapshots, old test logs, old client diagnostic uploads,
+stale partial upload files, empty upload directories, and optionally recreatable
 HeadlessMC synced client files. Daily tested releases run cleanup automatically
 after the release is activated. The old `/var/minecraft` backup is never removed
 unless `cleanup --delete-legacy-server-backup` is passed explicitly.
@@ -412,9 +430,17 @@ Deploy from the local checkout:
 bash scripts/deploy_project.sh --host root@91.99.176.243 --create-release
 ```
 
+Fresh VPS package bootstrap is explicit and separate from deploy:
+
+```bash
+sudo bash scripts/provision_vps_packages.sh --dry-run
+sudo bash scripts/provision_vps_packages.sh --include-grafana
+```
+
 The deploy script runs the same gate locally, syncs project-owned files,
 installs systemd/Nginx/Prometheus/Grafana config, regenerates the status page,
-smoke-tests HTTP and the metrics exporter, and checks SQLite integrity.
+installs Prometheus alert rules, smoke-tests HTTP and the metrics exporter, and
+checks SQLite integrity.
 Files in `server-config/config-overrides/` are copied into the live server
 `config/` directory during deploy. The tracked NeoForge override keeps
 `removeErroringEntities = true` so one broken ticking entity is removed instead
@@ -445,9 +471,24 @@ Prometheus scrapes:
   process RSS/CPU, JVM heap where `jcmd` can read it, chunk-generation proxy,
   TCP connections, crash report counters, update counters, and active release
   labels.
+- optional RCON/Spark metrics for authoritative TPS/MSPT when RCON is enabled,
+  port `25575` is firewalled away from the public internet, and
+  `/var/minecraft_mods/secrets/rcon.password` exists. The exporter connects to
+  `127.0.0.1` only. Without that secret the exporter falls back to log parsing
+  and emits `-1` when no TPS/MSPT signal is available.
 
-Grafana provisioning is stored in `monitoring/grafana/`. The website remains the
-simple user-facing view; Grafana is the operator cockpit.
+Prometheus alert rules are stored in `monitoring/alert-rules/` and deployed to
+`/etc/prometheus/pummelchen-rules/`. They cover server reachability, Java
+process visibility, recent crash reports, heap/RSS pressure, TPS/MSPT
+degradation, low root disk, and missing/stale/mismatched `current-release.json`
+client pointers. Grafana provisioning is stored in `monitoring/grafana/`. The
+website remains the simple user-facing view; Grafana is the operator cockpit.
+
+Before larger sessions or after a release promotion, run:
+
+```bash
+python3 scripts/load_preflight.py --current-release-json http://91.99.176.243:7788/downloads/current-release.json --status-clients 10
+```
 
 ## Gameplay Load Lab
 

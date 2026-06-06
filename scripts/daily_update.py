@@ -1003,9 +1003,23 @@ def scan_and_apply(args: argparse.Namespace) -> int:
         except Exception as exc:
             finish_update_run(conn, run_id, "error", stats, f"{type(exc).__name__}: {exc}")
             raise
-    if stats["applied"] > 0 and not args.dry_run and not args.no_create_release:
-        create_tested_release(args, label, stats)
+    if not args.dry_run and not args.no_create_release:
+        if stats["applied"] > 0:
+            create_tested_release(args, label, stats)
+        else:
+            refresh_current_release_pointer(args)
     return 0
+
+
+def refresh_current_release_pointer(args: argparse.Namespace) -> None:
+    current_args = argparse.Namespace(
+        db=args.db,
+        server_key=args.server_key,
+        public_downloads=args.public_downloads,
+        command="current-json",
+    )
+    result = release_manager.current_json(current_args)
+    print(f"current_release_refreshed={1 if result == 0 else 0}")
 
 
 def create_tested_release(args: argparse.Namespace, label: str, stats: dict[str, int]) -> None:
@@ -1043,6 +1057,9 @@ def create_tested_release(args: argparse.Namespace, label: str, stats: dict[str,
         lab_keep_days=2,
         log_keep_days=14,
         crash_keep_days=30,
+        client_uploads=args.db.parent.parent / "client_log_uploads",
+        client_upload_keep_days=30,
+        upload_temp_max_age_hours=1,
         include_headless_cache=True,
         delete_legacy_server_backup=False,
         dry_run=False,

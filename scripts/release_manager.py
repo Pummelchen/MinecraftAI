@@ -29,6 +29,7 @@ DEFAULT_SERVER_DIR = Path("/var/minecraft_26.1.2")
 DEFAULT_RELEASE_ROOT = Path("/var/minecraft_mods/releases")
 DEFAULT_PUBLIC_DOWNLOADS = Path("/var/minecraft_mods/site/public/downloads")
 DEFAULT_PROJECT_ROOT = Path("/var/minecraft_mods")
+DEFAULT_CLIENT_UPLOADS = Path("/var/minecraft_mods/client_log_uploads")
 DEFAULT_SERVER_KEY = "minecraft_26_1_2"
 CLIENT_ZIP_NAME = "minecraft_26.1.2_client_macos_apple_silicon.zip"
 MRPACK_NAME = "pummelchen-server-26.1.2.mrpack"
@@ -846,6 +847,25 @@ def cleanup_headless_cache(project_root: Path, *, dry_run: bool) -> tuple[int, i
     return removed, bytes_removed
 
 
+def cleanup_empty_dirs(root: Path, *, allowed_root: Path, dry_run: bool, reason: str) -> int:
+    if not root.exists():
+        return 0
+    ensure_path_inside(root, allowed_root, reason)
+    removed = 0
+    for path in sorted((item for item in root.rglob("*") if item.is_dir()), key=lambda item: len(item.parts), reverse=True):
+        ensure_path_inside(path, allowed_root, reason)
+        try:
+            next(path.iterdir())
+        except StopIteration:
+            print(f"cleanup_removed={path}\tbytes=0\treason={reason}")
+            if not dry_run:
+                path.rmdir()
+            removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 def cleanup_project(args: argparse.Namespace) -> int:
     if args.keep_releases < 0:
         raise SystemExit("--keep-releases must be >= 0")
@@ -961,6 +981,34 @@ def cleanup_project(args: argparse.Namespace) -> int:
         total_removed += removed
         total_bytes += bytes_removed
 
+    removed, bytes_removed = cleanup_matching_files(
+        args.client_uploads,
+        allowed_root=project_root,
+        patterns=("*.zip",),
+        age_hours=args.client_upload_keep_days * 24,
+        dry_run=args.dry_run,
+        reason="old client diagnostic upload",
+    )
+    total_removed += removed
+    total_bytes += bytes_removed
+
+    removed, bytes_removed = cleanup_matching_files(
+        args.client_uploads,
+        allowed_root=project_root,
+        patterns=(".upload-*",),
+        age_hours=args.upload_temp_max_age_hours,
+        dry_run=args.dry_run,
+        reason="stale client upload temp file",
+    )
+    total_removed += removed
+    total_bytes += bytes_removed
+    total_removed += cleanup_empty_dirs(
+        args.client_uploads,
+        allowed_root=project_root,
+        dry_run=args.dry_run,
+        reason="empty client upload directory",
+    )
+
     if args.delete_legacy_server_backup and LEGACY_SERVER_BACKUP.exists():
         active_server = args.server_dir.resolve()
         legacy_server = LEGACY_SERVER_BACKUP.resolve()
@@ -1048,6 +1096,9 @@ def build_parser() -> argparse.ArgumentParser:
     cleanup.add_argument("--lab-keep-days", type=float, default=2)
     cleanup.add_argument("--log-keep-days", type=float, default=14)
     cleanup.add_argument("--crash-keep-days", type=float, default=30)
+    cleanup.add_argument("--client-uploads", type=Path, default=DEFAULT_CLIENT_UPLOADS)
+    cleanup.add_argument("--client-upload-keep-days", type=float, default=30)
+    cleanup.add_argument("--upload-temp-max-age-hours", type=float, default=1)
     cleanup.add_argument("--include-headless-cache", action="store_true", help="Remove recreatable HeadlessMC synced client files")
     cleanup.add_argument("--delete-legacy-server-backup", action="store_true", help="Remove /var/minecraft when it is not the active server")
     cleanup.add_argument("--dry-run", action="store_true")

@@ -160,12 +160,13 @@ uses SHA256 checks to skip unchanged files.
 The upload receiver is intentionally small and localhost-only behind Nginx. It
 does not extract uploaded zips, enforces a 25 MB upload limit, uses a shared
 token, and stores files by date. For 100 clients, watch disk growth under
-`/var/minecraft_mods/client_log_uploads` and add retention if crash volume rises.
+`/var/minecraft_mods/client_log_uploads`; release cleanup removes diagnostic ZIP
+uploads after 30 days and stale partial uploads after one hour.
 
 The remaining capacity question is the Minecraft server itself, not the project
 control plane. Before opening to 100 concurrent clients, run a staged load test
-with representative players or bots and track TPS, heap, GC pauses, RAM, and CPU
-while worldgen-heavy areas are explored.
+with representative players or bots, start with `scripts/load_preflight.py`, and
+track TPS, heap, GC pauses, RAM, and CPU while worldgen-heavy areas are explored.
 
 ## Residual Risks
 
@@ -175,7 +176,8 @@ while worldgen-heavy areas are explored.
 - The client upload token is shared by installed clients. If it leaks, rotate
   `/var/minecraft_mods/secrets/client-log-upload.token`, rebuild the client
   package, and reinstall or auto-update clients with the new token.
-- The macOS installer is ad-hoc signed, not notarized. Some Gatekeeper prompts
-  can still appear on fresh Macs.
+- The macOS installer is unsigned and not notarized because the project has no
+  Apple Developer account. Fresh Macs need the normal first-launch manual
+  override; package contents are still SHA256-verified by the installer.
 - The active Minecraft server has many worldgen and structure mods. Pregenerating
   chunks or rate-limiting exploration may be needed for 100-player events.
