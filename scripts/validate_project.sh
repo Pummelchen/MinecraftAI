@@ -108,6 +108,7 @@ assert "fill" in batch0
 assert "scoreboard objectives add pummelchen_ops" in init
 assert "pummelchen_ops:place_purple_house" in tick
 assert "pummelchen_ops:init_purple_house" in load
+assert "ph_house_status" in body
 PY
 
 log "Server config overrides"

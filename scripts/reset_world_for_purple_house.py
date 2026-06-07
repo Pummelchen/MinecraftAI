@@ -594,6 +594,7 @@ def placement_pack(
     )
     batch_size = 200
     batches = [fill_commands[i : i + batch_size] for i in range(0, len(fill_commands), batch_size)]
+    total_batches = len(batches)
     files: dict[str, bytes] = {}
     files["pack.mcmeta"] = (
         '{"pack":{"pack_format":%d,"supported_formats":[%d,%d],'
@@ -601,12 +602,9 @@ def placement_pack(
         % (PACK_FORMAT, SUPPORTED_FORMATS[0], SUPPORTED_FORMATS[1])
     ).encode("utf-8")
     for idx, batch in enumerate(batches):
-        batch_lines = list(batch)
-        if idx < len(batches) - 1:
-            batch_lines.append(f"function pummelchen_ops:place_batch_{idx + 1}")
-        files[f"data/pummelchen_ops/function/place_batch_{idx}.mcfunction"] = "\n".join(batch_lines).encode("utf-8")
-        files[f"data/pummelchen_ops/functions/place_batch_{idx}.mcfunction"] = "\n".join(batch_lines).encode("utf-8")
-    total_batches = len(batches)
+        batch_body = "\n".join(batch).encode("utf-8")
+        files[f"data/pummelchen_ops/function/place_batch_{idx}.mcfunction"] = batch_body
+        files[f"data/pummelchen_ops/functions/place_batch_{idx}.mcfunction"] = batch_body
     init_lines = [
         "scoreboard objectives add pummelchen_ops dummy",
         f"scoreboard players set {PLACEMENT_STATE_SCORE} pummelchen_ops 0",
@@ -614,36 +612,59 @@ def placement_pack(
         f"scoreboard players set {PLACEMENT_STATUS_SCORE} pummelchen_ops 0",
         "",
     ]
-    lines = [
+    tick_lines: list[str] = []
+    tick_lines.append(
         f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
-        "run scoreboard players add ph_house_attempt pummelchen_ops 1",
+        "run scoreboard players add ph_house_attempt pummelchen_ops 1"
+    )
+    tick_lines.append(
         f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
         f"if score ph_house_attempt pummelchen_ops matches 1 "
-        f"run forceload add {min_chunk_x} {min_chunk_z} {max_chunk_x} {max_chunk_z}",
+        f"run forceload add {min_chunk_x} {min_chunk_z} {max_chunk_x} {max_chunk_z}"
+    )
+    for idx in range(total_batches):
+        tick_lines.append(
+            f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
+            f"if score {PLACEMENT_STATUS_SCORE} pummelchen_ops matches {idx} "
+            f"run function pummelchen_ops:place_batch_{idx}"
+        )
+        tick_lines.append(
+            f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
+            f"if score {PLACEMENT_STATUS_SCORE} pummelchen_ops matches {idx} "
+            f"run scoreboard players add {PLACEMENT_STATUS_SCORE} pummelchen_ops 1"
+        )
+    tick_lines.append(
         f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
-        f"if score ph_house_attempt pummelchen_ops matches 2.. "
-        f"run function pummelchen_ops:place_batch_0",
+        f"if score {PLACEMENT_STATUS_SCORE} pummelchen_ops matches {total_batches}.. "
+        f"run setworldspawn {sx} {sy} {sz}"
+    )
+    tick_lines.append(
         f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
-        f"if score ph_house_attempt pummelchen_ops matches 3.. "
-        f"run setworldspawn {sx} {sy} {sz}",
+        f"if score {PLACEMENT_STATUS_SCORE} pummelchen_ops matches {total_batches}.. "
+        f"run forceload remove {min_chunk_x} {min_chunk_z} {max_chunk_x} {max_chunk_z}"
+    )
+    tick_lines.append(
         f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
-        f"if score ph_house_attempt pummelchen_ops matches 3.. "
-        f"run forceload remove {min_chunk_x} {min_chunk_z} {max_chunk_x} {max_chunk_z}",
-        f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
-        f"if score ph_house_attempt pummelchen_ops matches 3.. "
-        f"run scoreboard players set {PLACEMENT_STATE_SCORE} pummelchen_ops 1",
+        f"if score {PLACEMENT_STATUS_SCORE} pummelchen_ops matches {total_batches}.. "
+        f"run scoreboard players set {PLACEMENT_STATE_SCORE} pummelchen_ops 1"
+    )
+    tick_lines.append(
         "execute if score ph_house_status pummelchen_ops matches 1 "
-        "run say [PUMMELCHEN] Purple House placed and world spawn updated.",
+        "run say [PUMMELCHEN] Purple House placed and world spawn updated."
+    )
+    tick_lines.append(
         "execute if score ph_house_status pummelchen_ops matches 0 "
-        "run execute if score ph_house_attempt pummelchen_ops matches 120.. "
-        "run say [PUMMELCHEN] Purple House placement skipped after retry limit.",
+        "run execute if score ph_house_attempt pummelchen_ops matches 600.. "
+        "run say [PUMMELCHEN] Purple House placement skipped after retry limit."
+    )
+    tick_lines.append(
         "execute if score ph_house_status pummelchen_ops matches 0 "
-        "run execute if score ph_house_attempt pummelchen_ops matches 120.. "
-        f"run scoreboard players set {PLACEMENT_STATE_SCORE} pummelchen_ops 1",
-        "",
-    ]
+        "run execute if score ph_house_attempt pummelchen_ops matches 600.. "
+        f"run scoreboard players set {PLACEMENT_STATE_SCORE} pummelchen_ops 1"
+    )
+    tick_lines.append("")
     init_body = "\n".join(init_lines).encode("utf-8")
-    function_body = "\n".join(lines).encode("utf-8")
+    tick_body = "\n".join(tick_lines).encode("utf-8")
     load_tag = b'{"replace":false,"values":["pummelchen_ops:init_purple_house"]}\n'
     tick_tag = b'{"replace":false,"values":["pummelchen_ops:place_purple_house"]}\n'
     files["data/minecraft/tags/function/load.json"] = load_tag
@@ -652,8 +673,8 @@ def placement_pack(
     files["data/minecraft/tags/functions/tick.json"] = tick_tag
     files["data/pummelchen_ops/function/init_purple_house.mcfunction"] = init_body
     files["data/pummelchen_ops/functions/init_purple_house.mcfunction"] = init_body
-    files["data/pummelchen_ops/function/place_purple_house.mcfunction"] = function_body
-    files["data/pummelchen_ops/functions/place_purple_house.mcfunction"] = function_body
+    files["data/pummelchen_ops/function/place_purple_house.mcfunction"] = tick_body
+    files["data/pummelchen_ops/functions/place_purple_house.mcfunction"] = tick_body
     return files
 
 
