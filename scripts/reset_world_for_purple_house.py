@@ -173,7 +173,9 @@ def placement_pack(origin: tuple[int, int, int], spawn: tuple[int, int, int]) ->
             % (PACK_FORMAT, SUPPORTED_FORMATS[0], SUPPORTED_FORMATS[1])
         ).encode("utf-8"),
         "data/minecraft/tags/function/load.json": load_tag,
+        "data/minecraft/tags/function/tick.json": load_tag,
         "data/minecraft/tags/functions/load.json": load_tag,
+        "data/minecraft/tags/functions/tick.json": load_tag,
         "data/pummelchen_ops/function/place_purple_house.mcfunction": function_body,
         "data/pummelchen_ops/functions/place_purple_house.mcfunction": function_body,
     }
