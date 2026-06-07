@@ -147,13 +147,42 @@ def normalize_public_permissions(root: Path) -> None:
             path.chmod(0o644)
 
 
-def release_id(label: str | None = None) -> str:
-    base = dt.datetime.now(dt.timezone.utc).strftime("release_%Y%m%d_%H%M%S")
+VERSIONED_RELEASE_ID_RE = re.compile(r"^release_(\d{8})_V(\d+)(?:_.+)?$", re.IGNORECASE)
+
+
+def clean_release_suffix(label: str | None = None) -> str:
     if label:
         clean = re.sub(r"[^A-Za-z0-9_.-]+", "-", label).strip("-")
         if clean:
-            base = f"{base}_{clean[:40]}"
-    return base
+            return clean[:40]
+    return ""
+
+
+def next_versioned_release_id(release_root: Path, db_path: Path, server_key: str, label: str | None = None) -> str:
+    today = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d")
+    highest = 0
+    candidates: set[str] = set()
+    if release_root.exists():
+        candidates.update(path.name for path in release_root.iterdir() if path.is_dir())
+    try:
+        with connect(db_path) as conn:
+            init_db(conn)
+            candidates.update(
+                str(row["release_id"])
+                for row in conn.execute(
+                    "SELECT release_id FROM pack_releases WHERE server_key = ? AND release_id LIKE ?",
+                    (server_key, f"release_{today}_V%"),
+                )
+            )
+    except sqlite3.Error:
+        pass
+    for candidate in candidates:
+        match = VERSIONED_RELEASE_ID_RE.fullmatch(candidate)
+        if match and match.group(1) == today:
+            highest = max(highest, int(match.group(2)))
+    base = f"release_{today}_V{highest + 1}"
+    suffix = clean_release_suffix(label)
+    return f"{base}_{suffix}" if suffix else base
 
 
 def git_commit() -> str:
@@ -346,7 +375,7 @@ def publish_release(
 
 def create_release(args: argparse.Namespace) -> int:
     ensure_release_schema(args.db)
-    rel_id = args.release_id or release_id(args.label)
+    rel_id = args.release_id or next_versioned_release_id(args.release_root, args.db, args.server_key, args.label)
     release_dir = args.release_root / rel_id
     if release_dir.exists():
         raise SystemExit(f"release directory already exists: {release_dir}")

@@ -276,7 +276,25 @@ sqlite3 "$PROJECT_DIR/data/minecraft_mods.sqlite" 'PRAGMA integrity_check;' | gr
 REMOTE
 }
 
+sync_local_release_backups() {
+  [ "$CREATE_RELEASE" = "1" ] || return 0
+  local backup_cmd=(
+    python3 "$ROOT_DIR/scripts/backup_releases_local.py"
+    --remote "$HOST"
+    --release-root "$PROJECT_DIR/releases"
+    --output-dir "$ROOT_DIR/Backup"
+  )
+  if [ "$DRY_RUN" = "1" ]; then
+    printf 'DRY-RUN'
+    printf ' %q' "${backup_cmd[@]}"
+    printf '\n'
+    return 0
+  fi
+  "${backup_cmd[@]}"
+}
+
 run_local_validate
 sync_project
 remote_install "$CREATE_RELEASE"
+sync_local_release_backups
 printf 'deploy=ok host=%s project_dir=%s\n' "$HOST" "$PROJECT_DIR"

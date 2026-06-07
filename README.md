@@ -413,7 +413,9 @@ python3 /var/minecraft_mods/scripts/release_manager.py cleanup --include-headles
 
 The daily noon UTC updater creates and activates a release only when at least
 one update was applied successfully. Clients then see the new release pointer on
-their next launch or background sync.
+their next launch or background sync. Newly generated release IDs use the
+`release_YYYYMMDD_VN_<label>` style so they are eligible for the local flat ZIP
+backup process.
 
 Release pruning keeps the active release plus the requested number of inactive
 rollback releases, removes older generated release directories and public
@@ -444,6 +446,9 @@ Example output names:
 
 Timestamped deploy labels that do not map to `YYYY-MM-DD_VN` are skipped by
 default. Create or pass a version-style release ID before making a local backup.
+Deploys run with `--create-release` automatically call this backup step after
+the VPS release is created and activated; the command is idempotent and refreshes
+missing or existing version-style release ZIPs in `Backup/`.
 
 When SQLite says a jar is installed but the live server and active client
 manifest no longer contain it, use a targeted sync instead of a broad rewrite.

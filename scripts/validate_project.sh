@@ -345,6 +345,11 @@ with zipfile.ZipFile(client_zip) as archive:
     assert "client-package/mods/client-mod-a.jar" in names, "client backup missing client mod"
     assert "client-package/release-backup.json" in names, "client backup metadata missing"
 PY
+"$PYTHON_BIN" "$ROOT_DIR/scripts/release_manager.py" \
+  --db "$DB" --server-dir "$SERVER" --release-root "$RELEASES" --public-downloads "$PUBLIC" \
+  create --label deploy --notes "generated version-style release fixture" \
+  | tee "$TMP_DIR/release-generated-id.out"
+grep -Eq '^release_id=release_[0-9]{8}_V[0-9]+_deploy$' "$TMP_DIR/release-generated-id.out" || fail "release manager did not generate a version-style release id"
 
 log "Client package exclusion fixture"
 EXCLUSION_SERVER="$TMP_DIR/exclusion-server"
