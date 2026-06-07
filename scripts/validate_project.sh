@@ -66,6 +66,37 @@ printf '%s\n' "$CUSTOM_DATAPACKS_OUTPUT" | grep -q 'custom_datapacks_changed=2' 
   || fail "custom datapack was not copied to server-datapacks"
 [ -f "$CUSTOM_DATAPACKS_SERVER/custom-live-world/datapacks/pummelchen-purple-house.zip" ] \
   || fail "custom datapack was not copied to active level-name datapacks folder"
+RESET_WORLD_SERVER="$TMP_DIR/reset-world-server"
+mkdir -p "$RESET_WORLD_SERVER/custom-live-world/region"
+printf 'level-name=custom-live-world\nlevel-seed=old-seed\n' > "$RESET_WORLD_SERVER/server.properties"
+printf 'old-region\n' > "$RESET_WORLD_SERVER/custom-live-world/region/r.0.0.mca"
+RESET_WORLD_OUTPUT="$("$PYTHON_BIN" "$ROOT_DIR/scripts/reset_world_for_purple_house.py" \
+  --project-dir "$ROOT_DIR" \
+  --server-dir "$RESET_WORLD_SERVER" \
+  --seed 123456789 \
+  --no-restart \
+  --yes)"
+printf '%s\n' "$RESET_WORLD_OUTPUT" | grep -q 'world_seed=123456789' \
+  || fail "world reset did not report requested seed"
+grep -q '^level-seed=123456789$' "$RESET_WORLD_SERVER/server.properties" \
+  || fail "world reset did not write new level seed"
+[ -d "$RESET_WORLD_SERVER/world-reset-backups" ] \
+  || fail "world reset did not create backup root"
+[ ! -f "$RESET_WORLD_SERVER/custom-live-world/region/r.0.0.mca" ] \
+  || fail "world reset did not replace old world regions"
+[ -f "$RESET_WORLD_SERVER/custom-live-world/datapacks/pummelchen-purple-house.zip" ] \
+  || fail "world reset did not install Purple House datapack"
+[ -f "$RESET_WORLD_SERVER/custom-live-world/datapacks/pummelchen-place-purple-house.zip" ] \
+  || fail "world reset did not install placement datapack"
+"$PYTHON_BIN" - "$RESET_WORLD_SERVER/custom-live-world/datapacks/pummelchen-place-purple-house.zip" <<'PY' \
+  || fail "world reset placement function does not guard placement success"
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    body = archive.read("data/pummelchen_ops/function/place_purple_house.mcfunction").decode()
+assert "store success score #place_success" in body
+PY
 
 log "Server config overrides"
 CONFIG_SOURCE="$TMP_DIR/config-overrides"

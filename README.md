@@ -131,6 +131,10 @@ build host before rebuilding a client package if
   installs them into the active server, mirrors them into the active
   `level-name` world datapacks folder, and registers them in the SQLite-backed
   mod collection.
+- `scripts/reset_world_for_purple_house.py` - backup-first live reset helper:
+  stops the Minecraft service, moves the active `level-name` world aside, writes
+  a new seed, installs Purple House datapacks into the new world, places the
+  house near spawn, and restarts the service.
 - `client-installer/` - Swift/AppKit progress runner and bootstrap script used
   inside the Mac installer DMG.
 - `scripts/fetch_client_runtime_assets.sh` - downloads third-party runtime
@@ -244,6 +248,12 @@ notes:
 - Its structure-set spacing is `108` chunks, which yields one placement cell per
   about `2.986 km2`, matching the requested one house per roughly 3 square
   kilometers.
+- For a fresh world with Purple House placed near spawn, run the reset helper on
+  the server with `--yes`; it backs up the old world before replacing regions:
+
+```bash
+python3 /var/minecraft_mods/scripts/reset_world_for_purple_house.py --yes
+```
 - See `docs/PURPLE_HOUSE.md` for the 3D plan, reference-frame analysis, block
   palette, and interior decoration notes for the active Pummelchen pack.
 

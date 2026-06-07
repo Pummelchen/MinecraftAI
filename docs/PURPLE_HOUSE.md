@@ -105,6 +105,8 @@ courtyard pool, and intersecting gable roofs with gray trim and purple accents.
 - `scripts/sync_custom_datapacks.py` installs the zip into
   `server-datapacks`, mirrors it into the active `level-name` world datapacks
   folder, and upserts the tracker row.
+- `scripts/reset_world_for_purple_house.py` is the backup-first live reset
+  helper for making a new random-seed world and placing Purple House near spawn.
 
 Quality gate:
 
@@ -112,4 +114,10 @@ Quality gate:
 python3 scripts/build_purple_house_datapack.py --check
 python3 scripts/sync_custom_datapacks.py --project-dir . --check
 bash scripts/validate_project.sh
+```
+
+Live reset command, run on the VPS after deployment:
+
+```bash
+python3 /var/minecraft_mods/scripts/reset_world_for_purple_house.py --yes
 ```
