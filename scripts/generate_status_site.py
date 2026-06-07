@@ -681,16 +681,20 @@ def render_page(
   <title>Pummelchen Server</title>
   <style>
     :root {{
-      --bg: #f6f7f2;
-      --ink: #1b241f;
-      --muted: #647067;
-      --line: #dce2d7;
-      --panel: #ffffff;
-      --green: #2f7d4f;
-      --lime: #8bbf4d;
-      --amber: #c77d23;
-      --stone: #46515a;
-      --blue: #2e6f9e;
+      --bg: #000000;
+      --ink: #f4f7f2;
+      --muted: #a5afa6;
+      --line: #273127;
+      --panel: #0b0f0c;
+      --panel-strong: #111711;
+      --green: #5fd286;
+      --green-strong: #31a85f;
+      --lime: #a8d66d;
+      --amber: #e2a65f;
+      --stone: #c4ccc3;
+      --blue: #8fc7ff;
+      --accent: #7ee29d;
+      --shadow: rgba(0, 0, 0, 0.62);
     }}
     * {{ box-sizing: border-box; }}
     body {{
@@ -702,11 +706,11 @@ def render_page(
       letter-spacing: 0;
     }}
     a {{ color: var(--blue); text-decoration: none; }}
-    a:hover {{ text-decoration: underline; }}
+    a:hover {{ color: #b8dcff; text-decoration: underline; }}
     .wrap {{ max-width: 1180px; margin: 0 auto; padding: 24px; }}
     header {{
       border-bottom: 1px solid var(--line);
-      background: linear-gradient(180deg, #ffffff 0%, #f6f7f2 100%);
+      background: linear-gradient(180deg, #070a07 0%, #000000 100%);
     }}
     .hero {{
       display: grid;
@@ -726,14 +730,14 @@ def render_page(
       object-fit: cover;
       object-position: center;
       border-radius: 8px;
-      box-shadow: 0 18px 42px rgba(26, 43, 31, 0.18);
+      box-shadow: 0 22px 54px var(--shadow);
     }}
     h1 {{ margin: 0; font-size: 42px; line-height: 1.05; }}
     .subtitle {{ margin: 8px 0 0; color: var(--muted); max-width: 760px; }}
     .pill-row {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }}
     .pill {{
       border: 1px solid var(--line);
-      background: var(--panel);
+      background: #080c09;
       border-radius: 999px;
       padding: 6px 10px;
       color: var(--stone);
@@ -770,10 +774,10 @@ def render_page(
       width: 9px;
       height: 9px;
       border-radius: 999px;
-      background: #b7c0b0;
+      background: #555f57;
     }}
     .live-dot.ok {{ background: var(--green); }}
-    .live-dot.warn {{ background: #b66b2b; }}
+    .live-dot.warn {{ background: var(--amber); }}
     .chart-grid {{
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -816,14 +820,14 @@ def render_page(
       justify-content: center;
       min-height: 42px;
       border-radius: 8px;
-      border: 1px solid #1f5f3a;
-      background: var(--green);
-      color: #fff;
+      border: 1px solid var(--green-strong);
+      background: var(--green-strong);
+      color: #031006;
       padding: 10px 14px;
       font-weight: 700;
     }}
     .button.secondary {{
-      background: #fff;
+      background: #080d09;
       color: var(--green);
       border-color: var(--line);
     }}
@@ -846,8 +850,9 @@ def render_page(
     pre {{
       margin: 10px 0 0;
       padding: 12px;
-      background: #18211d;
-      color: #eaf3e5;
+      background: #050805;
+      color: #eef8ec;
+      border: 1px solid var(--line);
       border-radius: 8px;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
@@ -868,8 +873,10 @@ def render_page(
       border-radius: 8px;
       padding: 0 12px;
       font: inherit;
-      background: #fff;
+      background: #070b08;
+      color: var(--ink);
     }}
+    .search::placeholder {{ color: #778177; }}
     .mod-group {{
       background: transparent;
       margin: 10px 0;
@@ -879,7 +886,7 @@ def render_page(
       list-style: none;
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: #fff;
+      background: var(--panel-strong);
       padding: 12px 14px;
       display: flex;
       justify-content: space-between;
@@ -887,7 +894,7 @@ def render_page(
       font-weight: 800;
     }}
     .mod-group summary::-webkit-details-marker {{ display: none; }}
-      .mod-group summary b {{
+    .mod-group summary b {{
       color: var(--muted);
       font-weight: 700;
     }}
@@ -946,13 +953,13 @@ def render_page(
     }}
     .update-card h4 a:hover,
     .update-card h4 a:focus-visible {{
-      color: #1f6b43;
+      color: #bff5cb;
     }}
     .badge {{
       display: inline-flex;
-      border: 1px solid #c9d9c2;
-      color: #285f3d;
-      background: #edf5e9;
+      border: 1px solid #285d3c;
+      color: #b9efc8;
+      background: #0d2414;
       border-radius: 999px;
       padding: 3px 8px;
       font-size: 12px;
@@ -964,7 +971,7 @@ def render_page(
     dl div {{ display: grid; grid-template-columns: 96px 1fr; gap: 8px; }}
     dt {{ color: var(--muted); }}
     dd {{ margin: 0; overflow-wrap: anywhere; }}
-    .mod-card p {{ margin: 0; color: #354039; overflow-wrap: anywhere; }}
+    .mod-card p {{ margin: 0; color: #d8ded8; overflow-wrap: anywhere; }}
     .note {{ color: var(--muted); max-width: 860px; }}
     footer {{ padding: 24px 0 42px; color: var(--muted); }}
     @media (max-width: 640px) {{
@@ -1108,9 +1115,9 @@ def render_page(
         canvas.height = height;
       }}
       context.clearRect(0, 0, width, height);
-      context.fillStyle = '#f8faf5';
+      context.fillStyle = '#070b08';
       context.fillRect(0, 0, width, height);
-      context.strokeStyle = '#d9e0d3';
+      context.strokeStyle = '#1b251d';
       context.lineWidth = Math.max(1, dpr);
       for (let i = 1; i <= 3; i += 1) {{
         const y = (height / 4) * i;
@@ -1124,7 +1131,7 @@ def render_page(
         .map(sample => boundedLiveValue(sample[key], config))
         .filter(value => Number.isFinite(value));
       if (values.length < 2) {{
-        context.fillStyle = '#667163';
+        context.fillStyle = '#a5afa6';
         context.font = `${{12 * dpr}}px system-ui, sans-serif`;
         context.fillText('Waiting for samples', 12 * dpr, 26 * dpr);
         return;
@@ -1135,7 +1142,7 @@ def render_page(
       if (max === null || max === undefined) max = Math.max(100, ...values);
       if (max <= min) max = min + 1;
       const xStep = width / Math.max(1, values.length - 1);
-      context.strokeStyle = '#2f7d4a';
+      context.strokeStyle = '#5fd286';
       context.lineWidth = Math.max(2, 2 * dpr);
       context.beginPath();
       values.forEach((value, index) => {{
