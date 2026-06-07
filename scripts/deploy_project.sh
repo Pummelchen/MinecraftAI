@@ -81,7 +81,11 @@ remote() {
     printf 'DRY-RUN ssh %s %q\n' "$HOST" "$*"
     return 0
   fi
-  ssh "${SSH_ARGS[@]}" "$HOST" "$@"
+  if [ -n "$SSH_OPTS_STRING" ]; then
+    ssh "${SSH_ARGS[@]}" "$HOST" "$@"
+  else
+    ssh "$HOST" "$@"
+  fi
 }
 
 sync_project() {
