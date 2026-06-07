@@ -315,13 +315,23 @@ for path in [public, public / "releases", public / "releases/qa_release_1"]:
     mode = stat.S_IMODE(path.stat().st_mode)
     assert mode == 0o755, f"{path} has directory mode {oct(mode)}"
 PY
+"$PYTHON_BIN" "$ROOT_DIR/scripts/release_manager.py" \
+  --db "$DB" --server-dir "$SERVER" --release-root "$RELEASES" --public-downloads "$PUBLIC" \
+  create --release-id release_20260607_V1_test --notes "versioned backup fixture"
+"$PYTHON_BIN" "$ROOT_DIR/scripts/backup_releases_local.py" \
+  --release-root "$RELEASES" \
+  --output-dir "$TMP_DIR/BackupDryRun" \
+  --dry-run \
+  | tee "$TMP_DIR/release-backup-dry-run.out"
+grep -q 'skip_release=qa_release_1' "$TMP_DIR/release-backup-dry-run.out" || fail "release backup script did not skip non-version fixture release"
+grep -q 'backup_release=release_20260607_V1_test' "$TMP_DIR/release-backup-dry-run.out" || fail "release backup script did not include versioned fixture release"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/backup_releases_local.py" \
   --release-root "$RELEASES" \
   --output-dir "$TMP_DIR/Backup" \
-  --release-id qa_release_1 \
+  --release-id release_20260607_V1_test \
   | tee "$TMP_DIR/release-backup.out"
-grep -q 'release_backups=1' "$TMP_DIR/release-backup.out" || fail "release backup script did not back up fixture release"
-"$PYTHON_BIN" - "$TMP_DIR/Backup/Server_26.1.2_qa_release_1.zip" "$TMP_DIR/Backup/Client_qa_release_1.zip" <<'PY'
+grep -q 'release_backups=1' "$TMP_DIR/release-backup.out" || fail "release backup script did not back up versioned fixture release"
+"$PYTHON_BIN" - "$TMP_DIR/Backup/Server_26.1.2_2026-06-07_V1.zip" "$TMP_DIR/Backup/Client_2026-06-07_V1.zip" <<'PY'
 import sys
 import zipfile
 

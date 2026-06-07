@@ -17,17 +17,18 @@ from typing import Sequence
 DEFAULT_RELEASE_ROOT = "/var/minecraft_mods/releases"
 DEFAULT_OUTPUT = Path("Backup")
 DEFAULT_MINECRAFT_VERSION = "26.1.2"
+VERSION_LABEL_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_V\d+$")
 
 
-def display_release_version(release_id: str) -> str:
+def release_backup_label(release_id: str) -> str | None:
     value = (release_id or "").strip()
-    match = re.fullmatch(r"release_(\d{4})(\d{2})(\d{2})_([^_]+)(?:_.*)?", value)
+    if VERSION_LABEL_RE.fullmatch(value):
+        return value
+    match = re.fullmatch(r"release_(\d{4})(\d{2})(\d{2})_(V\d+)(?:[A-Z])?(?:_.*)?", value, re.IGNORECASE)
     if match:
         year, month, day, version = match.groups()
-        if version_match := re.match(r"(V\d+)", version, re.IGNORECASE):
-            version = version_match.group(1).upper()
-        return f"{year}-{month}-{day}_{version}"
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_") or "unknown_release"
+        return f"{year}-{month}-{day}_{version.upper()}"
+    return None
 
 
 def ssh_base(remote: str, control_path: str | None) -> list[str]:
@@ -111,7 +112,9 @@ def backup_release(
     control_path: str | None,
     dry_run: bool,
 ) -> tuple[Path, Path]:
-    label = display_release_version(release_id)
+    label = release_backup_label(release_id)
+    if label is None:
+        raise SystemExit(f"release id does not map to YYYY-MM-DD_VN: {release_id}")
     client_zip = output_dir / f"Client_{label}.zip"
     server_zip = output_dir / f"Server_{minecraft_version}_{label}.zip"
     release_path = f"{release_root.rstrip('/')}/{release_id}"
@@ -157,8 +160,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     release_ids = args.release_id or list_releases(args.release_root, args.remote, args.ssh_control_path)
     if not release_ids:
         raise SystemExit("no releases found")
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    versioned_release_ids = []
     for release_id in release_ids:
+        if release_backup_label(release_id):
+            versioned_release_ids.append(release_id)
+        elif args.release_id:
+            raise SystemExit(f"release id does not map to YYYY-MM-DD_VN: {release_id}")
+        else:
+            print(f"skip_release={release_id}\treason=non_version_label")
+    if not versioned_release_ids:
+        raise SystemExit("no version-style releases found")
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    for release_id in versioned_release_ids:
         backup_release(
             release_id,
             release_root=args.release_root,
@@ -168,7 +181,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             control_path=args.ssh_control_path,
             dry_run=args.dry_run,
         )
-    print(f"release_backups={len(release_ids)}")
+    print(f"release_backups={len(versioned_release_ids)}")
     return 0
 
 

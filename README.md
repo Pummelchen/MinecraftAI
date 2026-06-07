@@ -67,7 +67,8 @@ build host before rebuilding a client package if
 - `scripts/backup_releases_local.py` - mirrors release `server-files/` and
   `client-package/` contents into flat local Mac ZIP files such as
   `Backup/Server_26.1.2_2026-06-06_V1.zip` and
-  `Backup/Client_2026-06-06_V1.zip`.
+  `Backup/Client_2026-06-06_V1.zip`. Non-version release IDs are skipped so
+  local backups keep the `YYYY-MM-DD_VN` naming style.
 - `scripts/load_preflight.py` - lightweight network/release preflight for TCP
   reachability, concurrent Minecraft status pings, and current-release pointer
   validation before larger play sessions.
@@ -440,6 +441,9 @@ Example output names:
 
 - `Backup/Server_26.1.2_2026-06-06_V1.zip`
 - `Backup/Client_2026-06-06_V1.zip`
+
+Timestamped deploy labels that do not map to `YYYY-MM-DD_VN` are skipped by
+default. Create or pass a version-style release ID before making a local backup.
 
 When SQLite says a jar is installed but the live server and active client
 manifest no longer contain it, use a targeted sync instead of a broad rewrite.
