@@ -563,6 +563,8 @@ def _is_air_like_block(block_state: str | None) -> bool:
 
 
 def _is_surface_ignore_block(block_state: str | None) -> bool:
+    if _is_air_like_block(block_state):
+        return True
     if not block_state:
         return False
     return _block_state_name(block_state) in SURFACE_IGNORE_BLOCKS
