@@ -530,6 +530,10 @@ def read_structure_nbt(zip_path: Path) -> tuple[list[dict[str, Any]], list[dict[
 
 def _block_state_string(state: dict[str, Any]) -> str:
     name = str(state.get("Name", "minecraft:air"))
+    if name == "minecraft:chain":
+        # Older chain block state payloads can include axis in this NBT source
+        # but current fill-command block parser for this server version rejects it.
+        return name
     props = state.get("Properties")
     if not props or not isinstance(props, dict):
         return name
@@ -729,6 +733,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--place-offset-z", type=int, default=0)
     parser.add_argument("--rcon-port", type=int, default=25575)
     parser.add_argument("--auto-place", action="store_true", help="rebuild datapack after spawn detection")
+    parser.add_argument(
+        "--auto-place-use-generated-spawn",
+        action="store_true",
+        help="derive placement spawn/origin from the booted level.dat during auto-place",
+    )
     parser.add_argument("--auto-phase-timeout", type=int, default=DEFAULT_BOOT_WAIT)
     parser.add_argument("--wait-timeout", type=int, default=180)
     parser.add_argument("--no-restart", action="store_true")
@@ -778,23 +787,29 @@ def main() -> int:
             print(f"datapacks_changed={changed}")
         else:
             install_datapacks(args.project_dir, server_dir, world_dir, install_place_pack=False, origin=origin, spawn=spawn)
-            started_at = time.time()
-            start_service(args.service, args.dry_run)
-            first_done = False if args.dry_run else wait_for_done(args.service, started_at, args.auto_phase_timeout)
-            print(f"world_boot_done={int(first_done)}")
-            stop_service(args.service, args.dry_run)
+            if args.auto_place_use_generated_spawn:
+                started_at = time.time()
+                start_service(args.service, args.dry_run)
+                first_done = False if args.dry_run else wait_for_done(args.service, started_at, args.auto_phase_timeout)
+                print(f"world_boot_done={int(first_done)}")
+                stop_service(args.service, args.dry_run)
 
-            detected = read_level_spawn(world_dir)
-            if detected is None:
-                print("warning=detected_spawn_missing_falling_back_to_arguments")
-                detected = spawn
+                detected = read_level_spawn(world_dir)
+                if detected is None:
+                    print("warning=detected_spawn_missing_falling_back_to_arguments")
+                else:
+                    print(f"detected_spawn={detected[0]},{detected[1]},{detected[2]}")
+                    sx, sy, sz = detected
+                    spawn = (sx, sy, sz)
+                    origin = (sx + args.place_offset_x, sy + args.place_offset_y, sz + args.place_offset_z)
+                    print(f"placement_origin={origin[0]},{origin[1]},{origin[2]}")
+                    print(f"placement_spawn={spawn[0]},{spawn[1]},{spawn[2]}")
             else:
-                print(f"detected_spawn={detected[0]},{detected[1]},{detected[2]}")
-            sx, sy, sz = detected
-            spawn = (sx, sy, sz)
-            origin = (sx + args.place_offset_x, sy + args.place_offset_y, sz + args.place_offset_z)
-            print(f"placement_origin={origin[0]},{origin[1]},{origin[2]}")
-            print(f"placement_spawn={spawn[0]},{spawn[1]},{spawn[2]}")
+                print("auto_place_detected_spawn=0")
+                sx, sy, sz = spawn
+                origin = (sx + args.place_offset_x, sy + args.place_offset_y, sz + args.place_offset_z)
+                print(f"placement_origin={origin[0]},{origin[1]},{origin[2]}")
+                print(f"placement_spawn={spawn[0]},{spawn[1]},{spawn[2]}")
 
             # Keep original server.properties safe to restore after bootstrap.
             props_path = server_dir / "server.properties"
