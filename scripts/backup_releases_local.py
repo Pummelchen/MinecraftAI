@@ -115,7 +115,7 @@ def backup_release(
     label = release_backup_label(release_id)
     if label is None:
         raise SystemExit(f"release id does not map to YYYY-MM-DD_VN: {release_id}")
-    client_zip = output_dir / f"Client_{label}.zip"
+    client_zip = output_dir / f"Client_{minecraft_version}_{label}.zip"
     server_zip = output_dir / f"Server_{minecraft_version}_{label}.zip"
     release_path = f"{release_root.rstrip('/')}/{release_id}"
     if dry_run:

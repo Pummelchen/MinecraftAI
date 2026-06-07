@@ -331,7 +331,7 @@ grep -q 'backup_release=release_20260607_V1_test' "$TMP_DIR/release-backup-dry-r
   --release-id release_20260607_V1_test \
   | tee "$TMP_DIR/release-backup.out"
 grep -q 'release_backups=1' "$TMP_DIR/release-backup.out" || fail "release backup script did not back up versioned fixture release"
-"$PYTHON_BIN" - "$TMP_DIR/Backup/Server_26.1.2_2026-06-07_V1.zip" "$TMP_DIR/Backup/Client_2026-06-07_V1.zip" <<'PY'
+"$PYTHON_BIN" - "$TMP_DIR/Backup/Server_26.1.2_2026-06-07_V1.zip" "$TMP_DIR/Backup/Client_26.1.2_2026-06-07_V1.zip" <<'PY'
 import sys
 import zipfile
 
