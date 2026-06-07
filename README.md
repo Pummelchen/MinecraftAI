@@ -60,6 +60,13 @@ build host before rebuilding a client package if
 - `scripts/release_manager.py` - creates, validates, activates, publishes, and
   rolls back immutable pack releases containing server files, client manifests,
   package artifacts, DB snapshot, changelog, and checksums.
+- `scripts/sync_mod_install_state.py` - targeted maintenance helper that
+  reconciles selected `mod_files.installed_on_server` and
+  `included_in_client` flags with the live server mods folder and active client
+  manifest.
+- `scripts/backup_releases_local.py` - mirrors release `server-files/` and
+  `client-package/` folders into local `Backup/<release-label>/` directories on
+  the Mac.
 - `scripts/load_preflight.py` - lightweight network/release preflight for TCP
   reachability, concurrent Minecraft status pings, and current-release pointer
   validation before larger play sessions.
@@ -415,6 +422,32 @@ stale partial upload files, empty upload directories, and optionally recreatable
 HeadlessMC synced client files. Daily tested releases run cleanup automatically
 after the release is activated. The old `/var/minecraft` backup is never removed
 unless `cleanup --delete-legacy-server-backup` is passed explicitly.
+
+Local Mac release backups live under ignored `Backup/` folders. Each backup
+stores a release's `server-files/`, full `client-package/`, and
+`release-backup.json` metadata:
+
+```bash
+python3 scripts/backup_releases_local.py \
+  --remote root@91.99.176.243 \
+  --ssh-control-path /tmp/codex-mc-root-91.99.176.243-22 \
+  --release-root /var/minecraft_mods/releases \
+  --output-dir Backup
+```
+
+When SQLite says a jar is installed but the live server and active client
+manifest no longer contain it, use a targeted sync instead of a broad rewrite.
+Some tracker rows intentionally describe combined dependency files, so global
+exact filename syncing is unsafe without review:
+
+```bash
+python3 /var/minecraft_mods/scripts/sync_mod_install_state.py \
+  --db /var/minecraft_mods/data/minecraft_mods.sqlite \
+  --server-dir /var/minecraft_26.1.2 \
+  --client-manifest /var/minecraft_mods/site/public/downloads/releases/release_20260606_V1D_pyramid/client-sync-manifest.tsv \
+  --filter-regex 'ultimate.*plane|plane-neoforge|immersive.*vehicle|minecraft-transport-simulator|transport-simulator|mts|oamp|new[_ -]?cars' \
+  --apply
+```
 
 ## Quality Gate And Deploy
 

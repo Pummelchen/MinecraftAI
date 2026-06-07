@@ -191,6 +191,78 @@ rows = dict(conn.execute("SELECT name, active_status FROM mods WHERE name IN (%s
 assert rows == expected, rows
 PY
 
+log "Ultimate Plane install-state sync fixture"
+SYNC_SERVER="$TMP_DIR/sync-server"
+mkdir -p "$SYNC_SERVER/mods" "$SYNC_SERVER/client-package/mods"
+printf '# section\tname\tsize\tsha256\turl_path\n' > "$TMP_DIR/empty-client-sync-manifest.tsv"
+"$PYTHON_BIN" - "$DB" <<'PY'
+import datetime as dt
+import hashlib
+import sqlite3
+import sys
+
+db = sys.argv[1]
+conn = sqlite3.connect(db)
+now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+cur = conn.execute(
+    "INSERT INTO imports(imported_at, source_file, spreadsheet_id, sheet_name, source_range, row_count) "
+    "VALUES (?, 'ultimate-plane-sync-fixture', '', 'fixture', '', 1)",
+    (now,),
+)
+import_id = cur.lastrowid
+payload = b"Ultimate Plane Mod stale installed row"
+cur = conn.execute(
+    """
+    INSERT INTO mods(
+        import_id, original_sheet_row, category, name, canonical_key, installation,
+        entry_type, tested, target_mc, server_status, client_package,
+        last_tested, active_status, status_rank, primary_url, row_hash, created_at, updated_at
+    )
+    VALUES (?, 9001, 'Fixture', 'Ultimate Plane Mod', 'ultimate-plane-mod',
+            'Server', 'Mod', 'OK', '26.1.2', 'OK', 'Included', '',
+            'ok', 80, 'https://example.test/ultimate-plane-mod', ?, ?, ?)
+    """,
+    (import_id, hashlib.sha256(payload).hexdigest(), now, now),
+)
+mod_id = cur.lastrowid
+conn.execute(
+    """
+    INSERT INTO mod_files(mod_id, role, file_name, path_hint, installed_on_server, included_in_client, status)
+    VALUES (?, 'server_mod', 'plane-neoforge-1.5.8+26.1.2.jar', '/tmp/stale/mods', 1, 1, 'OK')
+    """,
+    (mod_id,),
+)
+conn.commit()
+PY
+"$PYTHON_BIN" "$ROOT_DIR/scripts/sync_mod_install_state.py" \
+  --db "$DB" \
+  --server-dir "$SYNC_SERVER" \
+  --client-manifest "$TMP_DIR/empty-client-sync-manifest.tsv" \
+  --filter-regex 'ultimate.*plane|plane-neoforge' \
+  --apply \
+  | tee "$TMP_DIR/ultimate-plane-sync.out"
+grep -q 'file_changes=1' "$TMP_DIR/ultimate-plane-sync.out" || fail "Ultimate Plane sync did not clear stale file flags"
+grep -q 'mod_status_changes=1' "$TMP_DIR/ultimate-plane-sync.out" || fail "Ultimate Plane sync did not update stale mod status"
+"$PYTHON_BIN" - "$DB" <<'PY'
+import sqlite3
+import sys
+
+conn = sqlite3.connect(sys.argv[1])
+row = conn.execute(
+    """
+    SELECT m.active_status, m.server_status, m.client_package,
+           f.installed_on_server, f.included_in_client
+    FROM mods m
+    JOIN mod_files f ON f.mod_id = m.id
+    WHERE m.canonical_key = 'ultimate-plane-mod'
+      AND f.file_name = 'plane-neoforge-1.5.8+26.1.2.jar'
+    ORDER BY m.id DESC
+    LIMIT 1
+    """
+).fetchone()
+assert row == ("failed", "Rejected: Removed from current release: jar absent from live server mods and active client manifest", "Not included", 0, 0), row
+PY
+
 log "Release-manager fixture"
 SERVER="$TMP_DIR/server"
 RELEASES="$TMP_DIR/releases"
@@ -243,6 +315,15 @@ for path in [public, public / "releases", public / "releases/qa_release_1"]:
     mode = stat.S_IMODE(path.stat().st_mode)
     assert mode == 0o755, f"{path} has directory mode {oct(mode)}"
 PY
+"$PYTHON_BIN" "$ROOT_DIR/scripts/backup_releases_local.py" \
+  --release-root "$RELEASES" \
+  --output-dir "$TMP_DIR/Backup" \
+  --release-id qa_release_1 \
+  | tee "$TMP_DIR/release-backup.out"
+grep -q 'release_backups=1' "$TMP_DIR/release-backup.out" || fail "release backup script did not back up fixture release"
+[ -f "$TMP_DIR/Backup/qa_release_1/server-files/mods/mod-a.jar" ] || fail "release backup missing server mod"
+[ -f "$TMP_DIR/Backup/qa_release_1/client-package/mods/client-mod-a.jar" ] || fail "release backup missing client mod"
+[ -f "$TMP_DIR/Backup/qa_release_1/release-backup.json" ] || fail "release backup metadata missing"
 
 log "Client package exclusion fixture"
 EXCLUSION_SERVER="$TMP_DIR/exclusion-server"
