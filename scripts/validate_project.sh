@@ -321,9 +321,20 @@ PY
   --release-id qa_release_1 \
   | tee "$TMP_DIR/release-backup.out"
 grep -q 'release_backups=1' "$TMP_DIR/release-backup.out" || fail "release backup script did not back up fixture release"
-[ -f "$TMP_DIR/Backup/qa_release_1/server-files/mods/mod-a.jar" ] || fail "release backup missing server mod"
-[ -f "$TMP_DIR/Backup/qa_release_1/client-package/mods/client-mod-a.jar" ] || fail "release backup missing client mod"
-[ -f "$TMP_DIR/Backup/qa_release_1/release-backup.json" ] || fail "release backup metadata missing"
+"$PYTHON_BIN" - "$TMP_DIR/Backup/Server_26.1.2_qa_release_1.zip" "$TMP_DIR/Backup/Client_qa_release_1.zip" <<'PY'
+import sys
+import zipfile
+
+server_zip, client_zip = sys.argv[1:]
+with zipfile.ZipFile(server_zip) as archive:
+    names = set(archive.namelist())
+    assert "server-files/mods/mod-a.jar" in names, "server backup missing server mod"
+    assert "server-files/release-backup.json" in names, "server backup metadata missing"
+with zipfile.ZipFile(client_zip) as archive:
+    names = set(archive.namelist())
+    assert "client-package/mods/client-mod-a.jar" in names, "client backup missing client mod"
+    assert "client-package/release-backup.json" in names, "client backup metadata missing"
+PY
 
 log "Client package exclusion fixture"
 EXCLUSION_SERVER="$TMP_DIR/exclusion-server"

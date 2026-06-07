@@ -65,8 +65,9 @@ build host before rebuilding a client package if
   `included_in_client` flags with the live server mods folder and active client
   manifest.
 - `scripts/backup_releases_local.py` - mirrors release `server-files/` and
-  `client-package/` folders into local `Backup/<release-label>/` directories on
-  the Mac.
+  `client-package/` contents into flat local Mac ZIP files such as
+  `Backup/Server_26.1.2_2026-06-06_V1.zip` and
+  `Backup/Client_2026-06-06_V1.zip`.
 - `scripts/load_preflight.py` - lightweight network/release preflight for TCP
   reachability, concurrent Minecraft status pings, and current-release pointer
   validation before larger play sessions.
@@ -423,9 +424,9 @@ HeadlessMC synced client files. Daily tested releases run cleanup automatically
 after the release is activated. The old `/var/minecraft` backup is never removed
 unless `cleanup --delete-legacy-server-backup` is passed explicitly.
 
-Local Mac release backups live under ignored `Backup/` folders. Each backup
-stores a release's `server-files/`, full `client-package/`, and
-`release-backup.json` metadata:
+Local Mac release backups live as ignored flat ZIP files in `Backup/`. Each
+release gets one server ZIP and one client ZIP, with `release-backup.json`
+metadata inside each archive:
 
 ```bash
 python3 scripts/backup_releases_local.py \
@@ -434,6 +435,11 @@ python3 scripts/backup_releases_local.py \
   --release-root /var/minecraft_mods/releases \
   --output-dir Backup
 ```
+
+Example output names:
+
+- `Backup/Server_26.1.2_2026-06-06_V1.zip`
+- `Backup/Client_2026-06-06_V1.zip`
 
 When SQLite says a jar is installed but the live server and active client
 manifest no longer contain it, use a targeted sync instead of a broad rewrite.

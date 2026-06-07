@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mirror release server/client mod contents into a local Backup directory."""
+"""Mirror release server/client mod contents into flat local Backup ZIP files."""
 
 from __future__ import annotations
 
@@ -8,12 +8,15 @@ import datetime as dt
 import json
 import re
 import subprocess
+import tempfile
+import zipfile
 from pathlib import Path
 from typing import Sequence
 
 
 DEFAULT_RELEASE_ROOT = "/var/minecraft_mods/releases"
 DEFAULT_OUTPUT = Path("Backup")
+DEFAULT_MINECRAFT_VERSION = "26.1.2"
 
 
 def display_release_version(release_id: str) -> str:
@@ -65,37 +68,83 @@ def rsync_copy(src: str, dst: Path, *, remote: str | None, control_path: str | N
     subprocess.run(cmd, check=True)
 
 
+def zip_tree(source: Path, zip_path: Path, root_name: str) -> None:
+    if zip_path.exists():
+        zip_path.unlink()
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+        for path in sorted(source.rglob("*")):
+            rel = path.relative_to(source)
+            arcname = Path(root_name) / rel
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            mode = stat.st_mode & 0o777
+            if path.is_dir():
+                info = zipfile.ZipInfo(str(arcname).rstrip("/") + "/")
+                info.date_time = dt.datetime.fromtimestamp(stat.st_mtime).timetuple()[:6]
+                info.filename = info.filename.rstrip("/") + "/"
+                info.external_attr = (mode or 0o755) << 16
+                archive.writestr(info, b"")
+            elif path.is_file():
+                archive.write(path, str(arcname))
+
+
+def write_metadata(path: Path, *, release_id: str, label: str, source: str, contents: list[str]) -> None:
+    payload = {
+        "release_id": release_id,
+        "label": label,
+        "source": source,
+        "backed_up_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        "contents": contents,
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def backup_release(
     release_id: str,
     *,
     release_root: str,
     output_dir: Path,
+    minecraft_version: str,
     remote: str | None,
     control_path: str | None,
     dry_run: bool,
-) -> Path:
+) -> tuple[Path, Path]:
     label = display_release_version(release_id)
-    target = output_dir / label
+    client_zip = output_dir / f"Client_{label}.zip"
+    server_zip = output_dir / f"Server_{minecraft_version}_{label}.zip"
     release_path = f"{release_root.rstrip('/')}/{release_id}"
-    rsync_copy(f"{release_path}/server-files", target / "server-files", remote=remote, control_path=control_path, dry_run=dry_run)
-    rsync_copy(f"{release_path}/client-package", target / "client-package", remote=remote, control_path=control_path, dry_run=dry_run)
-    metadata = {
-        "release_id": release_id,
-        "label": label,
-        "source": rsync_remote_arg(remote, release_path),
-        "backed_up_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-        "contents": ["server-files", "client-package"],
-    }
-    if not dry_run:
-        (target / "release-backup.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"backup_release={release_id}\tlabel={label}\tdestination={target}\tdry_run={1 if dry_run else 0}")
-    return target
+    if dry_run:
+        print(
+            f"backup_release={release_id}\tlabel={label}"
+            f"\tclient_zip={client_zip}\tserver_zip={server_zip}\tdry_run=1"
+        )
+        return client_zip, server_zip
+
+    with tempfile.TemporaryDirectory(prefix=".backup-stage-", dir=output_dir) as raw_tmp:
+        stage = Path(raw_tmp) / label
+        server_stage = stage / "server-files"
+        client_stage = stage / "client-package"
+        rsync_copy(f"{release_path}/server-files", server_stage, remote=remote, control_path=control_path, dry_run=False)
+        rsync_copy(f"{release_path}/client-package", client_stage, remote=remote, control_path=control_path, dry_run=False)
+        source = rsync_remote_arg(remote, release_path)
+        write_metadata(server_stage / "release-backup.json", release_id=release_id, label=label, source=source, contents=["server-files"])
+        write_metadata(client_stage / "release-backup.json", release_id=release_id, label=label, source=source, contents=["client-package"])
+        zip_tree(server_stage, server_zip, "server-files")
+        zip_tree(client_stage, client_zip, "client-package")
+    print(
+        f"backup_release={release_id}\tlabel={label}"
+        f"\tclient_zip={client_zip}\tserver_zip={server_zip}\tdry_run=0"
+    )
+    return client_zip, server_zip
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release-root", default=DEFAULT_RELEASE_ROOT)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--minecraft-version", default=DEFAULT_MINECRAFT_VERSION)
     parser.add_argument("--remote", help="Optional ssh target, for example root@91.99.176.243.")
     parser.add_argument("--ssh-control-path")
     parser.add_argument("--release-id", action="append", help="Back up only this release id. Repeatable.")
@@ -114,6 +163,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             release_id,
             release_root=args.release_root,
             output_dir=args.output_dir,
+            minecraft_version=args.minecraft_version,
             remote=args.remote,
             control_path=args.ssh_control_path,
             dry_run=args.dry_run,
