@@ -15,6 +15,7 @@ import sys
 import time
 import zipfile
 from pathlib import Path
+from typing import Any
 
 
 DEFAULT_PROJECT_DIR = Path("/var/minecraft_mods")
@@ -28,6 +29,8 @@ RCON_AUTH_FAIL = -1
 RCON_CONNECT_TIMEOUT = 0.5
 PACK_FORMAT = 81
 SUPPORTED_FORMATS = [81, 94]
+NAMESPACE = "pummelchen"
+STRUCTURE_NAME = "purple_house"
 PURPLE_HOUSE_ZIP = "pummelchen-purple-house.zip"
 PLACE_PACK_ZIP = "pummelchen-place-purple-house.zip"
 ZIP_DATE = (2026, 6, 7, 0, 0, 0)
@@ -249,6 +252,7 @@ def place_house_via_rcon(
     spawn: tuple[int, int, int],
     origin: tuple[int, int, int],
     rcon_port: int,
+    project_dir: Path = DEFAULT_PROJECT_DIR,
 ) -> bool:
     _, values = read_properties(server_dir / "server.properties")
     if values.get("enable-rcon", "false").lower() != "true":
@@ -258,58 +262,41 @@ def place_house_via_rcon(
         return False
     sx, sy, sz = spawn
     ox, oy, oz = origin
-    half = PLACEMENT_CLEAR_SIZE
-    min_x = ox - half
-    min_z = oz - half
-    max_x = ox + 56 + half
-    max_z = oz + 56 + half
-    floor_y = max(1, oy - 12)
-    ceil_y = oy + 70
+    nbt_zip = server_dir / "server-datapacks" / PURPLE_HOUSE_ZIP
+    if not nbt_zip.exists():
+        nbt_zip = project_dir / "server-datapacks" / PURPLE_HOUSE_ZIP
+    nbt_data = read_structure_nbt(nbt_zip)
+    if nbt_data is None:
+        print(f"placement_via_rcon_error=could_not_read_nbt from {nbt_zip}")
+        return False
+    palette, blocks = nbt_data
+    fill_commands = generate_fill_commands(palette, blocks, origin)
+    print(f"placement_via_rcon_fill_commands={len(fill_commands)}")
     min_chunk_x, min_chunk_z, max_chunk_x, max_chunk_z = _forceload_region_for_origin((ox, oy, oz), PLACEMENT_CLEAR_SIZE + 56)
-    commands = [
-        f"fill {min_x} {floor_y} {min_z} {max_x} {ceil_y} {max_z} air",
-        f"forceload add {min_chunk_x} {min_chunk_z} {max_chunk_x} {max_chunk_z}",
-        f"place template pummelchen:purple_house {ox} {oy} {oz}",
-        f"setworldspawn {sx} {sy} {sz}",
-        f"forceload remove {min_chunk_x} {min_chunk_z} {max_chunk_x} {max_chunk_z}",
-    ]
-    last_err: str | None = None
-    for attempt in range(1, 4):
-        try:
-            if not wait_for_rcon(rcon_port):
-                print(f"placement_via_rcon_error=RCON unavailable on port {rcon_port}")
-                return False
-            responses = run_rcon_commands(RCON_HOST, rcon_port, password, commands)
-        except Exception as exc:
-            last_err = f"{exc.__class__.__name__}: {exc}"
-            print(f"placement_via_rcon_error={last_err}")
+    try:
+        if not wait_for_rcon(rcon_port):
+            print(f"placement_via_rcon_error=RCON unavailable on port {rcon_port}")
             return False
-        outputs = "".join(_clean_minecraft_output(r) for r in responses)
-        print(f"placement_via_rcon_outputs[{attempt}]={outputs or 'EMPTY'}")
-        if "not loaded" not in outputs.lower():
-            break
-        time.sleep(2)
-        outputs = ""
-    else:
-        if last_err:
-            print(f"placement_via_rcon_error_retries_exhausted={last_err}")
-        else:
-            print("placement_via_rcon_error_retries_exhausted=not_loaded")
+        rcon_command(RCON_HOST, rcon_port, password, f"forceload add {min_chunk_x} {min_chunk_z} {max_chunk_x} {max_chunk_z}")
+        print("placement_via_rcon_forceload=ok")
+        time.sleep(10)
+        batch_size = 100
+        total_batches = (len(fill_commands) + batch_size - 1) // batch_size
+        for batch_idx in range(total_batches):
+            batch = fill_commands[batch_idx * batch_size : (batch_idx + 1) * batch_size]
+            try:
+                run_rcon_commands(RCON_HOST, rcon_port, password, batch, timeout=30)
+                print(f"placement_via_rcon_batch={batch_idx + 1}/{total_batches}")
+            except Exception as exc:
+                print(f"placement_via_rcon_batch_error={batch_idx + 1}/{total_batches}: {exc}")
+                return False
+            time.sleep(1)
+        rcon_command(RCON_HOST, rcon_port, password, f"setworldspawn {sx} {sy} {sz}")
+        rcon_command(RCON_HOST, rcon_port, password, f"forceload remove {min_chunk_x} {min_chunk_z} {max_chunk_x} {max_chunk_z}")
+    except Exception as exc:
+        print(f"placement_via_rcon_error={exc.__class__.__name__}: {exc}")
         return False
-
-    locate_output = _clean_minecraft_output(
-        rcon_command(RCON_HOST, rcon_port, password, "locate structure pummelchen:purple_house")
-    )
-    print(f"locate_after_rcon={locate_output}")
-    located = _extract_locate_coordinates(locate_output)
-    if located is None:
-        print("warning=locate_after_rcon_missing_coordinates")
-        return False
-
-    px, pz = located
-    distance = _block_distance((px, oy, pz), (ox, oy, oz))
-    print(f"placement_distance_blocks={distance:.2f}")
-    print(f"located_house={px} {pz}")
+    print("placement_via_rcon_success=1")
     return True
 
 
@@ -517,37 +504,127 @@ def read_level_spawn(world_dir: Path) -> tuple[int, int, int] | None:
     return None
 
 
-def placement_pack(origin: tuple[int, int, int], spawn: tuple[int, int, int]) -> dict[str, bytes]:
+def read_structure_nbt(zip_path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | None:
+    if not zip_path.exists():
+        return None
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            nbt_path = f"data/{NAMESPACE}/structures/{STRUCTURE_NAME}.nbt"
+            if nbt_path not in archive.namelist():
+                return None
+            raw = gzip.decompress(archive.read(nbt_path))
+    except (OSError, zipfile.BadZipFile, OSError):
+        return None
+    if not raw or raw[0] != TAG_COMPOUND:
+        return None
+    _, name_end = _read_string(raw, 1)
+    root, _cursor = _parse_payload(raw, name_end, TAG_COMPOUND)
+    if not isinstance(root, dict):
+        return None
+    palette = root.get("palette")
+    blocks = root.get("blocks")
+    if not isinstance(palette, list) or not isinstance(blocks, list):
+        return None
+    return palette, blocks
+
+
+def _block_state_string(state: dict[str, Any]) -> str:
+    name = str(state.get("Name", "minecraft:air"))
+    props = state.get("Properties")
+    if not props or not isinstance(props, dict):
+        return name
+    parts = ",".join(f"{k}={v}" for k, v in sorted(props.items()))
+    return f"{name}[{parts}]"
+
+
+def generate_fill_commands(
+    palette: list[dict[str, Any]],
+    blocks: list[dict[str, Any]],
+    origin: tuple[int, int, int],
+) -> list[str]:
+    ox, oy, oz = origin
+    by_layer: dict[int, list[tuple[int, int, int, int]]] = {}
+    for block in blocks:
+        pos = block.get("pos")
+        state_idx = block.get("state")
+        if not isinstance(pos, list) or len(pos) != 3 or not isinstance(state_idx, int):
+            continue
+        x, y, z = int(pos[0]), int(pos[1]), int(pos[2])
+        by_layer.setdefault(y, []).append((x, z, state_idx, y))
+    commands: list[str] = []
+    for y in sorted(by_layer):
+        layer_blocks = by_layer[y]
+        by_state: dict[int, list[tuple[int, int]]] = {}
+        for x, z, state_idx, _ly in layer_blocks:
+            by_state.setdefault(state_idx, []).append((x, z))
+        for state_idx in sorted(by_state):
+            positions = by_state[state_idx]
+            state_str = _block_state_string(palette[state_idx]) if state_idx < len(palette) else "minecraft:air"
+            by_z: dict[int, list[int]] = {}
+            for x, z in positions:
+                by_z.setdefault(z, []).append(x)
+            for z in sorted(by_z):
+                xs = sorted(by_z[z])
+                run_start = xs[0]
+                run_end = xs[0]
+                for x in xs[1:]:
+                    if x == run_end + 1:
+                        run_end = x
+                    else:
+                        wx1, wy, wz1 = ox + run_start, oy + y, oz + z
+                        wx2 = ox + run_end
+                        commands.append(f"fill {wx1} {wy} {wz1} {wx2} {wy} {wz1} {state_str}")
+                        run_start = x
+                        run_end = x
+                wx1, wy, wz1 = ox + run_start, oy + y, oz + z
+                wx2 = ox + run_end
+                commands.append(f"fill {wx1} {wy} {wz1} {wx2} {wy} {wz1} {state_str}")
+    return commands
+
+
+def placement_pack(
+    origin: tuple[int, int, int],
+    spawn: tuple[int, int, int],
+    fill_commands: list[str],
+) -> dict[str, bytes]:
     ox, oy, oz = origin
     sx, sy, sz = spawn
-    half = PLACEMENT_CLEAR_SIZE
-    min_x = ox - half
-    min_z = oz - half
-    max_x = ox + 56 + half
-    max_z = oz + 56 + half
-    floor_y = oy - 12
-    ceil_y = oy + 70
     min_chunk_x, min_chunk_z, max_chunk_x, max_chunk_z = _forceload_region_for_origin(
         (ox, oy, oz), PLACEMENT_CLEAR_SIZE + 56
     )
-    clear_command = f"fill {min_x} {floor_y} {min_z} {max_x} {ceil_y} {max_z} air"
+    batch_size = 200
+    batches = [fill_commands[i : i + batch_size] for i in range(0, len(fill_commands), batch_size)]
+    files: dict[str, bytes] = {}
+    files["pack.mcmeta"] = (
+        '{"pack":{"pack_format":%d,"supported_formats":[%d,%d],'
+        '"description":"One-shot Purple House spawn placement."}}\n'
+        % (PACK_FORMAT, SUPPORTED_FORMATS[0], SUPPORTED_FORMATS[1])
+    ).encode("utf-8")
+    for idx, batch in enumerate(batches):
+        batch_lines = list(batch)
+        if idx < len(batches) - 1:
+            batch_lines.append(f"function pummelchen_ops:place_batch_{idx + 1}")
+        files[f"data/pummelchen_ops/function/place_batch_{idx}.mcfunction"] = "\n".join(batch_lines).encode("utf-8")
+        files[f"data/pummelchen_ops/functions/place_batch_{idx}.mcfunction"] = "\n".join(batch_lines).encode("utf-8")
+    total_batches = len(batches)
     lines = [
         "scoreboard objectives add pummelchen_ops dummy",
         f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
         "run scoreboard players add ph_house_attempt pummelchen_ops 1",
         f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
-        f"if score ph_house_attempt pummelchen_ops matches 1 run {clear_command}",
-        f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
+        f"if score ph_house_attempt pummelchen_ops matches 1 "
         f"run forceload add {min_chunk_x} {min_chunk_z} {max_chunk_x} {max_chunk_z}",
         f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
         f"if score ph_house_attempt pummelchen_ops matches 2.. "
-        f"store success score {PLACEMENT_STATUS_SCORE} pummelchen_ops "
-        f"run place template pummelchen:purple_house {ox} {oy} {oz}",
-        f"execute if score {PLACEMENT_STATUS_SCORE} pummelchen_ops matches 1 "
+        f"run function pummelchen_ops:place_batch_0",
+        f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
+        f"if score ph_house_attempt pummelchen_ops matches 3.. "
         f"run setworldspawn {sx} {sy} {sz}",
-        f"execute if score {PLACEMENT_STATUS_SCORE} pummelchen_ops matches 1 "
+        f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
+        f"if score ph_house_attempt pummelchen_ops matches 3.. "
         f"run forceload remove {min_chunk_x} {min_chunk_z} {max_chunk_x} {max_chunk_z}",
-        f"execute if score {PLACEMENT_STATUS_SCORE} pummelchen_ops matches 1 "
+        f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
+        f"if score ph_house_attempt pummelchen_ops matches 3.. "
         f"run scoreboard players set {PLACEMENT_STATE_SCORE} pummelchen_ops 1",
         "execute if score ph_house_status pummelchen_ops matches 1 "
         "run say [PUMMELCHEN] Purple House placed and world spawn updated.",
@@ -561,19 +638,13 @@ def placement_pack(origin: tuple[int, int, int], spawn: tuple[int, int, int]) ->
     ]
     function_body = "\n".join(lines).encode("utf-8")
     load_tag = b'{"replace":false,"values":["pummelchen_ops:place_purple_house"]}\n'
-    return {
-        "pack.mcmeta": (
-            '{"pack":{"pack_format":%d,"supported_formats":[%d,%d],'
-            '"description":"One-shot Purple House spawn placement."}}\n'
-            % (PACK_FORMAT, SUPPORTED_FORMATS[0], SUPPORTED_FORMATS[1])
-        ).encode("utf-8"),
-        "data/minecraft/tags/function/load.json": load_tag,
-        "data/minecraft/tags/function/tick.json": load_tag,
-        "data/minecraft/tags/functions/load.json": load_tag,
-        "data/minecraft/tags/functions/tick.json": load_tag,
-        "data/pummelchen_ops/function/place_purple_house.mcfunction": function_body,
-        "data/pummelchen_ops/functions/place_purple_house.mcfunction": function_body,
-    }
+    files["data/minecraft/tags/function/load.json"] = load_tag
+    files["data/minecraft/tags/function/tick.json"] = load_tag
+    files["data/minecraft/tags/functions/load.json"] = load_tag
+    files["data/minecraft/tags/functions/tick.json"] = load_tag
+    files["data/pummelchen_ops/function/place_purple_house.mcfunction"] = function_body
+    files["data/pummelchen_ops/functions/place_purple_house.mcfunction"] = function_body
+    return files
 
 
 def install_datapacks(
@@ -594,7 +665,18 @@ def install_datapacks(
         if copy_if_changed(source, world_datapacks / source.name):
             changed += 1
     if install_place_pack:
-        write_zip(world_datapacks / PLACE_PACK_ZIP, placement_pack(origin, spawn))
+        nbt_zip = server_datapacks / PURPLE_HOUSE_ZIP
+        if not nbt_zip.exists():
+            nbt_zip = project_dir / "server-datapacks" / PURPLE_HOUSE_ZIP
+        nbt_data = read_structure_nbt(nbt_zip)
+        if nbt_data is None:
+            print(f"warning=could_not_read_structure_nbt from {nbt_zip}")
+            fill_commands: list[str] = []
+        else:
+            palette, blocks = nbt_data
+            fill_commands = generate_fill_commands(palette, blocks, origin)
+            print(f"fill_commands_generated={len(fill_commands)}")
+        write_zip(world_datapacks / PLACE_PACK_ZIP, placement_pack(origin, spawn, fill_commands))
         changed += 1
     return changed
 
@@ -690,7 +772,7 @@ def main() -> int:
             start_service(args.service, args.dry_run)
             second_done = False if args.dry_run else wait_for_done(args.service, time.time(), args.auto_phase_timeout)
             print(f"bootstrap_rcon_boot={int(second_done)}")
-            placement_ok = place_house_via_rcon(server_dir, spawn, origin, rcon_port) if not args.dry_run else False
+            placement_ok = place_house_via_rcon(server_dir, spawn, origin, rcon_port, args.project_dir) if not args.dry_run else False
 
             # Restore RCON settings to avoid leaving temporary credentials behind.
             if changed_rcon:

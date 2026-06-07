@@ -98,9 +98,11 @@ import zipfile
 with zipfile.ZipFile(sys.argv[1]) as archive:
     body = archive.read("data/pummelchen_ops/function/place_purple_house.mcfunction").decode()
     tick = archive.read("data/minecraft/tags/function/tick.json").decode()
-assert "store success score ph_house_status" in body
-assert "place template pummelchen:purple_house" in body
+    batch0 = archive.read("data/pummelchen_ops/function/place_batch_0.mcfunction").decode()
+assert "function pummelchen_ops:place_batch_0" in body
+assert "place template" not in body
 assert "place structure" not in body
+assert "fill" in batch0
 assert "pummelchen_ops:place_purple_house" in tick
 PY
 
