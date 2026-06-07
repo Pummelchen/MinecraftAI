@@ -44,7 +44,7 @@ build host before rebuilding a client package if
   files, then runs full-pack boot tests and updates tracker status.
 - `scripts/generate_status_site.py` - generates the static Pummelchen Server
   status/install page from SQLite and current VPS stats.
-- `scripts/live_stats_feed.py` - writes `site/public/live-stats.json` every 30
+- `scripts/live_stats_feed.py` - writes `site/public/live-stats.json` every 10
   seconds for live VPS graphs on the status page.
 - `scripts/minecraft_metrics_exporter.py` - localhost Prometheus exporter for
   Minecraft process/player/crash/update/release metrics on port `7792`.
@@ -166,7 +166,7 @@ build host before rebuilding a client package if
 - `monitoring/grafana/` - Grafana datasource/dashboard provisioning for the
   Pummelchen operator cockpit.
 - `cron/pummelchen-daily-update` - noon UTC updater cron definition.
-- `systemd/pummelchen-live-stats.*` - 30-second systemd timer/service that
+- `systemd/pummelchen-live-stats.*` - 10-second systemd timer/service that
   refreshes the live stats JSON feed.
 - `systemd/pummelchen-client-log-receiver.service` - upload receiver service for
   client diagnostic bundles.
@@ -395,11 +395,11 @@ recorded as a completed installer session with a timestamp in
 `client_installer_sessions`; failures include a redacted recent log excerpt in
 `client_installer_events` as soon as the error is observed.
 
-The stats area polls `/live-stats.json` every 30 seconds and updates the CPU
-usage, load average, RAM, disk, client package metadata, and compact history
-graphs directly in the browser without a page reload. Player-facing percentage
-metrics are normalized to a 0-100% range; disk free space is shown as GB plus
-free percent.
+The stats area polls `/live-stats.json` every 10 seconds and updates the CPU
+  usage, RAM, disk, client package metadata, and compact history graphs
+  directly in the browser without a page reload. Player-facing percentage metrics
+  are normalized to a 0-100% range; disk free space is shown as GB plus free
+  percent.
 
 ## Releases And Rollback
 
@@ -721,8 +721,8 @@ represented in the project:
   7-day window; older successful update events remain in SQLite for audit but
   drop off the public page automatically.
 - Live stats: `/etc/systemd/system/pummelchen-live-stats.timer` refreshes the
-  public `live-stats.json` feed every 30 seconds so the page can redraw CPU,
-  load, RAM, disk, and client package metadata while it is open.
+  public `live-stats.json` feed every 10 seconds so the page can redraw CPU, RAM,
+  disk, and client package metadata while it is open.
 - Watchlist/compatibility management: mods marked
   `awaiting_compatible_release` or `blocked_by_dependency`, such as Create:
   Steam 'n' Rails, remain in SQLite and are rechecked by the updater when

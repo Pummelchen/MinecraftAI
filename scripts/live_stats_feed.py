@@ -126,6 +126,12 @@ def human_bits_per_sec(bits_per_second: float) -> str:
     return f"{current:.1f} Tbps"
 
 
+def _human_speed_mbps(speed_mbps: float) -> str:
+    if speed_mbps >= 1000:
+        return f"{speed_mbps / 1000:.1f} Gbps"
+    return f"{speed_mbps:.0f} Mbps"
+
+
 def human_bytes(value: float) -> str:
     units = ["B", "KB", "MB", "GB", "TB"]
     size = float(value)
@@ -158,19 +164,6 @@ def parse_meminfo() -> dict[str, int]:
     return values
 
 
-def read_load_percent(cpu_count: int | None) -> tuple[list[float], str]:
-    try:
-        loads = list(os.getloadavg())
-    except OSError:
-        loads = [0.0, 0.0, 0.0]
-    if not cpu_count:
-        return loads, "Unknown"
-    labels = ("1m", "5m", "15m")
-    return loads, " / ".join(
-        f"{label} {clamp_percent((load / cpu_count) * 100):.1f}%" for label, load in zip(labels, loads)
-    )
-
-
 def read_cpu_times() -> dict[str, int] | None:
     path = Path("/proc/stat")
     if not path.exists():
@@ -195,9 +188,9 @@ def cpu_usage_percent(previous: dict[str, int] | None, current: dict[str, int] |
 
 def normalize_history_sample(sample: dict[str, Any], disk_total_gb: float) -> dict[str, Any]:
     normalized = dict(sample)
+    normalized.pop("load1_percent", None)
     for key in (
         "cpu_percent",
-        "load1_percent",
         "ram_used_percent",
         "disk_used_percent",
         "disk_free_percent",
@@ -312,10 +305,8 @@ def build_payload(
     server_key: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     now = dt.datetime.now(dt.timezone.utc)
-    cpu_count = os.cpu_count() or 1
     current_cpu = read_cpu_times()
     cpu_percent = cpu_usage_percent(state.get("previous_cpu"), current_cpu)
-    loads, load_text = read_load_percent(cpu_count)
 
     mem = parse_meminfo()
     mem_total = mem.get("MemTotal", 0)
@@ -351,10 +342,11 @@ def build_payload(
                     rx_pct = clamp_percent((rx_bps / 1_000_000.0 / speed_mbps) * 100) if speed_mbps > 0 else 0.0
                     tx_pct = clamp_percent((tx_bps / 1_000_000.0 / speed_mbps) * 100) if speed_mbps > 0 else 0.0
                     network_percent = round(max(rx_pct, tx_pct), 2)
+                    speed_label = _human_speed_mbps(speed_mbps)
                     network_text = (
                         f"{human_bits_per_sec(rx_bps)} in / "
                         f"{human_bits_per_sec(tx_bps)} out "
-                        f"({network_percent:.1f}% of {speed_mbps:.0f} Mbps)"
+                        f"({network_percent:.1f}% of {speed_label})"
                     )
                 except (TypeError, ValueError):
                     network_text = "Unavailable"
@@ -371,7 +363,6 @@ def build_payload(
     sample = {
         "t": now.isoformat(timespec="seconds"),
         "cpu_percent": round(cpu_percent, 2),
-        "load1_percent": round(clamp_percent((loads[0] / cpu_count) * 100), 2),
         "ram_used_percent": round(mem_used_percent, 2),
         "disk_used_percent": round(disk_used_percent, 2),
         "disk_free_gb": round(disk_free_gb, 2),
@@ -388,11 +379,10 @@ def build_payload(
 
     payload = {
         "generated_at": now.isoformat(timespec="seconds"),
-        "interval_seconds": 30,
+        "interval_seconds": 10,
         "stats": {
             "Generated": now.strftime("%Y-%m-%d %H:%M UTC"),
             "CPU usage": f"{cpu_percent:.1f}%",
-            "Load average": load_text,
             "RAM used": f"{human_bytes(mem_used)} ({percent(mem_used, mem_total)})",
             "RAM available": human_bytes(mem_available),
             "Disk used/free": (

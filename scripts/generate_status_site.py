@@ -92,19 +92,6 @@ def pct(used: float, total: float) -> str:
     return f"{max(0.0, min(100.0, (used / total) * 100)):.1f}%"
 
 
-def load_percent(load_values: list[str], cpu_count: int | None) -> str:
-    if not load_values or not cpu_count:
-        return "Unknown"
-    labels = ("1m", "5m", "15m")
-    values = []
-    for label, value in zip(labels, load_values):
-        try:
-            values.append(f"{label} {max(0.0, min(100.0, (float(value) / cpu_count) * 100)):.1f}%")
-        except ValueError:
-            values.append(f"{label} Unknown")
-    return " / ".join(values)
-
-
 def parse_meminfo() -> dict[str, int]:
     values: dict[str, int] = {}
     path = Path("/proc/meminfo")
@@ -190,8 +177,6 @@ def collect_stats(server_dir: Path) -> dict[str, str]:
     available = mem.get("MemAvailable", 0)
     used = max(total - available, 0)
     cpu = parse_cpuinfo()
-    load = Path("/proc/loadavg").read_text().split()[:3] if Path("/proc/loadavg").exists() else ["?", "?", "?"]
-    cpu_count = os.cpu_count()
     server_disk = shutil.disk_usage(server_dir if server_dir.exists() else "/")
     zip_path = server_dir / CLIENT_ZIP_NAME
     sha_path = server_dir / f"{CLIENT_ZIP_NAME}.sha256"
@@ -212,7 +197,6 @@ def collect_stats(server_dir: Path) -> dict[str, str]:
         "CPU": cpu.get("Model name") or cpu.get("Model") or "Unknown",
         "CPU Cores": cpu.get("CPU(s)", str(os.cpu_count() or "Unknown")),
         "CPU usage": "Waiting for live feed",
-        "Load average": load_percent(load, cpu_count),
         "RAM total": human_bytes(total),
         "RAM used": f"{human_bytes(used)} ({pct(used, total)})",
         "RAM available": human_bytes(available),
@@ -485,7 +469,8 @@ def render_stat_cards(stats: dict[str, str]) -> str:
         "Last Mod Version", "Minecraft Players",
         "Server OS", "OS Kernel", "Uptime", "CPU", "CPU Cores", "Server Java",
         "Minecraft Java", "Minecraft",
-        "NeoForge", "Client Mod Pack", "Client Mod Pack SHA256", "Client Mod Pack Generated",
+        "NeoForge", "Client Mod Pack", "Client Mod Pack SHA256",
+        "Client Mod Pack Generated",
     ]
     cards = []
     for key in preferred:
@@ -1015,10 +1000,6 @@ def render_page(
           <canvas data-live-chart="cpu_percent" width="520" height="176" aria-label="CPU usage graph"></canvas>
         </article>
         <article class="chart-card">
-          <div class="chart-head"><h3>Network Traffic</h3><strong class="chart-value" data-live-metric="network_traffic_percent">--</strong></div>
-          <canvas data-live-chart="network_traffic_percent" width="520" height="176" aria-label="Network traffic graph"></canvas>
-        </article>
-        <article class="chart-card">
           <div class="chart-head"><h3>RAM Used</h3><strong class="chart-value" data-live-metric="ram_used_percent">--</strong></div>
           <canvas data-live-chart="ram_used_percent" width="520" height="176" aria-label="RAM usage graph"></canvas>
         </article>
@@ -1065,7 +1046,6 @@ def render_page(
   <script>
     const liveMetricConfig = {{
       cpu_percent: {{ suffix: '%', label: 'CPU Usage', min: 0, max: 100 }},
-      network_traffic_percent: {{ suffix: '%', label: 'Network Traffic', min: 0, max: 100 }},
       ram_used_percent: {{ suffix: '%', label: 'RAM Used', min: 0, max: 100 }},
       disk_free_percent: {{ suffix: '%', label: 'Disk Free', min: 0, max: 100 }}
     }};
@@ -1232,7 +1212,7 @@ def render_page(
     updateRelativeTimes();
     window.setInterval(updateRelativeTimes, 60000);
     refreshLiveStats();
-    window.setInterval(refreshLiveStats, 30000);
+    window.setInterval(refreshLiveStats, 10000);
     window.addEventListener('resize', refreshLiveStats);
     wireSearch('serverSearch', 'server-mods');
     wireSearch('clientSearch', 'client-mods');

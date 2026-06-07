@@ -98,7 +98,9 @@ import zipfile
 with zipfile.ZipFile(sys.argv[1]) as archive:
     body = archive.read("data/pummelchen_ops/function/place_purple_house.mcfunction").decode()
     tick = archive.read("data/minecraft/tags/function/tick.json").decode()
-assert "store success score #place_success" in body
+assert "store success score ph_house_status" in body
+assert "place template pummelchen:purple_house" in body
+assert "place structure" not in body
 assert "pummelchen_ops:place_purple_house" in tick
 PY
 

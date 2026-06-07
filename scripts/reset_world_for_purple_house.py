@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import re
+import gzip
+import socket
 import secrets
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -16,11 +20,36 @@ from pathlib import Path
 DEFAULT_PROJECT_DIR = Path("/var/minecraft_mods")
 DEFAULT_SERVER_DIR = Path("/var/minecraft_26.1.2")
 DEFAULT_SERVICE = "pummelchen-minecraft.service"
+RCON_HOST = "127.0.0.1"
+RCON_TIMEOUT = 2.5
+RCON_AUTH = 3
+RCON_COMMAND = 2
+RCON_AUTH_FAIL = -1
+RCON_CONNECT_TIMEOUT = 0.5
 PACK_FORMAT = 81
 SUPPORTED_FORMATS = [81, 94]
 PURPLE_HOUSE_ZIP = "pummelchen-purple-house.zip"
 PLACE_PACK_ZIP = "pummelchen-place-purple-house.zip"
 ZIP_DATE = (2026, 6, 7, 0, 0, 0)
+PLACEMENT_STATE_SCORE = "ph_house_state"
+PLACEMENT_ATTEMPT_SCORE = "ph_house_attempt"
+PLACEMENT_STATUS_SCORE = "ph_house_status"
+PLACEMENT_CLEAR_SIZE = 40
+DEFAULT_BOOT_WAIT = 180
+
+TAG_END = 0
+TAG_BYTE = 1
+TAG_SHORT = 2
+TAG_INT = 3
+TAG_LONG = 4
+TAG_FLOAT = 5
+TAG_DOUBLE = 6
+TAG_BYTE_ARRAY = 7
+TAG_STRING = 8
+TAG_LIST = 9
+TAG_COMPOUND = 10
+TAG_INT_ARRAY = 11
+TAG_LONG_ARRAY = 12
 
 
 def read_properties(path: Path) -> tuple[list[str], dict[str, str]]:
@@ -52,6 +81,236 @@ def write_properties(path: Path, updates: dict[str, str]) -> None:
             merged.append(f"{key}={value}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(merged) + "\n", encoding="utf-8")
+
+
+def ensure_rcon_enabled(
+    properties_path: Path,
+    rcon_port: int,
+    dry_run: bool,
+) -> tuple[str, bool, int]:
+    """Enable RCON temporarily.
+
+    Returns the previous file contents and whether a change was applied.
+    """
+    current = properties_path.read_text(encoding="utf-8") if properties_path.exists() else ""
+    _, values = read_properties(properties_path)
+    enable = values.get("enable-rcon", "false").strip().lower() == "true"
+    password = values.get("rcon.password", "").strip()
+    port = values.get("rcon.port", str(rcon_port)).strip()
+    if enable and password:
+        try:
+            return current, False, int(port)
+        except ValueError:
+            return current, False, rcon_port
+    if dry_run:
+        print("DRY-RUN skip rcon bootstrap (would enable temporary RCON)")
+        return current, False, rcon_port
+    generated_password = password if password else f"pummelchen-{secrets.token_hex(8)}"
+    updates = {
+        "enable-rcon": "true",
+        "rcon.port": str(rcon_port if port.isdigit() else rcon_port),
+        "rcon.password": generated_password,
+    }
+    write_properties(properties_path, updates)
+    return current, True, rcon_port
+
+
+def restore_file(path: Path, text: str) -> None:
+    path.write_text(text, encoding="utf-8")
+
+
+def wait_for_rcon(port: int, host: str = RCON_HOST, timeout: int = 20) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=RCON_CONNECT_TIMEOUT):
+                return True
+        except OSError:
+            time.sleep(0.5)
+    return False
+
+
+def _read_exact(sock: socket.socket, length: int) -> bytes:
+    chunks: list[bytes] = []
+    received = 0
+    while received < length:
+        piece = sock.recv(length - received)
+        if not piece:
+            raise ConnectionError("closed while reading RCON packet")
+        chunks.append(piece)
+        received += len(piece)
+    return b"".join(chunks)
+
+
+def _rcon_packet(request_id: int, packet_type: int, payload: str) -> bytes:
+    body = struct.pack("<ii", request_id, packet_type) + payload.encode("utf-8") + b"\x00\x00"
+    return struct.pack("<i", len(body)) + body
+
+
+def _read_rcon_packet(sock: socket.socket) -> tuple[int, int, str]:
+    header = _read_exact(sock, 4)
+    (length,) = struct.unpack("<i", header)
+    if length < 10 or length > 1_048_576:
+        raise OSError(f"invalid RCON packet length {length}")
+    body = _read_exact(sock, length)
+    request_id, packet_type = struct.unpack("<ii", body[:8])
+    payload = body[8:-2].decode("utf-8", errors="replace")
+    return request_id, packet_type, payload
+
+
+def rcon_command(host: str, port: int, password: str, command: str, timeout: float = RCON_TIMEOUT) -> str:
+    with socket.create_connection((host, port), timeout=timeout) as sock:
+        sock.settimeout(timeout)
+        sock.sendall(_rcon_packet(1, RCON_AUTH, password))
+        auth_id, _auth_type, _auth_payload = _read_rcon_packet(sock)
+        if auth_id == RCON_AUTH_FAIL:
+            raise PermissionError("RCON authentication failed")
+        sock.sendall(_rcon_packet(2, RCON_COMMAND, command))
+        response_id, _response_type, response = _read_rcon_packet(sock)
+        if response_id != 2:
+            # Some servers send an empty response followed by an id=0 heartbeat; retry once.
+            if response_id != 0:
+                raise OSError("unexpected RCON response id")
+            response_id, _response_type, response = _read_rcon_packet(sock)
+            if response_id != 2:
+                raise OSError("unexpected RCON response id")
+        return response
+
+
+def run_rcon_commands(
+    host: str,
+    port: int,
+    password: str,
+    commands: list[str],
+    timeout: float = RCON_TIMEOUT,
+) -> list[str]:
+    with socket.create_connection((host, port), timeout=timeout) as sock:
+        sock.settimeout(timeout)
+        sock.sendall(_rcon_packet(1, RCON_AUTH, password))
+        auth_id, _auth_type, _auth_payload = _read_rcon_packet(sock)
+        if auth_id == RCON_AUTH_FAIL:
+            raise PermissionError("RCON authentication failed")
+        responses: list[str] = []
+        next_request_id = 2
+        for command in commands:
+            sock.sendall(_rcon_packet(next_request_id, RCON_COMMAND, command))
+            response_id, _response_type, response = _read_rcon_packet(sock)
+            if response_id != next_request_id:
+                if response_id != 0:
+                    raise OSError(f"unexpected RCON response id for {command}: {response_id}")
+            responses.append(response)
+            next_request_id += 1
+        return responses
+
+
+def _clean_minecraft_output(text: str) -> str:
+    return re.sub(r"\u00a7.", "", text).strip()
+
+
+def _extract_locate_coordinates(text: str) -> tuple[int, int] | None:
+    clean = _clean_minecraft_output(text)
+    match = re.search(r"\b(-?\d+)\s*,\s*(?:~|~?-?\d+)\s*,\s*(-?\d+)\b", clean)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    match = re.search(r"\bat\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\b", clean)
+    if match:
+        return int(match.group(1)), int(match.group(3))
+    match = re.search(r"x:\s*(-?\d+).*y:\s*(-?\d+).*z:\s*(-?\d+)", clean)
+    if match:
+        return int(match.group(1)), int(match.group(3))
+    match = re.search(r"\[(-?\d+)\s*,\s*~\s*,\s*(-?\d+)\]", clean)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    match = re.search(r"(-?\d+)\s*,\s*(-?\d+)", clean)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def _forceload_region_for_origin(origin: tuple[int, int, int], radius_blocks: int = 96) -> tuple[int, int, int, int]:
+    ox, oy, oz = origin
+    min_x = ox - radius_blocks
+    min_z = oz - radius_blocks
+    max_x = ox + radius_blocks
+    max_z = oz + radius_blocks
+    min_chunk_x = min_x // 16
+    max_chunk_x = max_x // 16
+    min_chunk_z = min_z // 16
+    max_chunk_z = max_z // 16
+    return min_chunk_x, min_chunk_z, max_chunk_x, max_chunk_z
+
+
+def _block_distance(a: tuple[int, int, int], b: tuple[int, int, int]) -> float:
+    return (float((a[0] - b[0]) ** 2 + (a[2] - b[2]) ** 2)) ** 0.5
+
+
+def place_house_via_rcon(
+    server_dir: Path,
+    spawn: tuple[int, int, int],
+    origin: tuple[int, int, int],
+    rcon_port: int,
+) -> bool:
+    _, values = read_properties(server_dir / "server.properties")
+    if values.get("enable-rcon", "false").lower() != "true":
+        return False
+    password = values.get("rcon.password", "").strip()
+    if not password:
+        return False
+    sx, sy, sz = spawn
+    ox, oy, oz = origin
+    half = PLACEMENT_CLEAR_SIZE
+    min_x = ox - half
+    min_z = oz - half
+    max_x = ox + 56 + half
+    max_z = oz + 56 + half
+    floor_y = max(1, oy - 12)
+    ceil_y = oy + 70
+    min_chunk_x, min_chunk_z, max_chunk_x, max_chunk_z = _forceload_region_for_origin((ox, oy, oz), PLACEMENT_CLEAR_SIZE + 56)
+    commands = [
+        f"fill {min_x} {floor_y} {min_z} {max_x} {ceil_y} {max_z} air",
+        f"forceload add {min_chunk_x} {min_chunk_z} {max_chunk_x} {max_chunk_z}",
+        f"place template pummelchen:purple_house {ox} {oy} {oz}",
+        f"setworldspawn {sx} {sy} {sz}",
+        f"forceload remove {min_chunk_x} {min_chunk_z} {max_chunk_x} {max_chunk_z}",
+    ]
+    last_err: str | None = None
+    for attempt in range(1, 4):
+        try:
+            if not wait_for_rcon(rcon_port):
+                print(f"placement_via_rcon_error=RCON unavailable on port {rcon_port}")
+                return False
+            responses = run_rcon_commands(RCON_HOST, rcon_port, password, commands)
+        except Exception as exc:
+            last_err = f"{exc.__class__.__name__}: {exc}"
+            print(f"placement_via_rcon_error={last_err}")
+            return False
+        outputs = "".join(_clean_minecraft_output(r) for r in responses)
+        print(f"placement_via_rcon_outputs[{attempt}]={outputs or 'EMPTY'}")
+        if "not loaded" not in outputs.lower():
+            break
+        time.sleep(2)
+        outputs = ""
+    else:
+        if last_err:
+            print(f"placement_via_rcon_error_retries_exhausted={last_err}")
+        else:
+            print("placement_via_rcon_error_retries_exhausted=not_loaded")
+        return False
+
+    locate_output = _clean_minecraft_output(
+        rcon_command(RCON_HOST, rcon_port, password, "locate structure pummelchen:purple_house")
+    )
+    print(f"locate_after_rcon={locate_output}")
+    located = _extract_locate_coordinates(locate_output)
+    if located is None:
+        print("warning=locate_after_rcon_missing_coordinates")
+        return False
+
+    px, pz = located
+    distance = _block_distance((px, oy, pz), (ox, oy, oz))
+    print(f"placement_distance_blocks={distance:.2f}")
+    print(f"located_house={px} {pz}")
+    return True
 
 
 def active_world_name(server_dir: Path) -> str:
@@ -127,9 +386,7 @@ def datapack_sources(project_dir: Path, server_dir: Path) -> list[Path]:
     candidates = []
     for root in (project_dir / "server-datapacks", server_dir / "server-datapacks"):
         if root.exists():
-            candidates.extend(
-                sorted(path for path in root.iterdir() if path.is_file() and path.suffix == ".zip")
-            )
+            candidates.extend(sorted(path for path in root.iterdir() if path.is_file() and path.suffix == ".zip"))
     deduped: dict[str, Path] = {}
     for path in candidates:
         deduped[path.name] = path
@@ -150,21 +407,159 @@ def write_zip(path: Path, files: dict[str, bytes]) -> None:
     tmp.replace(path)
 
 
+def _read_string(payload: bytes, offset: int) -> tuple[str, int]:
+    size = struct.unpack_from(">H", payload, offset)[0]
+    offset += 2
+    end = offset + size
+    value = payload[offset:end].decode("utf-8", errors="replace")
+    return value, end
+
+
+def _parse_payload(payload: bytes, offset: int, tag: int) -> tuple[object, int]:
+    if tag == TAG_END:
+        return None, offset
+    if tag == TAG_BYTE:
+        return struct.unpack_from(">b", payload, offset)[0], offset + 1
+    if tag == TAG_SHORT:
+        return struct.unpack_from(">h", payload, offset)[0], offset + 2
+    if tag == TAG_INT:
+        return struct.unpack_from(">i", payload, offset)[0], offset + 4
+    if tag == TAG_LONG:
+        return struct.unpack_from(">q", payload, offset)[0], offset + 8
+    if tag == TAG_FLOAT:
+        return struct.unpack_from(">f", payload, offset)[0], offset + 4
+    if tag == TAG_DOUBLE:
+        return struct.unpack_from(">d", payload, offset)[0], offset + 8
+    if tag == TAG_BYTE_ARRAY:
+        count = struct.unpack_from(">i", payload, offset)[0]
+        offset += 4
+        return payload[offset : offset + count], offset + count
+    if tag == TAG_STRING:
+        value, offset = _read_string(payload, offset)
+        return value, offset
+    if tag == TAG_LIST:
+        element_tag = payload[offset]
+        offset += 1
+        count = struct.unpack_from(">i", payload, offset)[0]
+        offset += 4
+        items: list[object] = []
+        for _ in range(count):
+            item, offset = _parse_payload(payload, offset, element_tag)
+            items.append(item)
+        return items, offset
+    if tag == TAG_COMPOUND:
+        compound: dict[str, object] = {}
+        while True:
+            child_tag = payload[offset]
+            offset += 1
+            if child_tag == TAG_END:
+                return compound, offset
+            name, offset = _read_string(payload, offset)
+            value, offset = _parse_payload(payload, offset, child_tag)
+            compound[name] = value
+    if tag == TAG_INT_ARRAY:
+        count = struct.unpack_from(">i", payload, offset)[0]
+        return [struct.unpack_from(">i", payload, offset + 4 + i * 4)[0] for i in range(count)], offset + 4 + count * 4
+    if tag == TAG_LONG_ARRAY:
+        count = struct.unpack_from(">i", payload, offset)[0]
+        values = []
+        cursor = offset + 4
+        for _ in range(count):
+            values.append(struct.unpack_from(">q", payload, cursor)[0])
+            cursor += 8
+        return values, cursor
+    raise TypeError(f"unsupported nbt tag {tag}")
+
+
+def _read_level_root(payload: bytes) -> dict[str, object]:
+    if not payload:
+        return {}
+    if payload[0] != TAG_COMPOUND:
+        return {}
+    # Skip root tag (1 byte), name length + name
+    _, name_end = _read_string(payload, 1)
+    root, _cursor = _parse_payload(payload, name_end, TAG_COMPOUND)
+    if not isinstance(root, dict):
+        return {}
+    return root
+
+
+def read_level_spawn(world_dir: Path) -> tuple[int, int, int] | None:
+    level_dat = world_dir / "level.dat"
+    if not level_dat.exists():
+        return None
+    try:
+        raw = level_dat.read_bytes()
+    except OSError:
+        return None
+    try:
+        payload = gzip.decompress(raw)
+    except OSError:
+        payload = raw
+    root = _read_level_root(payload)
+    data = root.get("Data")
+    if not isinstance(data, dict):
+        return None
+    sx = data.get("SpawnX")
+    sy = data.get("SpawnY")
+    sz = data.get("SpawnZ")
+    if isinstance(sx, int) and isinstance(sy, int) and isinstance(sz, int):
+        return (sx, sy, sz)
+    spawn_entry = data.get("spawn")
+    if isinstance(spawn_entry, dict):
+        spawn_pos = spawn_entry.get("pos")
+        if (
+            isinstance(spawn_pos, list)
+            and len(spawn_pos) == 3
+            and all(isinstance(v, int) for v in spawn_pos)
+        ):
+            return int(spawn_pos[0]), int(spawn_pos[1]), int(spawn_pos[2])
+    return None
+
+
 def placement_pack(origin: tuple[int, int, int], spawn: tuple[int, int, int]) -> dict[str, bytes]:
     ox, oy, oz = origin
     sx, sy, sz = spawn
-    function_body = "\n".join(
-        [
-            "scoreboard objectives add pummelchen_ops dummy",
-            "scoreboard players set #place_success pummelchen_ops 0",
-            "execute unless score #purple_house pummelchen_ops matches 1 "
-            "store success score #place_success pummelchen_ops "
-            f"run place structure pummelchen:purple_house {ox} {oy} {oz}",
-            f"execute if score #place_success pummelchen_ops matches 1 run setworldspawn {sx} {sy} {sz}",
-            "execute if score #place_success pummelchen_ops matches 1 run scoreboard players set #purple_house pummelchen_ops 1",
-            "",
-        ]
-    ).encode("utf-8")
+    half = PLACEMENT_CLEAR_SIZE
+    min_x = ox - half
+    min_z = oz - half
+    max_x = ox + 56 + half
+    max_z = oz + 56 + half
+    floor_y = oy - 12
+    ceil_y = oy + 70
+    min_chunk_x, min_chunk_z, max_chunk_x, max_chunk_z = _forceload_region_for_origin(
+        (ox, oy, oz), PLACEMENT_CLEAR_SIZE + 56
+    )
+    clear_command = f"fill {min_x} {floor_y} {min_z} {max_x} {ceil_y} {max_z} air"
+    lines = [
+        "scoreboard objectives add pummelchen_ops dummy",
+        f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
+        "run scoreboard players add ph_house_attempt pummelchen_ops 1",
+        f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
+        f"if score ph_house_attempt pummelchen_ops matches 1 run {clear_command}",
+        f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
+        f"run forceload add {min_chunk_x} {min_chunk_z} {max_chunk_x} {max_chunk_z}",
+        f"execute if score {PLACEMENT_STATE_SCORE} pummelchen_ops matches 0 "
+        f"if score ph_house_attempt pummelchen_ops matches 2.. "
+        f"store success score {PLACEMENT_STATUS_SCORE} pummelchen_ops "
+        f"run place template pummelchen:purple_house {ox} {oy} {oz}",
+        f"execute if score {PLACEMENT_STATUS_SCORE} pummelchen_ops matches 1 "
+        f"run setworldspawn {sx} {sy} {sz}",
+        f"execute if score {PLACEMENT_STATUS_SCORE} pummelchen_ops matches 1 "
+        f"run forceload remove {min_chunk_x} {min_chunk_z} {max_chunk_x} {max_chunk_z}",
+        f"execute if score {PLACEMENT_STATUS_SCORE} pummelchen_ops matches 1 "
+        f"run scoreboard players set {PLACEMENT_STATE_SCORE} pummelchen_ops 1",
+        "execute if score ph_house_status pummelchen_ops matches 1 "
+        "run say [PUMMELCHEN] Purple House placed and world spawn updated.",
+        "execute if score ph_house_status pummelchen_ops matches 0 "
+        "run execute if score ph_house_attempt pummelchen_ops matches 120.. "
+        "run say [PUMMELCHEN] Purple House placement skipped after retry limit.",
+        "execute if score ph_house_status pummelchen_ops matches 0 "
+        "run execute if score ph_house_attempt pummelchen_ops matches 120.. "
+        f"run scoreboard players set {PLACEMENT_STATE_SCORE} pummelchen_ops 1",
+        "",
+    ]
+    function_body = "\n".join(lines).encode("utf-8")
     load_tag = b'{"replace":false,"values":["pummelchen_ops:place_purple_house"]}\n'
     return {
         "pack.mcmeta": (
@@ -185,20 +580,22 @@ def install_datapacks(
     project_dir: Path,
     server_dir: Path,
     world_dir: Path,
+    install_place_pack: bool,
     origin: tuple[int, int, int],
     spawn: tuple[int, int, int],
 ) -> int:
     changed = 0
     server_datapacks = server_dir / "server-datapacks"
     world_datapacks = world_dir / "datapacks"
+    world_datapacks.mkdir(parents=True, exist_ok=True)
     for source in datapack_sources(project_dir, server_dir):
         if copy_if_changed(source, server_datapacks / source.name):
             changed += 1
         if copy_if_changed(source, world_datapacks / source.name):
             changed += 1
-    place_pack = world_datapacks / PLACE_PACK_ZIP
-    write_zip(place_pack, placement_pack(origin, spawn))
-    changed += 1
+    if install_place_pack:
+        write_zip(world_datapacks / PLACE_PACK_ZIP, placement_pack(origin, spawn))
+        changed += 1
     return changed
 
 
@@ -214,6 +611,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--spawn-x", type=int, default=0)
     parser.add_argument("--spawn-y", type=int, default=83)
     parser.add_argument("--spawn-z", type=int, default=18)
+    parser.add_argument("--place-offset-x", type=int, default=0)
+    parser.add_argument("--place-offset-y", type=int, default=0)
+    parser.add_argument("--place-offset-z", type=int, default=0)
+    parser.add_argument("--rcon-port", type=int, default=25575)
+    parser.add_argument("--auto-place", action="store_true", help="rebuild datapack after spawn detection")
+    parser.add_argument("--auto-phase-timeout", type=int, default=DEFAULT_BOOT_WAIT)
     parser.add_argument("--wait-timeout", type=int, default=180)
     parser.add_argument("--no-restart", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -226,33 +629,92 @@ def main() -> int:
     if not args.yes:
         print("ERROR destructive reset requires --yes", file=sys.stderr)
         return 2
+
     server_dir = args.server_dir
     world_name = active_world_name(server_dir)
     world_dir = server_dir / world_name
     seed = str(args.seed).strip() or str(secrets.randbelow(2**63))
-    origin = (args.origin_x, args.origin_y, args.origin_z)
     spawn = (args.spawn_x, args.spawn_y, args.spawn_z)
+    origin = (args.origin_x, args.origin_y, args.origin_z)
 
     print(f"world_name={world_name}")
     print(f"world_seed={seed}")
     print(f"purple_house_origin={origin[0]},{origin[1]},{origin[2]}")
     print(f"spawn={spawn[0]},{spawn[1]},{spawn[2]}")
+    print(f"auto_place={int(args.auto_place)}")
+    print(f"auto_phase_timeout={args.auto_phase_timeout}")
+    print(f"rcon_port={args.rcon_port}")
 
     if not args.no_restart:
         stop_service(args.service, args.dry_run)
     backup = backup_world(world_dir, server_dir / "world-reset-backups", args.dry_run)
     print(f"world_backup={backup or ''}")
-    if not args.dry_run:
-        write_properties(server_dir / "server.properties", {"level-name": world_name, "level-seed": seed})
-        changed = install_datapacks(args.project_dir, server_dir, world_dir, origin, spawn)
-        print(f"datapacks_changed={changed}")
-    else:
+
+    if args.dry_run:
         print("DRY-RUN write server.properties level-seed and placement datapack")
-    started_at = time.time()
+        print(f"world_dir={world_dir}")
+        return 0
+
+    write_properties(server_dir / "server.properties", {"level-name": world_name, "level-seed": seed})
+
+    if args.auto_place:
+        # bootstrap world once, detect generated spawn, then place house with RCON.
+        if args.no_restart:
+            print("warning=auto_place_requires_restart; skipping placement")
+            changed = install_datapacks(args.project_dir, server_dir, world_dir, install_place_pack=True, origin=origin, spawn=spawn)
+            print(f"datapacks_changed={changed}")
+        else:
+            install_datapacks(args.project_dir, server_dir, world_dir, install_place_pack=False, origin=origin, spawn=spawn)
+            started_at = time.time()
+            start_service(args.service, args.dry_run)
+            first_done = False if args.dry_run else wait_for_done(args.service, started_at, args.auto_phase_timeout)
+            print(f"world_boot_done={int(first_done)}")
+            stop_service(args.service, args.dry_run)
+
+            detected = read_level_spawn(world_dir)
+            if detected is None:
+                print("warning=detected_spawn_missing_falling_back_to_arguments")
+                detected = spawn
+            else:
+                print(f"detected_spawn={detected[0]},{detected[1]},{detected[2]}")
+            sx, sy, sz = detected
+            spawn = (sx, sy, sz)
+            origin = (sx + args.place_offset_x, sy + args.place_offset_y, sz + args.place_offset_z)
+            print(f"placement_origin={origin[0]},{origin[1]},{origin[2]}")
+            print(f"placement_spawn={spawn[0]},{spawn[1]},{spawn[2]}")
+
+            # Keep original server.properties safe to restore after bootstrap.
+            props_path = server_dir / "server.properties"
+            restored_contents, changed_rcon, rcon_port = ensure_rcon_enabled(props_path, args.rcon_port, args.dry_run)
+            placement_ok = False
+            start_service(args.service, args.dry_run)
+            second_done = False if args.dry_run else wait_for_done(args.service, time.time(), args.auto_phase_timeout)
+            print(f"bootstrap_rcon_boot={int(second_done)}")
+            placement_ok = place_house_via_rcon(server_dir, spawn, origin, rcon_port) if not args.dry_run else False
+
+            # Restore RCON settings to avoid leaving temporary credentials behind.
+            if changed_rcon:
+                stop_service(args.service, args.dry_run)
+                restore_file(props_path, restored_contents)
+
+            if not placement_ok:
+                print("warning=placement_via_rcon_failed_falling_back_to_datapack")
+                changed = install_datapacks(args.project_dir, server_dir, world_dir, install_place_pack=True, origin=origin, spawn=spawn)
+                print(f"datapacks_changed={changed}")
+            else:
+                print("placement_via_rcon_success=1")
+                changed = install_datapacks(args.project_dir, server_dir, world_dir, install_place_pack=False, origin=origin, spawn=spawn)
+                print(f"datapacks_changed={changed}")
+    else:
+        changed = install_datapacks(args.project_dir, server_dir, world_dir, install_place_pack=True, origin=origin, spawn=spawn)
+        print(f"datapacks_changed={changed}")
+
     if not args.no_restart:
+        started_at = time.time()
         start_service(args.service, args.dry_run)
         done = False if args.dry_run else wait_for_done(args.service, started_at, args.wait_timeout)
         print(f"server_done_seen={int(done)}")
+
     print(f"world_dir={world_dir}")
     return 0
 
