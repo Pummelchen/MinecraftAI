@@ -51,47 +51,85 @@ while IFS= read -r path; do
 done < <(find "$ROOT_DIR/scripts" "$ROOT_DIR/client-package" "$ROOT_DIR/client-installer" -type f \( -name '*.sh' -o -name '*.command' \) | sort)
 
 log "Custom server datapacks"
-"$PYTHON_BIN" "$ROOT_DIR/scripts/build_purple_house_datapack.py" --check
+CUSTOM_DATAPACK_COUNT="$($PYTHON_BIN - "$ROOT_DIR/server-datapacks-src/custom_datapacks.json" <<'PY'
+import json
+import sys
+
+payload = json.loads(open(sys.argv[1], encoding="utf-8").read())
+print(len(payload.get("datapacks", [])))
+PY
+)"
+HAS_PURPLE_HOUSE="$($PYTHON_BIN - "$ROOT_DIR/server-datapacks-src/custom_datapacks.json" <<'PY'
+import json
+import sys
+
+payload = json.loads(open(sys.argv[1], encoding="utf-8").read())
+print("1" if any(
+    item.get("canonical_key") == "pummelchen-purple-house" for item in payload.get("datapacks", [])
+) else "0")
+PY
+)"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/sync_custom_datapacks.py" --project-dir "$ROOT_DIR" --check
 log "Project-owned custom mods"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/sync_pummelchen_mods.py" --db "$TMP_DIR/pummelchen-mods.sqlite" --server-dir "$TMP_DIR/project-mods-server" --mods-dir "$ROOT_DIR/Pummelchen_Mods" --check
-CUSTOM_DATAPACKS_SERVER="$TMP_DIR/custom-datapacks-server"
-mkdir -p "$CUSTOM_DATAPACKS_SERVER"
-printf 'level-name=custom-live-world\n' > "$CUSTOM_DATAPACKS_SERVER/server.properties"
-CUSTOM_DATAPACKS_OUTPUT="$("$PYTHON_BIN" "$ROOT_DIR/scripts/sync_custom_datapacks.py" \
-  --db "$TMP_DIR/custom-datapacks.sqlite" \
-  --project-dir "$ROOT_DIR" \
-  --server-dir "$CUSTOM_DATAPACKS_SERVER")"
-printf '%s\n' "$CUSTOM_DATAPACKS_OUTPUT" | grep -q 'custom_datapacks_changed=2' \
-  || fail "custom datapack sync did not install into server and active world"
-[ -f "$CUSTOM_DATAPACKS_SERVER/server-datapacks/pummelchen-purple-house.zip" ] \
-  || fail "custom datapack was not copied to server-datapacks"
-[ -f "$CUSTOM_DATAPACKS_SERVER/custom-live-world/datapacks/pummelchen-purple-house.zip" ] \
-  || fail "custom datapack was not copied to active level-name datapacks folder"
-RESET_WORLD_SERVER="$TMP_DIR/reset-world-server"
-mkdir -p "$RESET_WORLD_SERVER/custom-live-world/region"
-printf 'level-name=custom-live-world\nlevel-seed=old-seed\n' > "$RESET_WORLD_SERVER/server.properties"
-printf 'old-region\n' > "$RESET_WORLD_SERVER/custom-live-world/region/r.0.0.mca"
-RESET_WORLD_OUTPUT="$("$PYTHON_BIN" "$ROOT_DIR/scripts/reset_world_for_purple_house.py" \
-  --project-dir "$ROOT_DIR" \
-  --server-dir "$RESET_WORLD_SERVER" \
-  --seed 123456789 \
-  --no-restart \
-  --yes)"
-printf '%s\n' "$RESET_WORLD_OUTPUT" | grep -q 'world_seed=123456789' \
-  || fail "world reset did not report requested seed"
-grep -q '^level-seed=123456789$' "$RESET_WORLD_SERVER/server.properties" \
-  || fail "world reset did not write new level seed"
-[ -d "$RESET_WORLD_SERVER/world-reset-backups" ] \
-  || fail "world reset did not create backup root"
-[ ! -f "$RESET_WORLD_SERVER/custom-live-world/region/r.0.0.mca" ] \
-  || fail "world reset did not replace old world regions"
-[ -f "$RESET_WORLD_SERVER/custom-live-world/datapacks/pummelchen-purple-house.zip" ] \
-  || fail "world reset did not install Purple House datapack"
-[ -f "$RESET_WORLD_SERVER/custom-live-world/datapacks/pummelchen-place-purple-house.zip" ] \
-  || fail "world reset did not install placement datapack"
-"$PYTHON_BIN" - "$RESET_WORLD_SERVER/custom-live-world/datapacks/pummelchen-place-purple-house.zip" <<'PY' \
-  || fail "world reset placement function does not guard placement success"
+
+if [ "$CUSTOM_DATAPACK_COUNT" -eq 0 ]; then
+  log "No project-owned custom datapacks configured"
+else
+  if [ "$HAS_PURPLE_HOUSE" = "1" ]; then
+    "$PYTHON_BIN" "$ROOT_DIR/scripts/build_purple_house_datapack.py" --check
+  fi
+  CUSTOM_DATAPACKS_SERVER="$TMP_DIR/custom-datapacks-server"
+  mkdir -p "$CUSTOM_DATAPACKS_SERVER"
+  printf 'level-name=custom-live-world\n' > "$CUSTOM_DATAPACKS_SERVER/server.properties"
+  CUSTOM_DATAPACKS_OUTPUT="$("$PYTHON_BIN" "$ROOT_DIR/scripts/sync_custom_datapacks.py" \
+    --db "$TMP_DIR/custom-datapacks.sqlite" \
+    --project-dir "$ROOT_DIR" \
+    --server-dir "$CUSTOM_DATAPACKS_SERVER")"
+  EXPECTED_CHANGED=$((CUSTOM_DATAPACK_COUNT * 2))
+  printf '%s\n' "$CUSTOM_DATAPACKS_OUTPUT" | grep -q "custom_datapacks_changed=$EXPECTED_CHANGED" \
+    || fail "custom datapack sync did not install into server and active world"
+
+  CUSTOM_DATAPACK_FILES="$($PYTHON_BIN - "$ROOT_DIR/server-datapacks-src/custom_datapacks.json" <<'PY'
+import json
+import sys
+
+payload = json.loads(open(sys.argv[1], encoding="utf-8").read())
+for item in payload.get("datapacks", []):
+    print(item["file_name"])
+PY
+)"
+  for file_name in $CUSTOM_DATAPACK_FILES; do
+    [ -f "$CUSTOM_DATAPACKS_SERVER/server-datapacks/$file_name" ] \
+      || fail "custom datapack was not copied to server-datapacks ($file_name)"
+    [ -f "$CUSTOM_DATAPACKS_SERVER/custom-live-world/datapacks/$file_name" ] \
+      || fail "custom datapack was not copied to active level-name datapacks folder ($file_name)"
+  done
+
+  if [ "$HAS_PURPLE_HOUSE" = "1" ]; then
+    RESET_WORLD_SERVER="$TMP_DIR/reset-world-server"
+    mkdir -p "$RESET_WORLD_SERVER/custom-live-world/region"
+    printf 'level-name=custom-live-world\nlevel-seed=old-seed\n' > "$RESET_WORLD_SERVER/server.properties"
+    printf 'old-region\n' > "$RESET_WORLD_SERVER/custom-live-world/region/r.0.0.mca"
+    RESET_WORLD_OUTPUT="$("$PYTHON_BIN" "$ROOT_DIR/scripts/reset_world_for_purple_house.py" \
+      --project-dir "$ROOT_DIR" \
+      --server-dir "$RESET_WORLD_SERVER" \
+      --seed 123456789 \
+      --no-restart \
+      --yes)"
+    printf '%s\n' "$RESET_WORLD_OUTPUT" | grep -q 'world_seed=123456789' \
+      || fail "world reset did not report requested seed"
+    grep -q '^level-seed=123456789$' "$RESET_WORLD_SERVER/server.properties" \
+      || fail "world reset did not write new level seed"
+    [ -d "$RESET_WORLD_SERVER/world-reset-backups" ] \
+      || fail "world reset did not create backup root"
+    [ ! -f "$RESET_WORLD_SERVER/custom-live-world/region/r.0.0.mca" ] \
+      || fail "world reset did not replace old world regions"
+    [ -f "$RESET_WORLD_SERVER/custom-live-world/datapacks/pummelchen-purple-house.zip" ] \
+      || fail "world reset did not install Purple House datapack"
+    [ -f "$RESET_WORLD_SERVER/custom-live-world/datapacks/pummelchen-place-purple-house.zip" ] \
+      || fail "world reset did not install placement datapack"
+    "$PYTHON_BIN" - "$RESET_WORLD_SERVER/custom-live-world/datapacks/pummelchen-place-purple-house.zip" <<'PY'
 import sys
 import zipfile
 
@@ -114,6 +152,8 @@ assert "pummelchen_ops:place_purple_house" in tick
 assert "pummelchen_ops:init_purple_house" in load
 assert "ph_house_status" in body
 PY
+  fi
+fi
 
 log "Server config overrides"
 CONFIG_SOURCE="$TMP_DIR/config-overrides"

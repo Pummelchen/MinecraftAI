@@ -243,17 +243,11 @@ notes:
 
 ## Custom Server Datapacks
 
-- `Purple House` is a project-owned datapack registered through
-  `server-datapacks-src/custom_datapacks.json` and synchronized to
-  `server-datapacks/pummelchen-purple-house.zip` by `sync_custom_datapacks.py`.
-- Build flow for this pack is staged and local:
-  - `exterior` places the shell/outer build first.
-  - `interior` places rooms and finishing details second.
-  - `complete` runs both stages.
-- This package is targeted for **Minecraft Java 26.1.2** and uses namespace
-  `purple_house`. It includes an `erase` function for cleanup.
-- See `docs/PURPLE_HOUSE.md` and `docs/Purple_House_build_guide.md` for current
-  usage and build staging notes.
+- Project-owned custom datapacks are registered in
+  `server-datapacks-src/custom_datapacks.json` and synchronized to the server by
+  `sync_custom_datapacks.py`.
+- The custom-datapack registry is currently empty; add entries there when future
+  project-owned datapacks should be deployed.
 
 ## Latest Batch Notes
 

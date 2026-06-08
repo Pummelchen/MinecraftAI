@@ -1,21 +1,3 @@
 {
-  "datapacks": [
-    {
-      "canonical_key": "pummelchen-purple-house",
-      "category": "Custom Datapacks",
-      "entry_type": "Datapack",
-      "file_name": "pummelchen-purple-house.zip",
-      "installation": "Server",
-      "last_tested": "2026-06-08",
-      "name": "Purple House",
-      "notes": "Staged vanilla build datapack for Minecraft Java 26.1.2. Use exterior + interior functions for deterministic house placement at your current coordinates.",
-      "notes_1": "Functions are in namespace `purple_house` with duplicate `function`/`functions` paths for compatibility: `/function purple_house:exterior` then `/function purple_house:interior` (or `/function purple_house:complete`).",
-      "notes_2": "Includes an `/function purple_house:erase` cleanup helper. No worldgen random-spread placement data is included in this package.",
-      "original_sheet_row": 0,
-      "source_kind": "local",
-      "source_url": "local://server-datapacks/pummelchen-purple-house.zip",
-      "target_mc": "Minecraft Java 26.1.2 (datapack format 101.1)",
-      "test_label": "custom_purple_house_datapack"
-    }
-  ]
+  "datapacks": []
 }
