@@ -833,6 +833,9 @@ def apply_server_update(
     server_section = server_section_for(mod, project, file_info)
     server_datapack = server_section == "server-datapacks"
     if not server_datapack:
+        # Release any pending write transaction so the lab subprocess can
+        # acquire its own write lock (e.g. for init_db / schema_info).
+        conn.commit()
         try:
             isolated_ok, isolated_status, isolated_severe, isolated_log_path = processor.run_isolated_acceptance_test(
                 label,
@@ -862,7 +865,7 @@ def apply_server_update(
                 log_path=isolated_log_path,
                 visible=False,
                 notes="Rejected before live install by isolated acceptance lab: "
-                + (" | ".join(isolated_severe[:3]) if isolated_severe else f"status={isolated_status}"),
+                + (" | ".join(isolated_severe[-5:]) if isolated_severe else f"status={isolated_status}"),
             )
             processor.insert_test_run(
                 conn,

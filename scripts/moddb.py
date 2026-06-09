@@ -891,11 +891,12 @@ def error_count_from_notes(notes: str) -> int | None:
     return None
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
+def connect(db_path: Path, *, timeout: float = 30.0) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=timeout)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 

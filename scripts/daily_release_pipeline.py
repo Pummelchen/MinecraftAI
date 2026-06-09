@@ -135,7 +135,7 @@ def parse_metric(output: str, metric: str, default: int = 0) -> int:
 
 
 def sqlite_row(db: Path, query: str, params: Sequence[object] = ()) -> sqlite3.Row | None:
-    conn = sqlite3.connect(db)
+    conn = sqlite3.connect(db, timeout=30.0)
     conn.row_factory = sqlite3.Row
     try:
         return conn.execute(query, params).fetchone()

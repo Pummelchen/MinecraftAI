@@ -10,3 +10,4 @@ entity-broadcast-range-percentage=75
 rcon.port=25575
 rcon.password=codex-temp-pass
 enable-rcon=true
+white-list=false

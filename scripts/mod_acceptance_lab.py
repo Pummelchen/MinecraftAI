@@ -312,7 +312,8 @@ def split_db_file_names(value: str) -> list[str]:
 def db_file_map(conn: sqlite3.Connection) -> dict[str, sqlite3.Row]:
     rows = conn.execute(
         """
-        SELECT m.id AS mod_id, m.name, m.primary_url, msf.file_name, msf.source_url
+        SELECT m.id AS mod_id, m.name, m.primary_url, m.active_status,
+               msf.file_name, msf.source_url
         FROM mod_server_files msf
         JOIN mods m ON m.id = msf.mod_id
         WHERE msf.selected = 1
@@ -369,7 +370,15 @@ def active_server_jars(
             if key in seen:
                 continue
             seen.add(key)
-            jars.append(build_mod_jar(path, mapped.get(key)))
+            entry = mapped.get(key)
+            # Skip jars whose DB status is not 'ok' (e.g. skipped, failed).
+            # These should not be in the live mods/ directory, but if they
+            # are (orphaned from a previous failed install), including them
+            # in the test pool would contaminate all acceptance tests via
+            # the random context or dependency closure.
+            if entry and str(entry["active_status"] or "") not in ("", "ok"):
+                continue
+            jars.append(build_mod_jar(path, entry))
     return jars
 
 

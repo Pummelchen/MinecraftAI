@@ -764,6 +764,12 @@ def run_isolated_acceptance_test(label: str, files: Sequence[Path], db_path: Pat
             for line in proc.stdout.split("--- severe errors ---", 1)[1].splitlines()
             if line.strip()
         ][:20]
+    elif proc.returncode != 0 and not status_match:
+        # Subprocess crashed before producing status output.
+        # Capture the last lines (traceback) for diagnostics.
+        all_lines = [line for line in proc.stdout.splitlines() if line.strip()]
+        severe = all_lines[-20:] if len(all_lines) > 20 else all_lines
+        severe = severe or [f"subprocess exit {proc.returncode} with no output"]
     ok = proc.returncode == 0 and status == "passed"
     return ok, status, severe, log_path
 
