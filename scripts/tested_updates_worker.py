@@ -535,7 +535,7 @@ def build_from_pack_releases(conn: sqlite3.Connection, cutoff: dt.datetime) -> l
             "tested_at_display": format_display_time(created_at),
             "old_file": None,
             "new_file": None,
-            "source_url": "",
+            "source_url": f"/downloads/releases/{row['release_id']}/report.html",
             "test_label": row["release_id"],
             "notes": row["notes"] or "New immutable release activated",
             "mod_id": None,

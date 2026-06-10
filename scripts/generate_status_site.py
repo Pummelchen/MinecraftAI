@@ -35,6 +35,7 @@ INSTALLER_NAME = "install-pummelchen.command"
 CLIENT_DMG_NAME = "Pummelchen-Client-Installer.dmg"
 CLIENT_SYNC_MANIFEST_NAME = "client-sync-manifest.tsv"
 CLIENT_FILES_DIR_NAME = "client-files"
+RELEASE_REPORT_FILE = "report.html"
 UPDATE_LOG_DAYS = 7
 HERO_IMAGE_NAME = "pummelchen-hero.png"
 
@@ -457,6 +458,352 @@ def safe_external_url(value: Any) -> str:
     return url
 
 
+def is_local_url(value: Any) -> bool:
+    target = str(value or "").strip()
+    if not target:
+        return False
+    return target.startswith("/")
+
+
+def update_title_link(href: Any, title: str) -> str:
+    target = str(href or "").strip()
+    if not target:
+        return title
+    if is_local_url(target):
+        return f'<a href="{escape(target)}">{title}</a>'
+    homepage_url = safe_external_url(target)
+    if not homepage_url:
+        return title
+    return (
+        f'<a href="{escape(homepage_url)}" target="_blank" rel="noopener noreferrer">{title}</a>'
+    )
+
+
+def parse_release_manifest(manifest_path: Path) -> dict[str, set[str]]:
+    manifest_rows: dict[str, set[str]] = {}
+    if not manifest_path.exists():
+        return manifest_rows
+    try:
+        for line in manifest_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("\t")
+            if len(parts) < 2:
+                continue
+            role = parts[0].strip()
+            rel = parts[1].strip()
+            if not role or not rel or rel == "relative_path":
+                continue
+            manifest_rows.setdefault(role, set()).add(rel)
+    except Exception:
+        return {}
+    return manifest_rows
+
+
+def gather_release_file_sets(release_dir: Path | None) -> dict[str, set[str]]:
+    if not release_dir:
+        return {
+            "server_mod": set(),
+            "server_datapack": set(),
+            "client_mods": set(),
+            "client_resourcepacks": set(),
+            "client_shaderpacks": set(),
+            "client_tools": set(),
+        }
+    release_path = Path(release_dir)
+    files = parse_release_manifest(release_path / "manifests" / "server-files.tsv")
+    files.update(parse_release_manifest(release_path / "manifests" / "client-package.tsv"))
+    return {
+        "server_mod": files.get("server_mod", set()),
+        "server_datapack": files.get("server_datapack", set()),
+        "client_mods": files.get("client_mods", set()),
+        "client_resourcepacks": files.get("client_resourcepacks", set()),
+        "client_shaderpacks": files.get("client_shaderpacks", set()),
+        "client_tools": files.get("client_tools", set()),
+    }
+
+
+def read_changelog_text(path_value: Any) -> str:
+    if not path_value:
+        return ""
+    path = Path(path_value)
+    if not path.exists():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace").strip()
+    except Exception:
+        return ""
+
+
+def release_test_stats(conn: sqlite3.Connection, release_start: str | None, release_end: str | None) -> dict[str, int]:
+    if not release_end:
+        release_end = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    if not release_start:
+        return {"total": 0, "passed": 0, "failed": 0}
+    row = conn.execute(
+        """
+        SELECT
+            COALESCE(SUM(CASE WHEN status='applied' THEN 1 ELSE 0 END), 0) AS passed,
+            COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END), 0) AS failed,
+            COALESCE(SUM(CASE WHEN status IN ('applied', 'failed') THEN 1 ELSE 0 END), 0) AS total
+        FROM update_events
+        WHERE tested_at >= ? AND tested_at <= ?
+          AND status IN ('applied', 'failed')
+        """,
+        (release_start, release_end),
+    ).fetchone()
+    if not row:
+        return {"total": 0, "passed": 0, "failed": 0}
+    return {
+        "passed": int(row["passed"]),
+        "failed": int(row["failed"]),
+        "total": int(row["total"]),
+    }
+
+
+def render_release_report_page(
+    release_id: str,
+    *,
+    created_at: str,
+    activated_at: str,
+    notes: str,
+    changelog: str,
+    minecraft_version: str,
+    loader_version: str,
+    status: str,
+    server_mod_count: int,
+    client_mod_count: int,
+    server_datapack_count: int,
+    client_resourcepack_count: int,
+    client_shaderpack_count: int,
+    client_tool_count: int,
+    added_server_mods: list[str],
+    removed_server_mods: list[str],
+    added_client_mods: list[str],
+    removed_client_mods: list[str],
+    test_totals: dict[str, int],
+    public_url: str,
+) -> str:
+    public_base = public_url.rstrip("/")
+    release_download_base = f"{public_base}/downloads/releases/{escape(release_id)}"
+    top_added_server = _render_file_list(added_server_mods, f"{len(added_server_mods)} added server mods")
+    top_removed_server = _render_file_list(removed_server_mods, f"{len(removed_server_mods)} removed server mods")
+    top_added_client = _render_file_list(added_client_mods, f"{len(added_client_mods)} added client mods")
+    top_removed_client = _render_file_list(removed_client_mods, f"{len(removed_client_mods)} removed client mods")
+    test_total = int(test_totals.get("total", 0) or 0)
+    test_passed = int(test_totals.get("passed", 0) or 0)
+    test_failed = int(test_totals.get("failed", 0) or 0)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Release report: {escape(release_id)}</title>
+  <style>
+    :root {{
+      --bg: #000000;
+      --ink: #f4f7f2;
+      --muted: #a5afa6;
+      --line: #273127;
+      --panel: #0b0f0c;
+      --green: #7ed99a;
+      --blue: #8fc7ff;
+    }}
+    body {{
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 20px;
+    }}
+    .wrap {{
+      max-width: 920px;
+      margin: 0 auto;
+    }}
+    h1 {{ margin: 0 0 12px; }}
+    .subtitle {{ color: var(--muted); margin: 0 0 18px; }}
+    .panel {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }}
+    .panel h2 {{ margin: 0 0 10px; }}
+    .stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }}
+    .stat-card {{ background: #081108; border: 1px solid #1f3a25; border-radius: 6px; padding: 10px; }}
+    .stat-label {{ color: var(--muted); font-size: 12px; }}
+    .stat-value {{ font-size: 19px; margin-top: 4px; }}
+    ul {{ margin-top: 8px; padding-left: 18px; }}
+    li {{ margin: 4px 0; }}
+    .links a {{ color: var(--blue); text-decoration: none; }}
+    .links a:hover {{ text-decoration: underline; }}
+    .small {{ color: var(--muted); font-size: 12px; }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Release report: {escape(release_id)}</h1>
+    <p class="subtitle">Auto-generated summary from tracker database and release manifests.</p>
+    <section class="panel">
+      <h2>Overview</h2>
+      <div class="stats">
+        <div class="stat-card">
+          <div class="stat-label">Created</div>
+          <div class="stat-value">{escape(created_at or "n/a")}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Activated</div>
+          <div class="stat-value">{escape(activated_at or "n/a")}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Status</div>
+          <div class="stat-value">{escape(status or "n/a")}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Minecraft</div>
+          <div class="stat-value">{escape(minecraft_version or "n/a")}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Loader</div>
+          <div class="stat-value">{escape(loader_version or "n/a")}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Tests</div>
+          <div class="stat-value">{escape(str(test_total))}</div>
+          <div class="small">Passed: {escape(str(test_passed))} · Failed: {escape(str(test_failed))}</div>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>File counts</h2>
+      <ul>
+        <li>Server mods: {escape(str(server_mod_count))}</li>
+        <li>Server datapacks: {escape(str(server_datapack_count))}</li>
+        <li>Client mods: {escape(str(client_mod_count))}</li>
+        <li>Client resource packs: {escape(str(client_resourcepack_count))}</li>
+        <li>Client shaderpacks: {escape(str(client_shaderpack_count))}</li>
+        <li>Client tools: {escape(str(client_tool_count))}</li>
+      </ul>
+    </section>
+    <section class="panel">
+      <h2>Changes</h2>
+      {top_added_server}
+      {top_removed_server}
+      {top_added_client}
+      {top_removed_client}
+    </section>
+    <section class="panel">
+      <h2>Artifacts</h2>
+      <p class="links">
+        <a href="{release_download_base}/{escape(CLIENT_ZIP_NAME)}">Client ZIP</a> ·
+        <a href="{release_download_base}/{escape(MRPACK_NAME)}">MRPACK</a> ·
+        <a href="{release_download_base}/{escape(CLIENT_DMG_NAME)}">Client Installer DMG</a> ·
+        <a href="{release_download_base}/client-sync-manifest.tsv">Client sync manifest</a>
+      </p>
+    </section>
+    <section class="panel">
+      <h2>Notes</h2>
+      <p>{escape(notes or "No release notes available.")}</p>
+    </section>
+    {f'<section class="panel"><h2>Changelog</h2><pre>{escape(changelog[:8000])}</pre></section>' if changelog else ""}
+  </div>
+</body>
+</html>
+"""
+
+
+def _render_file_list(values: list[str], title: str) -> str:
+    if not values:
+        return f'<h3>{escape(title)}</h3><p>None.</p>'
+    shown = values[:20]
+    extras = len(values) - len(shown)
+    items = "".join(f"<li>{escape(item)}</li>" for item in shown)
+    footer = f"<p class=\"small\">+{extras} more</p>" if extras > 0 else ""
+    return f"<h3>{escape(title)}</h3><ul>{items}</ul>{footer}"
+
+
+def write_release_report_pages(
+    conn: sqlite3.Connection,
+    output_dir: Path,
+    public_url: str,
+) -> None:
+    if not table_exists(conn, "pack_releases"):
+        return
+    rows = conn.execute(
+        """
+        SELECT release_id, created_at, activated_at, previous_release_id,
+               status, notes, minecraft_version, loader_version, changelog_path, release_dir
+        FROM pack_releases
+        WHERE activated_at IS NOT NULL OR created_at IS NOT NULL
+        ORDER BY COALESCE(activated_at, created_at) DESC, release_id DESC
+        """
+    ).fetchall()
+    if not rows:
+        return
+
+    releases_by_id: dict[str, sqlite3.Row] = {str(row["release_id"]): row for row in rows}
+    for i, row in enumerate(rows):
+        release_id = str(row["release_id"])
+        if not release_id:
+            continue
+        created_at = str(row["created_at"] or "")
+        activated_at = str(row["activated_at"] or "")
+        prev = None
+        prev_id = row["previous_release_id"]
+        if prev_id:
+            prev = releases_by_id.get(str(prev_id))
+        elif i + 1 < len(rows):
+            prev = rows[i + 1]
+        prev_release_dir = Path(prev["release_dir"]) if prev and prev["release_dir"] else None
+        prev_sets = gather_release_file_sets(prev_release_dir)
+        current_sets = gather_release_file_sets(Path(row["release_dir"]) if row["release_dir"] else None)
+
+        added_server_mods = _sorted_delta(current_sets["server_mod"], prev_sets["server_mod"])
+        removed_server_mods = _sorted_delta(prev_sets["server_mod"], current_sets["server_mod"])
+        added_client_mods = _sorted_delta(current_sets["client_mods"], prev_sets["client_mods"])
+        removed_client_mods = _sorted_delta(prev_sets["client_mods"], current_sets["client_mods"])
+        test_totals = release_test_stats(
+            conn,
+            prev["activated_at"] if prev and prev["activated_at"] else created_at,
+            activated_at or dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        )
+        report_html = render_release_report_page(
+            release_id,
+            created_at=created_at,
+            activated_at=activated_at,
+            notes=str(row["notes"] or ""),
+            changelog=read_changelog_text(row["changelog_path"]),
+            minecraft_version=str(row["minecraft_version"] or ""),
+            loader_version=str(row["loader_version"] or ""),
+            status=str(row["status"] or ""),
+            server_mod_count=len(current_sets["server_mod"]),
+            client_mod_count=len(current_sets["client_mods"]),
+            server_datapack_count=len(current_sets["server_datapack"]),
+            client_resourcepack_count=len(current_sets["client_resourcepacks"]),
+            client_shaderpack_count=len(current_sets["client_shaderpacks"]),
+            client_tool_count=len(current_sets["client_tools"]),
+            added_server_mods=added_server_mods,
+            removed_server_mods=removed_server_mods,
+            added_client_mods=added_client_mods,
+            removed_client_mods=removed_client_mods,
+            test_totals=test_totals,
+            public_url=public_url,
+        )
+        target = (output_dir / "downloads" / "releases" / release_id / RELEASE_REPORT_FILE)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(report_html, encoding="utf-8")
+
+        release_public = Path(row["release_dir"]) / "public" / RELEASE_REPORT_FILE if row["release_dir"] else None
+        if release_public and release_public.parent.exists() and release_public != target:
+            release_public.write_text(report_html, encoding="utf-8")
+
+
+def _sorted_delta(current: set[str], previous: set[str]) -> list[str]:
+    return sorted(current.difference(previous))
+
+
 def clean_update_title(value: Any) -> str:
     original = str(value or "").strip()
     if not original:
@@ -631,12 +978,8 @@ def render_updates(updates: list[dict[str, Any]]) -> str:
         tested_at = escape(event.get("tested_at", ""))
         tested_at_display = escape(event.get("tested_at_display", event.get("tested_at", "")))
         title = escape(clean_update_title(event.get("title") or event.get("mod_name") or "Pack update"))
-        homepage_url = safe_external_url(event.get("source_url") or event.get("homepage_url"))
-        title_html = (
-            f'<a href="{escape(homepage_url)}" target="_blank" rel="noopener noreferrer">{title}</a>'
-            if homepage_url
-            else title
-        )
+        homepage_url = event.get("source_url") or event.get("homepage_url")
+        title_html = update_title_link(homepage_url, title)
         source_badge = escape(event.get("source", "unknown"))
         event_type = escape(event.get("event_type", "update"))
         test_label = escape(event.get("test_label") or "")
@@ -1457,6 +1800,7 @@ def write_site(db_path: Path, output_dir: Path, server_dir: Path, public_url: st
         mods = fetch_mods(conn)
         update_checks = fetch_update_checks(conn)
         active_release = fetch_active_release(conn)
+        write_release_report_pages(conn, output_dir, public_url)
 
     # Use the comprehensive tested updates feed from the independent worker
     updates = fetch_tested_updates_json(output_dir)
