@@ -924,6 +924,163 @@ def clean_update_title(value: Any) -> str:
     return cleaned or original
 
 
+def _looks_like_file_name(value: str) -> bool:
+    value = (value or "").strip().lower()
+    if not value:
+        return False
+    return bool(re.search(r"\.(?:jar|zip)(?:\.disabled)?$", value))
+
+
+def _extract_file_from_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    paren_candidates = re.findall(r"\(([^)\n\r]+?\.(?:jar|zip)(?:\.disabled)?)\)", text, flags=re.IGNORECASE)
+    for candidate in paren_candidates:
+        candidate = candidate.strip(" \"'`")
+        if _looks_like_file_name(candidate):
+            return candidate
+
+    for raw_line in re.split(r"\r?\n", text):
+        line = raw_line.strip(" \"'`")
+        if not line:
+            continue
+
+        direct_candidates = re.split(r"[;,]", line)
+        for segment in direct_candidates:
+            segment = segment.strip(" \"'`")
+            if _looks_like_file_name(segment):
+                return segment
+
+        candidates = re.findall(
+            r"(?:^|[\s(])(?P<file>[A-Za-z0-9._+\-\[\] ()]+?\.(?:jar|zip)(?:\.disabled)?)(?=[\s)\],;]|$)",
+            line,
+            flags=re.IGNORECASE,
+        )
+        for candidate in candidates:
+            candidate = candidate.strip(" \"'`")
+            if candidate:
+                return candidate
+    return ""
+
+
+def _normalize_update_file_name(value: str) -> str:
+    file_name = (value or "").strip()
+    if not file_name:
+        return ""
+    if "/" in file_name:
+        file_name = file_name.rsplit("/", 1)[-1]
+    file_name = file_name.strip(" \"'`")
+    file_name = file_name.replace("\ufeff", "").strip()
+    base = re.sub(r"\.(?:jar|zip)(?:\.disabled)?$", "", file_name, flags=re.IGNORECASE)
+    base = re.sub(r"(?i)(?:-+codex(?:-?fixed)?(?:-?packmeta)?|-+codexfix|-+packmeta)$", "", base)
+    base = re.sub(r"[\s_]+", "-", base).lower().strip("-._ ")
+    return base
+
+
+def _extract_version_from_file_name(value: str) -> str:
+    stem = re.sub(r"\.(?:jar|zip)(?:\.disabled)?$", "", str(value or ""), flags=re.IGNORECASE)
+    if not stem:
+        return ""
+    chunks = re.split(r"[-_ ]+", stem)
+    for chunk in reversed(chunks):
+        chunk = chunk.strip().strip("-._")
+        if not chunk:
+            continue
+        if re.search(r"\d+\.\d+", chunk):
+            return chunk
+        if re.fullmatch(r"\d+", chunk):
+            return chunk
+    return ""
+
+
+def _resolve_update_display_file(event: dict[str, Any]) -> tuple[str, str]:
+    file_name = (
+        _extract_file_from_text(event.get("file_name"))
+        or _extract_file_from_text(event.get("new_file"))
+        or _extract_file_from_text(event.get("old_file"))
+        or _extract_file_from_text(event.get("notes"))
+        or _extract_file_from_text(event.get("test_label"))
+    )
+    if not file_name:
+        file_name = clean_update_title(event.get("title") or "")
+    file_name = re.sub(r"(?i)^\\s*test\\s*:\\s*", "", file_name).strip()
+    if file_name and not _looks_like_file_name(file_name) and re.fullmatch(r"(?i)[a-z0-9][a-z0-9._+\\-\\[\\]]+", file_name):
+        file_name = f"{file_name}.jar"
+    version = _extract_version_from_file_name(file_name)
+    return file_name, version
+
+
+def _dedupe_updates_for_render(updates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    first_pass: list[dict[str, Any]] = []
+    seen: dict[tuple[Any, ...], tuple[int, int]] = {}
+    first_bucket: dict[tuple[Any, ...], int] = {}
+
+    for event in updates:
+        file_name, file_version = _resolve_update_display_file(event)
+        file_key = _normalize_update_file_name(file_name)
+        mod_scope = str(event.get("mod_id") if event.get("mod_id") is not None else clean_update_title(event.get("title") or event.get("mod_name") or ""))
+
+        if event.get("event_type") == "release_promotion":
+            bucket = (
+                "release",
+                str(event.get("test_label") or event.get("source_url") or event.get("title") or ""),
+                str(event.get("tested_at", "")),
+            )
+            rank = 3
+        elif mod_scope and file_key:
+            bucket = ("mod_file", mod_scope, file_key)
+            rank = 4 if file_version else 1
+        elif file_key:
+            bucket = ("file", file_key)
+            rank = 2
+        else:
+            bucket = (
+                str(event.get("title") or ""),
+                str(event.get("source") or ""),
+                str(event.get("tested_at", "")),
+            )
+            rank = 0
+
+        if bucket in seen:
+            existing_index, existing_rank = seen[bucket]
+            if rank > existing_rank:
+                first_pass[existing_index] = event
+                seen[bucket] = (existing_index, rank)
+            continue
+
+        first_bucket[bucket] = len(first_pass)
+        seen[bucket] = (len(first_pass), rank)
+        first_pass.append(event)
+
+    selected: list[dict[str, Any]] = []
+    time_seen: dict[tuple[Any, ...], tuple[int, int]] = {}
+    for event in first_pass:
+        mod_scope = str(event.get("mod_id") if event.get("mod_id") is not None else clean_update_title(event.get("title") or event.get("mod_name") or ""))
+        tested_at = str(event.get("tested_at", "")).strip()
+        mod_time_key = ("mod_time", mod_scope, tested_at)
+        if event.get("event_type") == "release_promotion":
+            selected.append(event)
+            continue
+        if mod_scope and tested_at:
+            file_name, file_version = _resolve_update_display_file(event)
+            file_key = _normalize_update_file_name(file_name)
+            rank = 2 if (file_key or file_version) else 1
+            if mod_time_key in time_seen:
+                existing_index, existing_rank = time_seen[mod_time_key]
+                if rank > existing_rank:
+                    selected[existing_index] = event
+                    time_seen[mod_time_key] = (existing_index, rank)
+                continue
+            time_seen[mod_time_key] = (len(selected), rank)
+            selected.append(event)
+            continue
+
+        selected.append(event)
+    return selected
+
+
 def render_stat_cards(stats: dict[str, str]) -> str:
     preferred = [
         "Last Mod Version", "Minecraft Players",
@@ -1076,6 +1233,8 @@ chmod +x "$WORK_DIR/client-package/Install Mods.command"
 def render_updates(updates: list[dict[str, Any]]) -> str:
     if not updates:
         return f'<p class="note">No tested successful updates have been logged in the last {UPDATE_LOG_DAYS} days. The daily updater only publishes entries here after a change passes validation and the client package is rebuilt when needed.</p>'
+
+    updates = _dedupe_updates_for_render(updates)
     cards = []
     for event in updates:
         tested_at = escape(event.get("tested_at", ""))
@@ -1085,8 +1244,9 @@ def render_updates(updates: list[dict[str, Any]]) -> str:
         title_html = update_title_link(homepage_url, title)
         source_badge = escape(event.get("source", "unknown"))
         event_type = escape(event.get("event_type", "update"))
-        test_label = escape(event.get("test_label") or "")
-        test_label_html = f'<p><strong>Test:</strong> {test_label}</p>' if test_label else ""
+        file_name, file_version = _resolve_update_display_file(event)
+        file_name_html = f'<p><strong>Filename:</strong> {escape(file_name)}</p>' if file_name else ""
+        version_html = f'<p><strong>Mod Version:</strong> {escape(file_version)}</p>' if file_version else ""
         cards.append(
             f"""
 <article class="update-card">
@@ -1096,7 +1256,8 @@ def render_updates(updates: list[dict[str, Any]]) -> str:
     <span class="badge" style="background:#1a2a1a; border-color:#3d5c3d; color:#9fdfaf;">{source_badge}</span>
   </div>
   <p><strong>When:</strong> <time class="relative-time" datetime="{tested_at}" title="{tested_at}">{tested_at_display}</time></p>
-  {test_label_html}
+  {file_name_html}
+  {version_html}
 </article>
 """
         )
