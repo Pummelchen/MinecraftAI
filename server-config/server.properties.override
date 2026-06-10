@@ -1,4 +1,5 @@
 view-distance=5
+level-seed=6741955535227143436
 simulation-distance=3
 sync-chunk-writes=false
 max-tick-time=-1
