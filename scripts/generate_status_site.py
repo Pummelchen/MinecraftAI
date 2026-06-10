@@ -1636,8 +1636,8 @@ def render_page(
           <canvas data-live-chart="ram_used_percent" width="520" height="176" aria-label="RAM usage graph"></canvas>
         </article>
         <article class="chart-card">
-          <div class="chart-head"><h3>Disk Free</h3><strong class="chart-value" data-live-metric="disk_free_percent">--</strong></div>
-          <canvas data-live-chart="disk_free_percent" width="520" height="176" aria-label="Free disk space percentage graph"></canvas>
+          <div class="chart-head"><h3>Disk Used</h3><strong class="chart-value" data-live-metric="disk_used_percent">--</strong></div>
+          <canvas data-live-chart="disk_used_percent" width="520" height="176" aria-label="Disk usage percentage graph"></canvas>
         </article>
       </div>
     </section>
@@ -1685,7 +1685,7 @@ def render_page(
     const liveMetricConfig = {{
       cpu_percent: {{ suffix: '%', label: 'CPU Usage', min: 0, max: 100 }},
       ram_used_percent: {{ suffix: '%', label: 'RAM Used', min: 0, max: 100 }},
-      disk_free_percent: {{ suffix: '%', label: 'Disk Free', min: 0, max: 100 }}
+      disk_used_percent: {{ suffix: '%', label: 'Disk Used', min: 0, max: 100 }}
     }};
     function boundedLiveValue(value, config) {{
       let number = Number(value);
@@ -1698,10 +1698,10 @@ def render_page(
       const config = liveMetricConfig[key] || {{ suffix: '' }};
       const number = boundedLiveValue(value, config);
       if (number === '--') return '--';
-      if (key === 'disk_free_percent') {{
+      if (key === 'disk_used_percent') {{
         const freeGb = Number(metrics.disk_free_gb);
-        const freeText = Number.isFinite(freeGb) ? `${{Math.max(0, freeGb).toFixed(1)}} GB / ` : '';
-        return `${{freeText}}${{number.toFixed(1)}}%`;
+        const freeText = Number.isFinite(freeGb) ? ` (${{Math.max(0, freeGb).toFixed(1)}} GB free)` : '';
+        return `${{number.toFixed(1)}}%${{freeText}}`;
       }}
       const decimals = 1;
       return `${{number.toFixed(decimals)}}${{config.suffix || ''}}`;
