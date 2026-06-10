@@ -945,6 +945,7 @@ def render_page(
       align-items: flex-start;
       justify-content: space-between;
       min-width: 0;
+      flex-wrap: wrap;
     }}
     .mod-card h4,
     .update-card h4 {{
@@ -952,7 +953,12 @@ def render_page(
       font-size: 16px;
       line-height: 1.25;
       min-width: 0;
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
+    }}
+    .mod-topline h4 {{
+      flex: 1 1 0;
+      min-width: 160px;
     }}
     .update-card h4 a {{
       color: var(--accent);

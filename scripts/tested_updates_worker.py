@@ -28,8 +28,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from moddb import connect
+from moddb import connect, source_kind
 from pummelchen_utils import table_exists
+from process_url_batch import get_modrinth_project, project_name as process_project_name, search_project
 
 
 DEFAULT_DB = Path("/var/minecraft_mods/data/minecraft_mods.sqlite")
@@ -37,13 +38,176 @@ DEFAULT_OUTPUT = Path("/var/minecraft_mods/site/public/tested-updates.json")
 UPDATE_LOG_DAYS = 30
 
 
-def fetch_mod_name(conn: sqlite3.Connection, mod_id: int | None) -> str:
-    if not mod_id:
+_MOD_NAME_CACHE: dict[int, str] = {}
+_SOURCE_URL_NAME_CACHE: dict[str, str] = {}
+
+
+def looks_like_file_name(name: str) -> bool:
+    """Return true when the string looks like an artifact filename rather than a mod title."""
+    if not name:
+        return False
+    lowered = name.lower()
+    if re.search(r"\.(jar|zip)(?:\.disabled)?$", lowered):
+        return True
+    if lowered.endswith(".jar.disabled") or lowered.endswith(".zip.disabled"):
+        return True
+    return bool(re.search(r"\.[a-z0-9]+$", lowered)) and " " not in lowered
+
+
+def looks_like_version_token(token: str) -> bool:
+    token = token.strip().lower()
+    if not token:
+        return False
+    if token in {"mod", "jar", "client", "server", "neoforge", "neo", "forge", "fabric", "quilt", "modrinth"}:
+        return True
+    if re.fullmatch(r"\d+(?:\.\d+)*(?:[-+.]?[a-z0-9._]+)?", token):
+        return True
+    if re.fullmatch(r"v?\d+\.\d+(?:\.\d+)*(?:\.\w+)?", token):
+        return True
+    if token.startswith("build.") or token.startswith("build-") or token == "1.21":
+        return True
+    return False
+
+
+def readable_title_from_file_name(file_name: str) -> str:
+    base = file_name.strip()
+    if not base:
         return "Pack update"
-    row = conn.execute("SELECT name, canonical_key FROM mods WHERE id = ?", (mod_id,)).fetchone()
+    base = re.sub(r"\.[a-z0-9]+(?:\.[a-z0-9-]+)?$", "", base, flags=re.IGNORECASE)
+    base = base.replace("_", "-")
+    parts = [part for part in base.split("-") if part]
+    while parts and looks_like_version_token(parts[-1]):
+        parts.pop()
+    if not parts:
+        parts = [base]
+    readable = " ".join(part.replace(".", " ").strip() for part in parts if part)
+    if not readable:
+        return base
+    return readable.replace("  ", " ").strip().title()
+
+
+def slug_from_file_name(file_name: str) -> str:
+    base = file_name.strip()
+    if not base:
+        return ""
+    base = re.sub(r"\.[a-z0-9]+(?:\.[a-z0-9-]+)?$", "", base, flags=re.IGNORECASE)
+    base = base.replace("_", "-")
+    parts = [part for part in base.split("-") if part]
+    while parts and looks_like_version_token(parts[-1]):
+        parts.pop()
+    return "-".join(parts).lower()
+
+
+def resolve_name_from_source_url(conn: sqlite3.Connection, mod_id: int | None, fallback_url: str | None = None) -> str:
+    if not mod_id and not fallback_url:
+        return ""
+    if mod_id:
+        cached = _MOD_NAME_CACHE.get(int(mod_id))
+        if cached:
+            return cached
+
+    source_url = None
+    if mod_id:
+        row = conn.execute(
+            "SELECT COALESCE(NULLIF(su.url, ''), m.primary_url) AS url "
+            "FROM mods m "
+            "LEFT JOIN source_urls su ON su.mod_id = m.id AND su.is_primary = 1 "
+            "WHERE m.id = ?",
+            (mod_id,),
+        ).fetchone()
+        if row and row["url"]:
+            source_url = str(row["url"])
+    if not source_url:
+        source_url = fallback_url
+    if not source_url:
+        return ""
+
+    if not source_url:
+        return ""
+    cached = _SOURCE_URL_NAME_CACHE.get(str(source_url))
+    if cached:
+        return cached
+    try:
+        _, _, slug = source_kind(str(source_url))
+        resolved = ""
+        if slug:
+            if "modrinth" in str(source_url):
+                project = get_modrinth_project(slug)
+                if project:
+                    resolved = process_project_name(project)
+            elif "curseforge" in str(source_url):
+                project = search_project(slug)
+                if project:
+                    resolved = process_project_name(project)
+    except Exception:
+        resolved = ""
+
+    if not resolved:
+        return ""
+    _SOURCE_URL_NAME_CACHE[str(source_url)] = resolved
+    if mod_id:
+        _MOD_NAME_CACHE[int(mod_id)] = resolved
+    return resolved
+
+
+def fetch_mod_name(conn: sqlite3.Connection, mod_id: int | None, fallback_name: str = "") -> str:
+    if not mod_id:
+        return clean_title(fallback_name) or "Pack update"
+    row = conn.execute("SELECT name, primary_url FROM mods WHERE id = ?", (mod_id,)).fetchone()
+    if not row:
+        return f"Mod #{mod_id}"
+
+    db_name = str(row["name"])
+    title = clean_title(fallback_name or db_name)
+    if not looks_like_file_name(title):
+        return title
+
+    fallback_url = str(row["primary_url"]) if row["primary_url"] else None
+    resolved = resolve_name_from_source_url(conn, int(mod_id), fallback_url)
+    return clean_title(resolved) if resolved else title
+
+
+def fetch_mod_name_from_file(conn: sqlite3.Connection, file_name: str) -> str:
+    row = conn.execute(
+        """
+        SELECT m.id AS mod_id, m.name AS mod_name
+        FROM mod_files f
+        JOIN mods m ON m.id = f.mod_id
+        WHERE f.file_name = ?
+        ORDER BY f.id DESC
+        LIMIT 1
+        """,
+        (file_name,),
+    ).fetchone()
     if row:
-        return str(row["name"])
-    return f"Mod #{mod_id}"
+        return fetch_mod_name(conn, int(row["mod_id"]), str(row["mod_name"]))
+    slug = slug_from_file_name(file_name)
+    try:
+        if slug and slug != file_name.lower():
+            project = search_project(slug)
+            if project:
+                return clean_title(process_project_name(project))
+    except Exception:
+        pass
+    return readable_title_from_file_name(file_name)
+
+
+def fetch_mod_url_from_file(conn: sqlite3.Connection, file_name: str) -> str:
+    row = conn.execute(
+        """
+        SELECT COALESCE(NULLIF(su.url, ''), m.primary_url) AS url
+        FROM mod_files f
+        JOIN mods m ON m.id = f.mod_id
+        LEFT JOIN source_urls su ON su.mod_id = m.id AND su.is_primary = 1
+        WHERE f.file_name = ?
+        ORDER BY f.id DESC
+        LIMIT 1
+        """,
+        (file_name,),
+    ).fetchone()
+    if row and row["url"]:
+        return str(row["url"])
+    return ""
 
 
 def fetch_mod_url(conn: sqlite3.Connection, mod_id: int | None, fallback_url: str | None = None) -> str:
@@ -115,7 +279,7 @@ def build_from_update_events(conn: sqlite3.Connection, cutoff: dt.datetime) -> l
     updates = []
     for row in rows:
         tested_at = parse_iso(row["tested_at"])
-        mod_name = fetch_mod_name(conn, row["mod_id"])
+        mod_name = fetch_mod_name(conn, row["mod_id"], row["mod_name"])
         updates.append({
             "id": f"ue_{row['id']}",
             "source": "update_events",
@@ -154,7 +318,7 @@ def build_from_test_runs(conn: sqlite3.Connection, cutoff: dt.datetime) -> list[
     updates = []
     for row in rows:
         tested_at = parse_iso(row["tested_at"])
-        mod_name = row["mod_name"] or fetch_mod_name(conn, row["mod_id"])
+        mod_name = row["mod_name"] or fetch_mod_name(conn, row["mod_id"], row["mod_name"])
         test_label = row["test_label"] or f"test_run_{row['id']}"
         url = fetch_mod_url(conn, row["mod_id"])
         updates.append({
@@ -194,7 +358,10 @@ def build_from_acceptance_blocks(conn: sqlite3.Connection, cutoff: dt.datetime) 
     for row in rows:
         created_at = parse_iso(row["created_at"])
         target_files = row["target_file_names"] or ""
-        title = target_files.split("\n")[0].strip() if target_files else f"Block {row['block_key']}"
+        first_target_file = target_files.split("\n")[0].strip() if target_files else ""
+        title = first_target_file if first_target_file else f"Block {row['block_key']}"
+        title = fetch_mod_name_from_file(conn, title) if looks_like_file_name(title) else title
+        source_url = fetch_mod_url_from_file(conn, first_target_file) if first_target_file else ""
         updates.append({
             "id": f"ab_{row['id']}",
             "source": "mod_acceptance_blocks",
@@ -205,7 +372,7 @@ def build_from_acceptance_blocks(conn: sqlite3.Connection, cutoff: dt.datetime) 
             "tested_at_display": format_display_time(created_at),
             "old_file": None,
             "new_file": target_files,
-            "source_url": "",
+            "source_url": source_url,
             "test_label": row["block_key"],
             "notes": row["notes"] or f"Level {row['level']} block {row['ordinal']} passed ({row['included_file_names'] or 'N/A'})",
             "mod_id": None,
