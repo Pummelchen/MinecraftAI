@@ -585,12 +585,14 @@ def build_public_release(release_dir: Path, release_id_value: str) -> None:
         shutil.rmtree(public)
     public.mkdir(parents=True, exist_ok=True)
     rows = ["# Pummelchen release client sync manifest v1", "# section\tname\tsize\tsha256\turl_path"]
-    for section in ("mods", "resourcepacks", "shaderpacks"):
+    for section in ("mods", "resourcepacks", "shaderpacks", "tools"):
         source_dir = client_package / section
         if not source_dir.exists():
             continue
         for src in sorted(source_dir.iterdir(), key=lambda path: path.name.lower()):
             if not src.is_file() or src.name == "upload-token.txt":
+                continue
+            if section == "tools" and src.name in {"upload-token.txt", "upload-token.txt.example"}:
                 continue
             target = client_files / section / src.name
             hardlink_or_copy(src, target)

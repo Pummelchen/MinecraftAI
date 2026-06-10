@@ -369,7 +369,7 @@ remove_stale_managed_files() {
   while IFS=$'\t' read -r section name; do
     [ -n "${section:-}" ] || continue
     case "$section" in
-      mods|resourcepacks|shaderpacks) ;;
+      mods|resourcepacks|shaderpacks|tools) ;;
       *) continue ;;
     esac
     local key path
@@ -377,7 +377,10 @@ remove_stale_managed_files() {
     if grep -Fqx "$key" "$current_keys"; then
       continue
     fi
-    path="$MC_DIR/$section/$name"
+    case "$section" in
+      mods|resourcepacks|shaderpacks) path="$MC_DIR/$section/$name" ;;
+      tools) path="$PUMMELCHEN_HOME/bin/$name" ;;
+    esac
     if [ -e "$path" ]; then
       rm -rf "$path" || fail "Could not remove stale managed file: $path"
       removed=$((removed + 1))
@@ -390,13 +393,18 @@ move_unmanaged_files() {
   local wanted_manifest="$1"
   local wanted_dir="$2"
   local section
-  for section in mods resourcepacks shaderpacks; do
+  for section in mods resourcepacks shaderpacks tools; do
     local wanted_names="$wanted_dir/$section.txt"
     awk -F '\t' -v section="$section" 'NF >= 5 && $1 == section { print $2 }' "$wanted_manifest" > "$wanted_names"
 
-    local dst="$MC_DIR/$section"
+    local dst
+    case "$section" in
+      mods|resourcepacks|shaderpacks) dst="$MC_DIR/$section" ;;
+      tools) dst="$PUMMELCHEN_HOME/bin" ;;
+    esac
     [ -d "$dst" ] || continue
     local backup_dir="$MC_DIR/$section.before-pummelchen-auto-$STAMP"
+    [ "$section" = "tools" ] && backup_dir="$PUMMELCHEN_HOME/bin.before-pummelchen-auto-$STAMP"
     local moved=0
     shopt -s nullglob
     for path in "$dst"/*; do
@@ -504,12 +512,15 @@ sync_files() {
   while IFS=$'\t' read -r section name size hash url_path; do
     [ -n "${section:-}" ] || continue
     case "$section" in
-      mods|resourcepacks|shaderpacks) ;;
+      mods|resourcepacks|shaderpacks|tools) ;;
       *) continue ;;
     esac
     local expected dst tmp file_url
     expected="${hash#sha256:}"
-    dst="$MC_DIR/$section/$name"
+    case "$section" in
+      mods|resourcepacks|shaderpacks) dst="$MC_DIR/$section/$name" ;;
+      tools) dst="$PUMMELCHEN_HOME/bin/$name" ;;
+    esac
     mkdir -p "$(dirname "$dst")"
     if verify_hash "$dst" "$expected"; then
       verified=$((verified + 1))
@@ -595,7 +606,7 @@ elif [ "$LOCAL_RELEASE_ID" != "${TARGET_RELEASE_ID:-legacy}" ]; then
 fi
 
 download_url "$MANIFEST_URL" "$RAW_MANIFEST" || fail "Could not download sync manifest."
-awk -F '\t' 'NF >= 5 && $1 !~ /^#/ && $1 ~ /^(mods|resourcepacks|shaderpacks)$/ { print }' "$RAW_MANIFEST" > "$WANTED_MANIFEST"
+awk -F '\t' 'NF >= 5 && $1 !~ /^#/ && $1 ~ /^(mods|resourcepacks|shaderpacks|tools)$/ { print }' "$RAW_MANIFEST" > "$WANTED_MANIFEST"
 manifest_to_keys "$WANTED_MANIFEST" > "$CURRENT_KEYS"
 
 ENTRY_COUNT="$(wc -l < "$WANTED_MANIFEST" | tr -d '[:space:]')"
@@ -635,6 +646,7 @@ if [ "$FORCE_UPDATE" != "1" ] && [ "$SERVER_REQUIRES_UPDATE" = "0" ] && [ -n "${
 fi
 
 mkdir -p "$MC_DIR/mods" "$MC_DIR/resourcepacks" "$MC_DIR/shaderpacks" "$DOWNLOAD_DIR" "$WANTED_NAMES_DIR"
+mkdir -p "$PUMMELCHEN_HOME/bin"
 remove_stale_managed_files "$WANTED_MANIFEST" "$CURRENT_KEYS" "$PREVIOUS_KEYS"
 sync_files "$WANTED_MANIFEST" "$DOWNLOAD_DIR"
 CHANGED_COUNT="$SYNC_CHANGED_COUNT"
