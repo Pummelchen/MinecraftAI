@@ -189,7 +189,6 @@ def collect_stats(server_dir: Path) -> dict[str, str]:
         client_pack_generated = mtime.strftime("%Y-%m-%d %H:%M UTC")
         client_pack_generated_iso = mtime.isoformat(timespec="seconds")
     return {
-        "Generated": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "Server OS": os_release.get("PRETTY_NAME", platform.platform()),
         "OS Kernel": platform.release(),
         "Uptime": uptime_text(),
@@ -1018,9 +1017,15 @@ def render_page(
     public_url: str,
     updates: list[dict[str, Any]],
     update_checks: list[dict[str, Any]] | None = None,
+    active_release: dict[str, Any] | None = None,
 ) -> str:
-    generated = escape(stats.get("Generated", ""))
     release_label = display_release_version(stats.get("Last Mod Version", ""))
+    release_id = str(active_release.get("release_id") or "") if active_release else ""
+    release_report_url = f"{public_url.rstrip('/')}/downloads/releases/{quote(release_id, safe='')}/{RELEASE_REPORT_FILE}" if release_id else ""
+    if release_id and release_report_url:
+        release_version_html = f'<a class="release-version" href="{escape(release_report_url)}">Latest version: {escape(release_label)}</a>'
+    else:
+        release_version_html = f'<span class="release-version">Latest version: {escape(release_label)}</span>'
     client_zip_url = f"{public_url.rstrip('/')}/downloads/{CLIENT_ZIP_NAME}"
     client_dmg_url = f"{public_url.rstrip('/')}/downloads/{CLIENT_DMG_NAME}"
     server_count = len(server_mods)
@@ -1194,6 +1199,11 @@ def render_page(
       background: var(--panel);
       font-weight: 700;
       font-size: 14px;
+    }}
+    a.release-version:hover {{
+      color: var(--blue);
+      border-color: var(--blue);
+      text-decoration: none;
     }}
     code, pre {{
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -1447,7 +1457,6 @@ def render_page(
         <div class="pill-row">
           <span class="pill">Server: {SERVER_HOST}:{SERVER_MC_PORT}</span>
           <span class="pill">Web: {SERVER_HOST}:7788</span>
-          <span class="pill">Generated: {generated}</span>
           <span class="pill">{server_count} Server Mods</span>
           <span class="pill">{client_count} Client Mods</span>
         </div>
@@ -1480,7 +1489,7 @@ def render_page(
       <p class="note">For macOS Apple Silicon M2/M3 clients. The DMG is a small visual bootstrap installer; first run downloads the current verified client pack, about 1 GB, with a step counter and progress window. It reports each setup step, success timestamp, and failure log tail to the VPS, installs a user-local Java 25 runtime when needed, syncs the matching mods and visual packs, installs NeoForge, adds the server entry, and enables automatic background updates from the VPS.</p>
       <div class="actions">
         <a class="button" href="{escape(client_dmg_url)}">Download Small Mac Installer DMG</a>
-        <span class="release-version">Latest version: {escape(release_label)}</span>
+        {release_version_html}
       </div>
     </section>
 
@@ -1814,7 +1823,7 @@ def write_site(db_path: Path, output_dir: Path, server_dir: Path, public_url: st
     else:
         stats["Last Mod Version"] = "No active release"
     stats["Minecraft Players"] = "Waiting for live feed"
-    html_text = render_page(stats=stats, server_mods=server_mods, client_mods=client_mods, public_url=public_url, updates=updates, update_checks=update_checks)
+    html_text = render_page(stats=stats, server_mods=server_mods, client_mods=client_mods, public_url=public_url, updates=updates, update_checks=update_checks, active_release=active_release)
     (output_dir / "index.html").write_text(html_text, encoding="utf-8")
     installer = downloads / INSTALLER_NAME
     installer.write_text(make_installer_script(public_url), encoding="utf-8")
