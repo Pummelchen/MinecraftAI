@@ -1778,6 +1778,24 @@ def render_page(
     .note {{ color: var(--muted); max-width: 860px; }}
     .manual-update {{ margin-top: 18px; padding: 14px 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }}
     .manual-update h4 {{ margin: 0 0 8px; color: var(--text); font-size: 15px; }}
+    .operator-section {{
+      display: grid;
+      gap: 14px;
+      max-width: 960px;
+    }}
+    .operator-steps {{
+      margin: 0;
+      padding-left: 22px;
+      color: #d8ded8;
+    }}
+    .operator-steps li {{ margin: 7px 0; }}
+    .operator-warning {{
+      border-left: 3px solid var(--amber);
+      padding: 10px 12px;
+      background: #171209;
+      color: #e8d3ad;
+      border-radius: 0 8px 8px 0;
+    }}
     .terminal-cmd {{
       background: #0a0f0b;
       border: 1px solid var(--line);
@@ -1853,6 +1871,26 @@ def render_page(
           <div class="chart-head"><h3>Disk Used</h3><strong class="chart-value" data-live-metric="disk_used_percent">--</strong></div>
           <canvas data-live-chart="disk_used_percent" width="520" height="176" aria-label="Disk usage percentage graph"></canvas>
         </article>
+      </div>
+    </section>
+
+    <section id="safe-world-reset">
+      <h2>Safe World Reset</h2>
+      <div class="operator-section">
+        <p class="note">Use this command when replacing the current world with a new seed. It backs up the active world, writes the new seed, keeps the custom bonus chest enabled, installs required datapacks, starts the server, reapplies safety gamerules, detects spawn, and pregenerates a 1000-block diameter around spawn.</p>
+        <pre class="terminal-cmd"><code>python3 /var/minecraft_mods/scripts/safe_reset_world.py &#92;
+  --project-dir /var/minecraft_mods &#92;
+  --server-dir /var/minecraft_26.1.2 &#92;
+  --seed NEW_SEED &#92;
+  --diameter-blocks 1000 &#92;
+  --yes</code></pre>
+        <ol class="operator-steps">
+          <li>Replace <code>NEW_SEED</code> with the numeric or text seed to generate.</li>
+          <li>Run the command as <code>root</code> on the VPS.</li>
+          <li>Wait for <code>pregenerate_done=1</code>; the default square pregeneration covers 4,096 chunks.</li>
+          <li>Use <code>--dry-run</code> first to preview the backup path and pregeneration plan without changing the world.</li>
+        </ol>
+        <p class="operator-warning">Do not delete <code>/var/minecraft_26.1.2/world</code> manually. Manual deletion can skip datapack installation, bonus chest customization, safety gamerules, backups, and pregeneration.</p>
       </div>
     </section>
 
