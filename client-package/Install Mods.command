@@ -585,6 +585,7 @@ xml_escape() {
 
 install_auto_updater() {
   local updater_src="$PACK_DIR/tools/pummelchen-auto-update.sh"
+  local manual_updater_src="$PACK_DIR/tools/pummelchen-updater.sh"
   local doctor_src="$PACK_DIR/tools/pummelchen-client-doctor.sh"
   local server_helper_src="$PACK_DIR/tools/AddPummelchenServer.java"
   local token_src="$PACK_DIR/tools/upload-token.txt"
@@ -598,6 +599,7 @@ install_auto_updater() {
 
   local bin_dir="$PUMMELCHEN_HOME/bin"
   local updater_dst="$bin_dir/pummelchen-auto-update.sh"
+  local manual_updater_dst="$bin_dir/pummelchen-updater.sh"
   local doctor_dst="$bin_dir/pummelchen-client-doctor.sh"
   local server_helper_dst="$bin_dir/AddPummelchenServer.java"
   local config_path="$PUMMELCHEN_HOME/client.conf"
@@ -622,6 +624,10 @@ install_auto_updater() {
   mkdir -p "$bin_dir" "$launch_agents" "$LOG_DIR" "$user_apps"
   cp "$updater_src" "$updater_dst"
   chmod +x "$updater_dst"
+  if [ -f "$manual_updater_src" ]; then
+    cp "$manual_updater_src" "$manual_updater_dst"
+    chmod +x "$manual_updater_dst"
+  fi
   if [ -f "$doctor_src" ]; then
     cp "$doctor_src" "$doctor_dst"
     chmod +x "$doctor_dst"
@@ -713,6 +719,9 @@ PLIST
   fi
 
   echo "Auto-updater installed: $plist_path"
+  if [ -f "$manual_updater_src" ]; then
+    echo "Manual terminal updater installed: $manual_updater_dst"
+  fi
   echo "Manual pre-launch sync command: $play_command"
   if [ -f "$doctor_src" ]; then
     echo "Manual log upload command: $send_logs_command"

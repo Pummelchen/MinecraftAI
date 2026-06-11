@@ -61,6 +61,8 @@ SERVER_UPDATE_WINDOW_SECONDS="$FORCED_UPDATE_WINDOW_SECONDS"
 SERVER_REQUIREMENT_NOTE=""
 FORCED_TRIGGER_NOTE=""
 LOCK_DIR="$PUMMELCHEN_HOME/update.lock"
+LOCK_PID_FILE="$LOCK_DIR/pid"
+LOCK_STALE_SECONDS="${PUMMELCHEN_LOCK_STALE_SECONDS:-7200}"
 INSTALLED_RELEASE_FILE="$STATE_DIR/installed-release.txt"
 
 mkdir -p "$PUMMELCHEN_HOME" "$LOG_DIR" "$CACHE_DIR" "$STATE_DIR"
@@ -69,11 +71,10 @@ mkdir -p "$PUMMELCHEN_HOME" "$LOG_DIR" "$CACHE_DIR" "$STATE_DIR"
 if [ "$QUIET" = "1" ] && [ "${PUMMELCHEN_LOG_TO_STDOUT:-0}" != "1" ] && [ "$CHECK_ONLY" != "1" ]; then
   exec >> "$LOG_FILE" 2>&1
 fi
-# Terminal output: goes to /dev/tty if available (background mode), otherwise stdout.
+# Terminal output: interactive runs write to stdout. LaunchAgent/background runs
+# pass --quiet and keep this on /dev/null.
 TTY_OUT="/dev/null"
-if [ -e /dev/tty ] && [ "$QUIET" != "1" ]; then
-  TTY_OUT="/dev/tty"
-elif [ "$QUIET" != "1" ]; then
+if [ "$QUIET" != "1" ]; then
   TTY_OUT="/dev/stdout"
 fi
 
@@ -642,21 +643,57 @@ LOCK_HELD=0
 cleanup() {
   [ -n "$WORK_DIR" ] && rm -rf "$WORK_DIR"
   if [ "$LOCK_HELD" = "1" ]; then
+    rm -f "$LOCK_PID_FILE" >/dev/null 2>&1 || true
     rmdir "$LOCK_DIR" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
+
+lock_age_seconds() {
+  perl -e '@s=stat($ARGV[0]); print @s ? int(time - $s[9]) : 0' "$1" 2>/dev/null || printf '0'
+}
+
+acquire_update_lock() {
+  if mkdir "$LOCK_DIR" >/dev/null 2>&1; then
+    printf '%s\n' "$$" > "$LOCK_PID_FILE" 2>/dev/null || true
+    LOCK_HELD=1
+    return 0
+  fi
+
+  local lock_pid=""
+  if [ -f "$LOCK_PID_FILE" ]; then
+    lock_pid="$(tr -cd '0-9' < "$LOCK_PID_FILE" | head -c 20)"
+  fi
+  if [ -n "$lock_pid" ] && kill -0 "$lock_pid" >/dev/null 2>&1; then
+    log "Another Pummelchen update is already running with PID $lock_pid."
+    exit 0
+  fi
+
+  local age
+  age="$(lock_age_seconds "$LOCK_DIR")"
+  if [ -z "$lock_pid" ] && [ "${age:-0}" -lt "$LOCK_STALE_SECONDS" ]; then
+    log "Another Pummelchen update appears to be starting; lock age ${age}s."
+    exit 0
+  fi
+
+  log "Removing stale Pummelchen update lock: $LOCK_DIR"
+  rm -rf "$LOCK_DIR"
+  if mkdir "$LOCK_DIR" >/dev/null 2>&1; then
+    printf '%s\n' "$$" > "$LOCK_PID_FILE" 2>/dev/null || true
+    LOCK_HELD=1
+    return 0
+  fi
+
+  log "Another Pummelchen update acquired the lock first."
+  exit 0
+}
 
 require_command curl
 require_command shasum
 require_command awk
 require_command grep
 
-if ! mkdir "$LOCK_DIR" >/dev/null 2>&1; then
-  log "Another Pummelchen update is already running."
-  exit 0
-fi
-LOCK_HELD=1
+acquire_update_lock
 
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pummelchen-auto-update.XXXXXX")"
 RAW_MANIFEST="$WORK_DIR/client-sync-manifest.raw.tsv"
@@ -743,11 +780,11 @@ tty_log "  Applying client defaults..."
 reset_client_visual_state
 apply_pummelchen_client_defaults
 repair_server_entry
-if [ "$CURRENT_STATUS" = "behind" ]; then
+if [ "$CHANGED_COUNT" -gt 0 ] || [ "$CURRENT_STATUS" = "behind" ] || [ "$CURRENT_STATUS" = "unknown" ]; then
   CURRENT_STATUS="updated"
-  LOCAL_RELEASE_ID="$TARGET_RELEASE_ID"
 fi
 write_installed_release "$TARGET_RELEASE_ID"
+LOCAL_RELEASE_ID="$TARGET_RELEASE_ID"
 write_status "ok" "changed_files=$CHANGED_COUNT entries=$ENTRY_COUNT" "$LOCAL_RELEASE_ID" "$TARGET_RELEASE_ID"
 report_update_status "$CURRENT_STATUS" "$LOCAL_RELEASE_ID" "$TARGET_RELEASE_ID" "$CHANGED_COUNT" "$ENTRY_COUNT" "sync complete"
 

@@ -29,6 +29,13 @@ Automatic updates:
   poll every 120 seconds when an update is required.
 - The background updater downloads only missing or changed mod, resource-pack,
   shader-pack, and tooling files.
+- The manual terminal updater is installed as:
+  ~/Library/Application Support/Pummelchen/bin/pummelchen-updater.sh
+  It delegates to the same maintained updater used by the LaunchAgent:
+  ~/Library/Application Support/Pummelchen/bin/pummelchen-auto-update.sh
+- If updater scripts are damaged or stuck, the status page has a one-line curl
+  repair command that redownloads both scripts from the VPS, makes them
+  executable, and runs a forced sync.
 - The updater reports current/target release status on each run so the server can track client update state.
 - Each downloaded file is SHA256-verified before it replaces the local copy.
 - Stale managed files are removed, and unmanaged managed files are moved aside to keep the client in sync with the server.

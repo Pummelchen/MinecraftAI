@@ -1925,6 +1925,8 @@ def render_page(
         </div>
         <p class="note">To check status without updating:</p>
         <pre class="terminal-cmd"><code>~/Library/Application\\ Support/Pummelchen/bin/pummelchen-auto-update.sh --check-only</code></pre>
+        <p class="note">If the local updater scripts are damaged or stuck, repair them directly from the VPS and immediately run a forced sync:</p>
+        <pre class="terminal-cmd"><code>mkdir -p "$HOME/Library/Application Support/Pummelchen/bin" &amp;&amp; curl -fsSL http://91.99.176.243:7788/downloads/client-files/tools/pummelchen-auto-update.sh -o "$HOME/Library/Application Support/Pummelchen/bin/pummelchen-auto-update.sh" &amp;&amp; curl -fsSL http://91.99.176.243:7788/downloads/client-files/tools/pummelchen-updater.sh -o "$HOME/Library/Application Support/Pummelchen/bin/pummelchen-updater.sh" &amp;&amp; chmod +x "$HOME/Library/Application Support/Pummelchen/bin/pummelchen-auto-update.sh" "$HOME/Library/Application Support/Pummelchen/bin/pummelchen-updater.sh" &amp;&amp; "$HOME/Library/Application Support/Pummelchen/bin/pummelchen-auto-update.sh" --force</code></pre>
       </div>
     </section>
 
@@ -2268,7 +2270,7 @@ def parse_pack_manifest(manifest_path: Path) -> list[tuple[str, str, str, str]]:
             section = line[1:-1]
             continue
         parts = raw_line.split("\t")
-        if section in {"mods", "resourcepacks", "shaderpacks"} and len(parts) >= 3:
+        if section in {"mods", "resourcepacks", "shaderpacks", "tools"} and len(parts) >= 3:
             rows.append((section, parts[0], parts[1], parts[2]))
     return rows
 
