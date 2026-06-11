@@ -167,6 +167,24 @@ PY
       || fail "world reset did not install Purple House datapack"
     [ -f "$RESET_WORLD_SERVER/custom-live-world/datapacks/pummelchen-place-purple-house.zip" ] \
       || fail "world reset did not install placement datapack"
+    SAFE_RESET_SERVER="$TMP_DIR/safe-reset-server"
+    mkdir -p "$SAFE_RESET_SERVER/world/region"
+    printf 'level-name=world\nlevel-seed=old-seed\nbonus-chest=false\n' > "$SAFE_RESET_SERVER/server.properties"
+    printf 'old-region\n' > "$SAFE_RESET_SERVER/world/region/r.0.0.mca"
+    SAFE_RESET_OUTPUT="$("$PYTHON_BIN" "$ROOT_DIR/scripts/safe_reset_world.py" \
+      --project-dir "$ROOT_DIR" \
+      --server-dir "$SAFE_RESET_SERVER" \
+      --seed 987654321 \
+      --diameter-blocks 1000 \
+      --batch-size 32 \
+      --dry-run \
+      --yes)"
+    printf '%s\n' "$SAFE_RESET_OUTPUT" | grep -q 'world_seed=987654321' \
+      || fail "safe world reset did not report requested seed"
+    printf '%s\n' "$SAFE_RESET_OUTPUT" | grep -q 'diameter_blocks=1000' \
+      || fail "safe world reset did not plan 1000-block diameter"
+    printf '%s\n' "$SAFE_RESET_OUTPUT" | grep -q 'pregenerate_chunks=' \
+      || fail "safe world reset did not plan pregeneration chunks"
     "$PYTHON_BIN" - "$RESET_WORLD_SERVER/custom-live-world/datapacks/pummelchen-place-purple-house.zip" <<'PY'
 import sys
 import zipfile

@@ -109,6 +109,7 @@ Clients resolve `/downloads/current-release.json` to find the active release ID,
 | `sanitize_resource_pack_metadata.py` | Repair pack.mcmeta schema drift that crashes the client |
 | `sync_custom_datapacks.py` | Deploy custom datapacks to server and world |
 | `sync_pummelchen_mods.py` | Register and deploy project-owned custom jars |
+| `safe_reset_world.py` | Safely replace the active world with a new seed, install required datapacks/gamerules, and pregenerate spawn chunks |
 
 ## Systemd Services
 
@@ -201,6 +202,9 @@ python3 scripts/release_manager.py prune --keep 2
 
 # Server control
 systemctl start|stop|restart pummelchen-minecraft.service
+
+# Safe world reset with pregeneration
+python3 scripts/safe_reset_world.py --seed <new-seed> --diameter-blocks 1000 --yes
 
 # Acceptance lab
 python3 scripts/mod_acceptance_lab.py run-files --include-active-deps /path/to/candidate.jar
