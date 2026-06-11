@@ -64,16 +64,53 @@ LOCK_DIR="$PUMMELCHEN_HOME/update.lock"
 INSTALLED_RELEASE_FILE="$STATE_DIR/installed-release.txt"
 
 mkdir -p "$PUMMELCHEN_HOME" "$LOG_DIR" "$CACHE_DIR" "$STATE_DIR"
-if [ "$CHECK_ONLY" != "1" ] && [ "${PUMMELCHEN_LOG_TO_STDOUT:-0}" != "1" ]; then
+# When running interactively (not --quiet), keep output on terminal.
+# When running in background (LaunchAgent --quiet), redirect to log file.
+if [ "$QUIET" = "1" ] && [ "${PUMMELCHEN_LOG_TO_STDOUT:-0}" != "1" ] && [ "$CHECK_ONLY" != "1" ]; then
   exec >> "$LOG_FILE" 2>&1
+fi
+# Terminal output: goes to /dev/tty if available (background mode), otherwise stdout.
+TTY_OUT="/dev/null"
+if [ -e /dev/tty ] && [ "$QUIET" != "1" ]; then
+  TTY_OUT="/dev/tty"
+elif [ "$QUIET" != "1" ]; then
+  TTY_OUT="/dev/stdout"
 fi
 
 log() {
   if [ "$QUIET" != "1" ] || [ "${PUMMELCHEN_LOG_TO_STDOUT:-0}" = "1" ] || [ "$CHECK_ONLY" = "1" ]; then
     printf '%s\n' "$*"
-  else
-    printf '%s\n' "$*"
   fi
+}
+
+# MSDOS-style progress bar: [##########----------] 45/263 (17%) filename
+# Only visible when running interactively (not --quiet).
+progress_bar() {
+  local current="$1" total="$2" label="$3" bar_width=30
+  [ "$QUIET" = "1" ] && return 0
+  if [ "$total" -eq 0 ]; then
+    if [ "$current" -eq 0 ]; then echo > "$TTY_OUT"; fi
+    return 0
+  fi
+  local pct=$((current * 100 / total))
+  local filled=$((current * bar_width / total))
+  local empty=$((bar_width - filled))
+  local bar=""
+  for ((i=0; i<filled; i++)); do bar+="#"; done
+  for ((i=0; i<empty; i++)); do bar+="-"; done
+  # Truncate label to fit reasonable terminal width
+  local max_label=40
+  if [ "${#label}" -gt "$max_label" ]; then
+    label="...${label: -$((max_label - 3))}"
+  fi
+  printf '\r  [%s] %d/%d (%d%%) %s' "$bar" "$current" "$total" "$pct" "$label" > "$TTY_OUT"
+  if [ "$current" -eq "$total" ]; then echo > "$TTY_OUT"; fi
+}
+
+# Print a status line to the terminal (visible during interactive runs).
+tty_log() {
+  [ "$QUIET" = "1" ] && return 0
+  printf '%s\n' "$*" > "$TTY_OUT"
 }
 
 fail() {
@@ -509,6 +546,34 @@ sync_files() {
   local download_dir="$2"
   local changed=0
   local verified=0
+  local dl_total=0
+  local dl_current=0
+  # Pre-count how many files need downloading vs already verified
+  local skip_count=0
+  while IFS=$'\t' read -r section name size hash url_path; do
+    [ -n "${section:-}" ] || continue
+    case "$section" in mods|resourcepacks|shaderpacks|tools) ;; *) continue ;; esac
+    local expected dst
+    expected="${hash#sha256:}"
+    case "$section" in
+      mods|resourcepacks|shaderpacks) dst="$MC_DIR/$section/$name" ;;
+      tools) dst="$PUMMELCHEN_HOME/bin/$name" ;;
+    esac
+    if verify_hash "$dst" "$expected"; then
+      skip_count=$((skip_count + 1))
+    else
+      dl_total=$((dl_total + 1))
+    fi
+  done < "$wanted_manifest"
+  if [ "$skip_count" -gt 0 ]; then
+    tty_log "  $skip_count file(s) already up to date."
+  fi
+  if [ "$dl_total" -gt 0 ]; then
+    tty_log ""
+    tty_log "  Downloading $dl_total file(s)..."
+    tty_log ""
+  fi
+  dl_current=0
   while IFS=$'\t' read -r section name size hash url_path; do
     [ -n "${section:-}" ] || continue
     case "$section" in
@@ -526,12 +591,14 @@ sync_files() {
       verified=$((verified + 1))
       continue
     fi
+    dl_current=$((dl_current + 1))
     tmp="$download_dir/$section/$name"
     mkdir -p "$(dirname "$tmp")"
     case "$url_path" in
       http://*|https://*|file://*) file_url="$url_path" ;;
       *) file_url="${BASE_URL%/}/$(url_escape_path "${url_path#/}")" ;;
     esac
+    progress_bar "$dl_current" "$dl_total" "$name"
     log "Downloading $section/$name"
     download_url "$file_url" "$tmp" || fail "Could not download $file_url"
     verify_hash "$tmp" "$expected" || fail "Checksum mismatch for downloaded file: $section/$name"
@@ -540,6 +607,15 @@ sync_files() {
     verified=$((verified + 1))
   done < "$wanted_manifest"
   log "Verified $verified file(s); changed $changed file(s)."
+  if [ "$changed" -gt 0 ]; then
+    tty_log ""
+    tty_log "  Done! $changed file(s) updated, $verified verified."
+    tty_log ""
+  elif [ "$dl_total" -eq 0 ]; then
+    tty_log ""
+    tty_log "  All $verified file(s) already up to date. Nothing to do."
+    tty_log ""
+  fi
   SYNC_CHANGED_COUNT="$changed"
 }
 
@@ -597,6 +673,12 @@ log "Pummelchen auto-update"
 log "Release: ${TARGET_RELEASE_ID:-legacy}"
 log "Manifest: $MANIFEST_URL"
 log "Minecraft folder: $MC_DIR"
+tty_log ""
+tty_log "  Pummelchen Client Updater"
+tty_log "  ========================"
+tty_log "  Release: ${TARGET_RELEASE_ID:-legacy}"
+tty_log "  Server:  $BASE_URL"
+tty_log ""
 LOCAL_RELEASE_ID="$(read_installed_release)"
 CURRENT_STATUS="up_to_date"
 if [ -z "$LOCAL_RELEASE_ID" ]; then
@@ -613,6 +695,7 @@ ENTRY_COUNT="$(wc -l < "$WANTED_MANIFEST" | tr -d '[:space:]')"
 if [ "$ENTRY_COUNT" = "0" ]; then
   fail "Sync manifest did not contain any client files."
 fi
+tty_log "  Manifest: $ENTRY_COUNT file(s) in current release"
 
 if [ "$CHECK_ONLY" = "1" ]; then
   log "Manifest is readable. Client file entries: $ENTRY_COUNT"
@@ -636,6 +719,9 @@ if [ "$FORCE_UPDATE" = "1" ]; then
 fi
 if [ "$FORCE_UPDATE" != "1" ] && [ "$SERVER_REQUIRES_UPDATE" = "0" ] && [ -n "${LOCAL_RELEASE_ID:-}" ] && [ "$LOCAL_RELEASE_ID" = "${TARGET_RELEASE_ID:-legacy}" ]; then
   log "Server status check says this client is up to date; skipping full sync."
+  tty_log ""
+  tty_log "  Client is up to date! No changes needed."
+  tty_log ""
   write_status "up_to_date" "no changes required" "$LOCAL_RELEASE_ID" "${TARGET_RELEASE_ID:-legacy}"
   report_update_status "up_to_date" "$LOCAL_RELEASE_ID" "${TARGET_RELEASE_ID:-legacy}" "0" "$ENTRY_COUNT" "server reported up-to-date"
   log "Pummelchen client is current."
@@ -647,10 +733,13 @@ fi
 
 mkdir -p "$MC_DIR/mods" "$MC_DIR/resourcepacks" "$MC_DIR/shaderpacks" "$DOWNLOAD_DIR" "$WANTED_NAMES_DIR"
 mkdir -p "$PUMMELCHEN_HOME/bin"
+tty_log "  Cleaning stale files..."
 remove_stale_managed_files "$WANTED_MANIFEST" "$CURRENT_KEYS" "$PREVIOUS_KEYS"
+tty_log "  Moving unmanaged files..."
+move_unmanaged_files "$WANTED_MANIFEST" "$WANTED_NAMES_DIR"
 sync_files "$WANTED_MANIFEST" "$DOWNLOAD_DIR"
 CHANGED_COUNT="$SYNC_CHANGED_COUNT"
-move_unmanaged_files "$WANTED_MANIFEST" "$WANTED_NAMES_DIR"
+tty_log "  Applying client defaults..."
 reset_client_visual_state
 apply_pummelchen_client_defaults
 repair_server_entry
@@ -669,3 +758,5 @@ if [ -x "$DOCTOR" ]; then
   "$DOCTOR" --upload-if-new-crash --quiet >/dev/null 2>&1 || true
 fi
 log "Pummelchen client is current."
+tty_log "  Pummelchen client is current."
+tty_log ""

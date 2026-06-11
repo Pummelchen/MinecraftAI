@@ -1789,6 +1789,20 @@ def render_page(
       line-height: 1.5;
     }}
     .terminal-cmd code {{ color: var(--green); font-family: 'SF Mono', 'Menlo', 'Monaco', monospace; }}
+    .terminal-output {{
+      background: #060a07;
+      border: 1px solid #1a2b1e;
+      border-radius: 6px;
+      padding: 12px 16px;
+      margin: 6px 0;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #8ab88a;
+      font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+      white-space: pre;
+      overflow-x: auto;
+    }}
+    .progress-example {{ margin: 10px 0; }}
     footer {{ padding: 24px 0 42px; color: var(--muted); }}
     @media (max-width: 640px) {{
       .wrap {{ padding: 16px; }}
@@ -1851,8 +1865,26 @@ def render_page(
       </div>
       <div class="manual-update">
         <h4>Manual Client Update (Terminal)</h4>
-        <p class="note">Clients auto-update every 5 minutes. To force a manual sync, paste this in macOS Terminal:</p>
+        <p class="note">Clients auto-update every 5 minutes in the background. To force a manual sync with a live progress bar, paste this in macOS Terminal:</p>
         <pre class="terminal-cmd"><code>~/Library/Application\\ Support/Pummelchen/bin/pummelchen-auto-update.sh --force</code></pre>
+        <div class="progress-example">
+          <p class="note">Example output:</p>
+          <pre class="terminal-output"><code>  Pummelchen Client Updater
+  ========================
+  Release: release_20260611_V3
+  Server:  http://91.99.176.243:7788
+
+  Manifest: 254 file(s) in current release
+  251 file(s) already up to date.
+
+  Downloading 3 file(s)...
+
+  [##############################] 3/3 (100%) done
+
+  Done! 3 file(s) updated, 254 verified.
+
+  Pummelchen client is current.</code></pre>
+        </div>
         <p class="note">To check status without updating:</p>
         <pre class="terminal-cmd"><code>~/Library/Application\\ Support/Pummelchen/bin/pummelchen-auto-update.sh --check-only</code></pre>
       </div>
