@@ -1776,6 +1776,19 @@ def render_page(
     dd {{ margin: 0; overflow-wrap: anywhere; }}
     .mod-card p {{ margin: 0; color: #d8ded8; overflow-wrap: anywhere; }}
     .note {{ color: var(--muted); max-width: 860px; }}
+    .manual-update {{ margin-top: 18px; padding: 14px 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }}
+    .manual-update h4 {{ margin: 0 0 8px; color: var(--text); font-size: 15px; }}
+    .terminal-cmd {{
+      background: #0a0f0b;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin: 6px 0;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.5;
+    }}
+    .terminal-cmd code {{ color: var(--green); font-family: 'SF Mono', 'Menlo', 'Monaco', monospace; }}
     footer {{ padding: 24px 0 42px; color: var(--muted); }}
     @media (max-width: 640px) {{
       .wrap {{ padding: 16px; }}
@@ -1835,6 +1848,13 @@ def render_page(
       <div class="actions">
         <a class="button" href="{escape(client_dmg_url)}">Download Small Mac Installer DMG</a>
         {release_version_html}
+      </div>
+      <div class="manual-update">
+        <h4>Manual Client Update (Terminal)</h4>
+        <p class="note">Clients auto-update every 5 minutes. To force a manual sync, paste this in macOS Terminal:</p>
+        <pre class="terminal-cmd"><code>~/Library/Application\\ Support/Pummelchen/bin/pummelchen-auto-update.sh --force</code></pre>
+        <p class="note">To check status without updating:</p>
+        <pre class="terminal-cmd"><code>~/Library/Application\\ Support/Pummelchen/bin/pummelchen-auto-update.sh --check-only</code></pre>
       </div>
     </section>
 
