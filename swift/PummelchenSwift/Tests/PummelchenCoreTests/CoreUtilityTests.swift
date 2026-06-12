@@ -53,11 +53,16 @@ struct CoreUtilityTests {
     func encodesAPIEnvelope() throws {
         let report = ClientStatusReport(
             clientID: "client-a",
-            releaseID: "release_20260612_V16_example",
-            checkedAt: "2026-06-12T15:59:23+00:00",
-            verifiedFiles: 254,
+            reportedAt: "2026-06-12T15:59:23+00:00",
+            installedReleaseID: "release_20260612_V16_example",
+            targetReleaseID: "release_20260612_V16_example",
+            status: "synced",
+            manifestEntries: 254,
             changedFiles: 0,
-            message: "all synced"
+            lastError: nil,
+            message: "all synced",
+            osSummary: "macOS",
+            arch: "arm64"
         )
         let envelope = APIEnvelope(ok: true, generatedAt: "2026-06-12T16:00:00+00:00", payload: report)
         let data = try JSONEncoder().encode(envelope)

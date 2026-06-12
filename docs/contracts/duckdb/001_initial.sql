@@ -89,6 +89,43 @@ CREATE TABLE IF NOT EXISTS client.client_latest_status (
     arch TEXT
 );
 
+CREATE TABLE IF NOT EXISTS client.client_inventory (
+    client_id TEXT NOT NULL,
+    reported_at TIMESTAMP NOT NULL,
+    section TEXT NOT NULL,
+    name TEXT NOT NULL,
+    size_bytes UBIGINT NOT NULL,
+    sha256 TEXT NOT NULL,
+    status TEXT NOT NULL,
+    PRIMARY KEY (client_id, section, name)
+);
+
+CREATE TABLE IF NOT EXISTS client.client_diagnostics (
+    diagnostic_id TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    reported_at TIMESTAMP NOT NULL,
+    level TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    details TEXT
+);
+
+CREATE TABLE IF NOT EXISTS client.client_defaults_reports (
+    report_id TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    reported_at TIMESTAMP NOT NULL,
+    defaults_ok BOOLEAN NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS client.client_defaults_events (
+    event_id TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    reported_at TIMESTAMP NOT NULL,
+    key TEXT NOT NULL,
+    status TEXT NOT NULL,
+    desired_value TEXT NOT NULL,
+    observed_value TEXT
+);
+
 CREATE TABLE IF NOT EXISTS moddb.mods (
     mod_id UBIGINT PRIMARY KEY,
     canonical_key TEXT NOT NULL,

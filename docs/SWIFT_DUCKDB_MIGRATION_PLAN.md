@@ -1307,6 +1307,23 @@ Acceptance:
 - Request payloads are size-limited.
 - Server can distinguish `synced`, `needs defaults repair`, `failed checksum`, and `stale release`.
 
+Implementation status:
+
+- Implemented Phase 6 write endpoints in `PummelchenServerAPI`:
+  - `POST /api/v1/clients/register`
+  - `POST /api/v1/clients/heartbeat`
+  - `POST /api/v1/clients/sync-runs`
+  - `POST /api/v1/clients/inventory`
+  - `POST /api/v1/clients/diagnostics`
+  - `POST /api/v1/clients/defaults-events`
+  - `GET /api/v1/clients/health`
+- Write endpoints require `Authorization: Bearer <token>` and matching `X-Pummelchen-Client-ID`; missing/bad tokens and client-id mismatches are rejected.
+- Write payloads are bounded by `maxWritePayloadBytes` before JSON decoding.
+- Server-side Phase 6 persistence writes to DuckDB client tables for reports, latest status, inventory, diagnostics, defaults reports, and defaults events.
+- Aggregate health reports counts for synced clients, defaults repair, failed checksums, stale release, and error/blocked clients.
+- The Swift client sync engine can post JSON sync reports to `/api/v1/clients/sync-runs` when `PUMMELCHEN_CLIENT_API_TOKEN` or `--client-api-token` is configured; otherwise it keeps using the legacy `/client-logs/update-status` fallback during migration.
+- Phase 6 is still a migration layer, not the production cutover. nginx/static releases and the existing Python/Bash production writers remain authoritative until later phases.
+
 ### Phase 7: Release Pipeline in Swift
 
 Move release logic into `PummelchenServer` or a companion Swift CLI:

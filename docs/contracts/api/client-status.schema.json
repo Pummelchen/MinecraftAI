@@ -29,7 +29,19 @@
     },
     "status": {
       "type": "string",
-      "enum": ["synced", "outdated", "downloading", "error", "offline", "blocked_minecraft_running"]
+      "enum": [
+        "registered",
+        "heartbeat",
+        "synced",
+        "outdated",
+        "stale_release",
+        "downloading",
+        "needs_defaults_repair",
+        "failed_checksum",
+        "error",
+        "offline",
+        "blocked_minecraft_running"
+      ]
     },
     "manifest_entries": {
       "type": "integer",

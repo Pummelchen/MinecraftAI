@@ -20,28 +20,232 @@ public struct APIEnvelope<Payload: Codable & Equatable & Sendable>: Codable, Equ
 
 public struct ClientStatusReport: Codable, Equatable, Sendable {
     public let clientID: String
-    public let releaseID: String
-    public let checkedAt: String
-    public let verifiedFiles: Int
+    public let reportedAt: String
+    public let installedReleaseID: String?
+    public let targetReleaseID: String?
+    public let status: String
+    public let manifestEntries: Int?
     public let changedFiles: Int
-    public let message: String
+    public let lastError: String?
+    public let message: String?
+    public let osSummary: String?
+    public let arch: String?
 
     enum CodingKeys: String, CodingKey {
         case clientID = "client_id"
-        case releaseID = "release_id"
-        case checkedAt = "checked_at"
-        case verifiedFiles = "verified_files"
+        case reportedAt = "reported_at"
+        case installedReleaseID = "installed_release_id"
+        case targetReleaseID = "target_release_id"
+        case status
+        case manifestEntries = "manifest_entries"
         case changedFiles = "changed_files"
+        case lastError = "last_error"
         case message
+        case osSummary = "os_summary"
+        case arch
     }
 
-    public init(clientID: String, releaseID: String, checkedAt: String, verifiedFiles: Int, changedFiles: Int, message: String) {
+    public init(
+        clientID: String,
+        reportedAt: String,
+        installedReleaseID: String?,
+        targetReleaseID: String?,
+        status: String,
+        manifestEntries: Int?,
+        changedFiles: Int,
+        lastError: String?,
+        message: String?,
+        osSummary: String?,
+        arch: String?
+    ) {
         self.clientID = clientID
-        self.releaseID = releaseID
-        self.checkedAt = checkedAt
-        self.verifiedFiles = verifiedFiles
+        self.reportedAt = reportedAt
+        self.installedReleaseID = installedReleaseID
+        self.targetReleaseID = targetReleaseID
+        self.status = status
+        self.manifestEntries = manifestEntries
         self.changedFiles = changedFiles
+        self.lastError = lastError
         self.message = message
+        self.osSummary = osSummary
+        self.arch = arch
+    }
+}
+
+public struct ClientRegistrationRequest: Codable, Equatable, Sendable {
+    public let clientID: String
+    public let displayName: String?
+    public let osSummary: String?
+    public let arch: String?
+
+    enum CodingKeys: String, CodingKey {
+        case clientID = "client_id"
+        case displayName = "display_name"
+        case osSummary = "os_summary"
+        case arch
+    }
+
+    public init(clientID: String, displayName: String?, osSummary: String?, arch: String?) {
+        self.clientID = clientID
+        self.displayName = displayName
+        self.osSummary = osSummary
+        self.arch = arch
+    }
+}
+
+public struct ClientInventoryUpload: Codable, Equatable, Sendable {
+    public let clientID: String
+    public let reportedAt: String
+    public let files: [ClientInventoryFile]
+
+    enum CodingKeys: String, CodingKey {
+        case clientID = "client_id"
+        case reportedAt = "reported_at"
+        case files
+    }
+
+    public init(clientID: String, reportedAt: String, files: [ClientInventoryFile]) {
+        self.clientID = clientID
+        self.reportedAt = reportedAt
+        self.files = files
+    }
+}
+
+public struct ClientInventoryFile: Codable, Equatable, Sendable {
+    public let section: String
+    public let name: String
+    public let sizeBytes: Int
+    public let sha256: String
+    public let status: String
+
+    enum CodingKeys: String, CodingKey {
+        case section
+        case name
+        case sizeBytes = "size_bytes"
+        case sha256
+        case status
+    }
+
+    public init(section: String, name: String, sizeBytes: Int, sha256: String, status: String) {
+        self.section = section
+        self.name = name
+        self.sizeBytes = sizeBytes
+        self.sha256 = sha256
+        self.status = status
+    }
+}
+
+public struct ClientDiagnosticsUpload: Codable, Equatable, Sendable {
+    public let clientID: String
+    public let reportedAt: String
+    public let level: String
+    public let summary: String
+    public let details: String?
+
+    enum CodingKeys: String, CodingKey {
+        case clientID = "client_id"
+        case reportedAt = "reported_at"
+        case level
+        case summary
+        case details
+    }
+
+    public init(clientID: String, reportedAt: String, level: String, summary: String, details: String?) {
+        self.clientID = clientID
+        self.reportedAt = reportedAt
+        self.level = level
+        self.summary = summary
+        self.details = details
+    }
+}
+
+public struct ClientDefaultsEventUpload: Codable, Equatable, Sendable {
+    public let clientID: String
+    public let reportedAt: String
+    public let defaultsOK: Bool
+    public let events: [ClientDefaultsEvent]
+
+    enum CodingKeys: String, CodingKey {
+        case clientID = "client_id"
+        case reportedAt = "reported_at"
+        case defaultsOK = "defaults_ok"
+        case events
+    }
+
+    public init(clientID: String, reportedAt: String, defaultsOK: Bool, events: [ClientDefaultsEvent]) {
+        self.clientID = clientID
+        self.reportedAt = reportedAt
+        self.defaultsOK = defaultsOK
+        self.events = events
+    }
+}
+
+public struct ClientDefaultsEvent: Codable, Equatable, Sendable {
+    public let key: String
+    public let status: String
+    public let desiredValue: String
+    public let observedValue: String?
+
+    enum CodingKeys: String, CodingKey {
+        case key
+        case status
+        case desiredValue = "desired_value"
+        case observedValue = "observed_value"
+    }
+
+    public init(key: String, status: String, desiredValue: String, observedValue: String?) {
+        self.key = key
+        self.status = status
+        self.desiredValue = desiredValue
+        self.observedValue = observedValue
+    }
+}
+
+public struct ClientHealthSummary: Codable, Equatable, Sendable {
+    public let totalClients: Int
+    public let synced: Int
+    public let needsDefaultsRepair: Int
+    public let failedChecksum: Int
+    public let staleRelease: Int
+    public let error: Int
+
+    enum CodingKeys: String, CodingKey {
+        case totalClients = "total_clients"
+        case synced
+        case needsDefaultsRepair = "needs_defaults_repair"
+        case failedChecksum = "failed_checksum"
+        case staleRelease = "stale_release"
+        case error
+    }
+
+    public init(totalClients: Int, synced: Int, needsDefaultsRepair: Int, failedChecksum: Int, staleRelease: Int, error: Int) {
+        self.totalClients = totalClients
+        self.synced = synced
+        self.needsDefaultsRepair = needsDefaultsRepair
+        self.failedChecksum = failedChecksum
+        self.staleRelease = staleRelease
+        self.error = error
+    }
+}
+
+public struct ClientWriteAck: Codable, Equatable, Sendable {
+    public let ok: Bool
+    public let clientID: String?
+    public let files: Int?
+    public let events: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case clientID = "client_id"
+        case files
+        case events
+    }
+
+    public init(ok: Bool = true, clientID: String? = nil, files: Int? = nil, events: Int? = nil) {
+        self.ok = ok
+        self.clientID = clientID
+        self.files = files
+        self.events = events
     }
 }
 

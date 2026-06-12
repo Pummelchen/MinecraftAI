@@ -63,11 +63,11 @@ struct Arguments {
 }
 
 final class LocalHTTPServer {
-    private let api: PummelchenReadOnlyAPI
+    private let api: PummelchenServerAPI
     private let host: String
     private let port: Int
 
-    init(api: PummelchenReadOnlyAPI, host: String, port: Int) {
+    init(api: PummelchenServerAPI, host: String, port: Int) {
         self.api = api
         self.host = host
         self.port = port
@@ -114,26 +114,68 @@ final class LocalHTTPServer {
     }
 
     private func handle(client: Int32) {
-        var buffer = [UInt8](repeating: 0, count: 8192)
-        let count = read(client, &buffer, buffer.count)
-        guard count > 0 else {
+        guard let raw = readRequest(from: client) else {
             return
         }
-        let requestText = String(decoding: buffer.prefix(count), as: UTF8.self)
-        let request = parseRequest(requestText) ?? HTTPRequest(method: "GET", path: "/bad-request")
+        let requestText = String(decoding: raw, as: UTF8.self)
+        let request = parseRequest(requestText, raw: raw) ?? HTTPRequest(method: "GET", path: "/bad-request")
         let response = api.response(for: request)
         writeResponse(response, to: client)
     }
 
-    private func parseRequest(_ text: String) -> HTTPRequest? {
-        guard let firstLine = text.split(separator: "\r\n", maxSplits: 1, omittingEmptySubsequences: false).first else {
+    private func readRequest(from client: Int32) -> Data? {
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 8192)
+        while true {
+            let count = read(client, &buffer, buffer.count)
+            guard count > 0 else {
+                return data.isEmpty ? nil : data
+            }
+            data.append(contentsOf: buffer.prefix(count))
+            if data.count > 512 * 1024 {
+                return data
+            }
+            guard let headerEnd = data.range(of: Data("\r\n\r\n".utf8)) else {
+                continue
+            }
+            let headerText = String(decoding: data.prefix(upTo: headerEnd.lowerBound), as: UTF8.self)
+            let contentLength = headerText
+                .split(separator: "\r\n")
+                .dropFirst()
+                .first { $0.lowercased().hasPrefix("content-length:") }
+                .flatMap { Int($0.split(separator: ":", maxSplits: 1).last?.trimmingCharacters(in: .whitespaces) ?? "") } ?? 0
+            let expected = headerEnd.upperBound + contentLength
+            if data.count >= expected {
+                return data
+            }
+        }
+    }
+
+    private func parseRequest(_ text: String, raw: Data) -> HTTPRequest? {
+        let headerText = text.components(separatedBy: "\r\n\r\n").first ?? text
+        guard let firstLine = headerText.split(separator: "\r\n", maxSplits: 1, omittingEmptySubsequences: false).first else {
             return nil
         }
         let parts = firstLine.split(separator: " ", omittingEmptySubsequences: false)
         guard parts.count >= 2 else {
             return nil
         }
-        return HTTPRequest(method: String(parts[0]), path: String(parts[1]))
+        var headers: [String: String] = [:]
+        for line in headerText.split(separator: "\r\n").dropFirst() {
+            let header = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard header.count == 2 else {
+                continue
+            }
+            headers[String(header[0]).lowercased()] = String(header[1]).trimmingCharacters(in: .whitespaces)
+        }
+        let marker = Data("\r\n\r\n".utf8)
+        let body: Data
+        if let range = raw.range(of: marker) {
+            body = raw.subdata(in: range.upperBound..<raw.endIndex)
+        } else {
+            body = Data()
+        }
+        return HTTPRequest(method: String(parts[0]), path: String(parts[1]), headers: headers, body: body)
     }
 
     private func writeResponse(_ response: HTTPResponse, to client: Int32) {
@@ -144,7 +186,7 @@ final class LocalHTTPServer {
             "Content-Length: \(response.body.count)",
             "Connection: close",
             "X-Pummelchen-Transport-Target: http3_quic",
-            "X-Pummelchen-Mode: read_only"
+            "X-Pummelchen-Mode: swift_api"
         ]
         for key in response.headers.keys.sorted() {
             if let value = response.headers[key] {
@@ -175,8 +217,12 @@ final class LocalHTTPServer {
     private func statusReason(_ status: Int) -> String {
         switch status {
         case 200: return "OK"
+        case 201: return "Created"
+        case 400: return "Bad Request"
+        case 401: return "Unauthorized"
         case 404: return "Not Found"
         case 405: return "Method Not Allowed"
+        case 413: return "Payload Too Large"
         default: return "Internal Server Error"
         }
     }
@@ -193,7 +239,7 @@ private func socketStreamType() -> Int32 {
 func run(arguments: [String]) throws {
     let args = try Arguments(arguments)
     let projectRoot = URL(fileURLWithPath: try args.require("--project-root")).standardizedFileURL
-    let api = PummelchenReadOnlyAPI(config: PummelchenServerConfig(projectRoot: projectRoot))
+    let api = PummelchenServerAPI(config: PummelchenServerConfig(projectRoot: projectRoot))
 
     switch args.command {
     case "smoke":
@@ -202,7 +248,7 @@ func run(arguments: [String]) throws {
     case "serve":
         let host = args.options["--host"] ?? "127.0.0.1"
         let port = Int(args.options["--port"] ?? "8787") ?? 8787
-        let configuredAPI = PummelchenReadOnlyAPI(
+        let configuredAPI = PummelchenServerAPI(
             config: PummelchenServerConfig(projectRoot: projectRoot, bindHost: host, port: port)
         )
         try LocalHTTPServer(api: configuredAPI, host: host, port: port).run()

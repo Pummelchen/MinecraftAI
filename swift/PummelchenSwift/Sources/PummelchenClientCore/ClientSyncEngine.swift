@@ -11,6 +11,8 @@ public struct ClientSyncConfiguration: Sendable {
     public let databaseURL: URL
     public let allowWhileMinecraftRunning: Bool
     public let reportToServer: Bool
+    public let clientID: String?
+    public let clientAPIToken: String?
 
     public init(
         serverURL: URL = URL(string: "http://91.99.176.243:7788")!,
@@ -18,7 +20,9 @@ public struct ClientSyncConfiguration: Sendable {
         pummelchenHome: URL,
         databaseURL: URL,
         allowWhileMinecraftRunning: Bool = false,
-        reportToServer: Bool = true
+        reportToServer: Bool = true,
+        clientID: String? = nil,
+        clientAPIToken: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_CLIENT_API_TOKEN"]
     ) {
         self.serverURL = serverURL
         self.minecraftDirectory = minecraftDirectory
@@ -26,6 +30,8 @@ public struct ClientSyncConfiguration: Sendable {
         self.databaseURL = databaseURL
         self.allowWhileMinecraftRunning = allowWhileMinecraftRunning
         self.reportToServer = reportToServer
+        self.clientID = clientID
+        self.clientAPIToken = clientAPIToken
     }
 
     public static func productionDefault(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> ClientSyncConfiguration {
@@ -351,6 +357,41 @@ public struct ClientSyncEngine: Sendable {
     }
 
     private func report(result: ClientSyncResult, changedFiles: Int) async {
+        guard let token = configuration.clientAPIToken, !token.isEmpty else {
+            await reportLegacy(result: result, changedFiles: changedFiles)
+            return
+        }
+        let clientID = configuration.clientID ?? Host.current().localizedName ?? "swift-client"
+        let status = result.result == "ok"
+            ? (changedFiles == 0 ? "synced" : "synced")
+            : (result.message.lowercased().contains("checksum") ? "failed_checksum" : "error")
+        let payload = ClientStatusReport(
+            clientID: clientID,
+            reportedAt: result.finishedAt,
+            installedReleaseID: result.targetReleaseID,
+            targetReleaseID: result.targetReleaseID,
+            status: status,
+            manifestEntries: result.manifestEntries,
+            changedFiles: changedFiles,
+            lastError: result.result == "ok" ? nil : result.message,
+            message: result.message,
+            osSummary: ProcessInfo.processInfo.operatingSystemVersionString,
+            arch: Self.machineArchitecture()
+        )
+        guard let body = try? JSONEncoder().encode(payload) else {
+            return
+        }
+        var request = URLRequest(url: configuration.serverURL.appendingPathComponent("api/v1/clients/sync-runs"))
+        request.httpMethod = "POST"
+        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(clientID, forHTTPHeaderField: "X-Pummelchen-Client-ID")
+        request.setValue("PummelchenSwiftSync/0.6", forHTTPHeaderField: "User-Agent")
+        request.httpBody = body
+        _ = try? await URLSession.shared.data(for: request)
+    }
+
+    private func reportLegacy(result: ClientSyncResult, changedFiles: Int) async {
         var components = URLComponents(url: configuration.serverURL.appendingPathComponent("client-logs/update-status"), resolvingAgainstBaseURL: false)
         components?.queryItems = [
             URLQueryItem(name: "client_id", value: Host.current().localizedName ?? "swift-client"),
@@ -367,7 +408,7 @@ public struct ClientSyncEngine: Sendable {
         var request = URLRequest(url: configuration.serverURL.appendingPathComponent("client-logs/update-status"))
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("PummelchenSwiftSync/0.5", forHTTPHeaderField: "User-Agent")
+        request.setValue("PummelchenSwiftSync/0.6", forHTTPHeaderField: "User-Agent")
         request.httpBody = body
         _ = try? await URLSession.shared.data(for: request)
     }
@@ -394,5 +435,23 @@ public struct ClientSyncEngine: Sendable {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyyMMdd-HHmmss"
         return formatter.string(from: date)
+    }
+
+    private static func machineArchitecture() -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["uname", "-m"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return output.isEmpty ? "unknown" : output
+        } catch {
+            return "unknown"
+        }
     }
 }
