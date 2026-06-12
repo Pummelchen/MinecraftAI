@@ -1,0 +1,12 @@
+.build/
+**/.build/
+DerivedData/
+*.log
+*.tmp
+.DS_Store
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.duckdb
+*.duckdb-*

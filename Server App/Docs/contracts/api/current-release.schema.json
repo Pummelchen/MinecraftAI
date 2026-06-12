@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pummelchen.local/schemas/current-release.schema.json",
+  "title": "Pummelchen Current Release",
+  "type": "object",
+  "required": [
+    "release_id",
+    "created_at",
+    "activated_at",
+    "status",
+    "minecraft_version",
+    "loader_version",
+    "server_key",
+    "manifest_url",
+    "client_zip_url",
+    "client_zip_sha256",
+    "mrpack_url",
+    "mrpack_sha256",
+    "notes"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "release_id": {
+      "type": "string",
+      "pattern": "^release_[0-9]{8}_V[0-9]+[A-Za-z0-9_.-]*$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "activated_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "status": {
+      "type": "string"
+    },
+    "minecraft_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "loader_version": {
+      "type": "string"
+    },
+    "server_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "manifest_url": {
+      "type": "string",
+      "pattern": "^/downloads/releases/.+/client-sync-manifest\\.tsv$"
+    },
+    "client_zip_url": {
+      "type": "string"
+    },
+    "client_zip_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "mrpack_url": {
+      "type": "string"
+    },
+    "mrpack_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

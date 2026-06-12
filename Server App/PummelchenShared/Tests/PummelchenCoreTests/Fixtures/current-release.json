@@ -1,0 +1,15 @@
+{
+  "release_id": "release_20260612_V6_modernarch-refresh",
+  "created_at": "2026-06-12T00:00:00+00:00",
+  "activated_at": "2026-06-12T00:05:00+00:00",
+  "status": "tested",
+  "minecraft_version": "26.1.2",
+  "loader_version": "26.1.2.75",
+  "server_key": "minecraft_26_1_2",
+  "manifest_url": "/downloads/releases/release_20260612_V6_modernarch-refresh/client-sync-manifest.tsv",
+  "client_zip_url": "/downloads/releases/release_20260612_V6_modernarch-refresh/Pummelchen-Client.zip",
+  "client_zip_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "mrpack_url": "/downloads/releases/release_20260612_V6_modernarch-refresh/Pummelchen.mrpack",
+  "mrpack_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "notes": "fixture"
+}

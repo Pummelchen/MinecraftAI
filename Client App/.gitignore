@@ -1,0 +1,5 @@
+.build/
+DerivedData/
+*.log
+*.tmp
+.DS_Store
