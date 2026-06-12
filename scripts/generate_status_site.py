@@ -1361,6 +1361,7 @@ def render_updates(updates: list[dict[str, Any]]) -> str:
   <input id="updatesSearch" class="search" type="search" placeholder="Filter tested updates by name, source, file, version, or test">
   <span id="updatesCount" class="table-count">{len(rows)} updates</span>
 </div>
+<div id="testedUpdatesGrid" class="sheet-grid" aria-label="Tested updates data grid"></div>
 <div class="table-shell">
   <table id="testedUpdatesTable" class="updates-table">
     <thead>
@@ -1431,6 +1432,8 @@ def render_page(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Pummelchen Server</title>
+  <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_midnight.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <style>
     :root {{
       --bg: #000000;
@@ -1685,6 +1688,81 @@ def render_page(
       border: 1px solid var(--line);
       border-radius: 8px;
       background: var(--panel);
+    }}
+    .table-shell.enhanced-fallback {{ display: none; }}
+    .sheet-grid {{
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel);
+      box-shadow: 0 18px 40px var(--shadow);
+    }}
+    .sheet-grid:empty {{ display: none; }}
+    .sheet-grid .tabulator {{
+      border: 0;
+      background: var(--panel);
+      color: var(--ink);
+      font-size: 14px;
+    }}
+    .sheet-grid .tabulator-header {{
+      border-bottom: 1px solid var(--line);
+      background: #0c120d;
+      color: var(--stone);
+      font-weight: 800;
+    }}
+    .sheet-grid .tabulator-col {{
+      background: #0c120d;
+      border-right: 1px solid var(--line);
+    }}
+    .sheet-grid .tabulator-col:last-child {{ border-right: 0; }}
+    .sheet-grid .tabulator-col-title {{
+      color: var(--stone);
+      letter-spacing: 0;
+    }}
+    .sheet-grid.tabulator .tabulator-row,
+    .sheet-grid .tabulator-row {{
+      background: var(--panel) !important;
+      border-bottom: 1px solid var(--line);
+      color: var(--ink);
+      min-height: 42px;
+    }}
+    .sheet-grid.tabulator .tabulator-row.tabulator-row-even,
+    .sheet-grid .tabulator-row.tabulator-row-even {{ background: #0d120e !important; }}
+    .sheet-grid.tabulator .tabulator-row:hover,
+    .sheet-grid .tabulator-row:hover {{ background: rgba(87, 217, 115, 0.08) !important; }}
+    .sheet-grid.tabulator .tabulator-cell,
+    .sheet-grid .tabulator-cell {{ background: transparent !important; }}
+    .sheet-grid .tabulator-cell {{
+      border-right: 1px solid rgba(39,49,39,0.72);
+      padding: 9px 10px;
+      white-space: nowrap;
+    }}
+    .sheet-grid .tabulator-cell:last-child {{ border-right: 0; }}
+    .sheet-grid a {{
+      color: var(--accent);
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+      font-weight: 800;
+    }}
+    .sheet-grid a:hover,
+    .sheet-grid a:focus-visible {{ color: #bff5cb; }}
+    .sheet-grid .tabulator-footer {{
+      background: #0c120d;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+    }}
+    .sheet-grid .tabulator-page {{
+      background: #101712;
+      border: 1px solid var(--line);
+      color: var(--stone);
+      border-radius: 6px;
+    }}
+    .sheet-grid .tabulator-page.active {{
+      background: var(--green);
+      color: #031006;
+      border-color: var(--green);
     }}
     .updates-table {{
       width: 100%;
@@ -2374,33 +2452,81 @@ def render_page(
         }});
       }});
     }}
-    function cellSortValue(row, columnIndex) {{
-      const cell = row.cells[columnIndex];
-      if (!cell) return '';
-      return (cell.dataset.sortValue || cell.textContent || '').trim().toLowerCase();
-    }}
-    function updateTestedUpdatesCount(table) {{
+    function updateTestedUpdatesCountFromValues(visible, total) {{
       const count = document.getElementById('updatesCount');
       if (!count) return;
-      const visible = Array.from(table.tBodies[0].rows).filter(row => row.style.display !== 'none').length;
-      const total = table.tBodies[0].rows.length;
       count.textContent = visible === total ? `${{total}} updates` : `${{visible}} of ${{total}} updates`;
     }}
-    function sortTestedUpdatesTable(table, columnIndex, direction) {{
-      const tbody = table.tBodies[0];
-      const rows = Array.from(tbody.rows);
-      rows.sort((a, b) => {{
-        const left = cellSortValue(a, columnIndex);
-        const right = cellSortValue(b, columnIndex);
-        const compared = left.localeCompare(right, undefined, {{ numeric: true, sensitivity: 'base' }});
-        return direction === 'ascending' ? compared : -compared;
-      }});
-      rows.forEach(row => tbody.appendChild(row));
+    function updateFallbackUpdatesCount(table) {{
+      const visible = Array.from(table.tBodies[0].rows).filter(row => row.style.display !== 'none').length;
+      updateTestedUpdatesCountFromValues(visible, table.tBodies[0].rows.length);
     }}
     function wireTestedUpdatesTable() {{
       const table = document.getElementById('testedUpdatesTable');
       if (!table || !table.tBodies.length) return;
+      const gridTarget = document.getElementById('testedUpdatesGrid');
       const input = document.getElementById('updatesSearch');
+      const rows = Array.from(table.tBodies[0].rows).map(row => {{
+        const link = row.cells[1] ? row.cells[1].querySelector('a') : null;
+        return {{
+          updatedAt: row.cells[0] ? row.cells[0].textContent.trim() : '',
+          updatedAtSort: row.cells[0] ? (row.cells[0].dataset.sortValue || row.cells[0].textContent.trim()) : '',
+          title: row.cells[1] ? row.cells[1].textContent.trim() : '',
+          titleUrl: link ? link.getAttribute('href') || '' : '',
+          type: row.cells[2] ? row.cells[2].textContent.trim() : '',
+          source: row.cells[3] ? row.cells[3].textContent.trim() : '',
+          filename: row.cells[4] ? row.cells[4].textContent.trim() : '',
+          version: row.cells[5] ? row.cells[5].textContent.trim() : '',
+          test: row.cells[6] ? row.cells[6].textContent.trim() : '',
+          search: row.dataset.search || row.textContent.toLowerCase(),
+        }};
+      }});
+      if (gridTarget && window.Tabulator) {{
+        table.closest('.table-shell')?.classList.add('enhanced-fallback');
+        const tableGrid = new Tabulator(gridTarget, {{
+          data: rows,
+          layout: 'fitColumns',
+          height: rows.length > 12 ? '520px' : undefined,
+          placeholder: 'No tested updates',
+          initialSort: [{{ column: 'updatedAt', dir: 'desc' }}],
+          pagination: rows.length > 25 ? 'local' : false,
+          paginationSize: 25,
+          paginationSizeSelector: [25, 50, 100],
+          columnDefaults: {{
+            headerSort: true,
+            resizable: true,
+            tooltip: true,
+          }},
+          columns: [
+            {{ title: 'Updated At', field: 'updatedAt', sorter: 'string', width: 150, frozen: true }},
+            {{ title: 'Mod / Update', field: 'title', minWidth: 220, formatter: cell => {{
+              const data = cell.getRow().getData();
+              if (!data.titleUrl) return data.title;
+              return `<a href="${{data.titleUrl}}" target="_blank" rel="noopener noreferrer">${{data.title}}</a>`;
+            }} }},
+            {{ title: 'Type', field: 'type', minWidth: 150 }},
+            {{ title: 'Source', field: 'source', minWidth: 160 }},
+            {{ title: 'Filename', field: 'filename', minWidth: 260 }},
+            {{ title: 'Version', field: 'version', width: 105 }},
+            {{ title: 'Test', field: 'test', minWidth: 130 }},
+          ],
+        }});
+        function applyGridFilter() {{
+          const query = input ? input.value.trim().toLowerCase() : '';
+          if (!query) {{
+            tableGrid.clearFilter(true);
+          }} else {{
+            tableGrid.setFilter(data => String(data.search || '').includes(query));
+          }}
+        }}
+        tableGrid.on('dataFiltered', (filters, activeRows) => {{
+          updateTestedUpdatesCountFromValues(Array.isArray(activeRows) ? activeRows.length : rows.length, rows.length);
+        }});
+        tableGrid.on('tableBuilt', () => updateTestedUpdatesCountFromValues(rows.length, rows.length));
+        if (input) input.addEventListener('input', applyGridFilter);
+        updateTestedUpdatesCountFromValues(rows.length, rows.length);
+        return;
+      }}
       if (input) {{
         input.addEventListener('input', () => {{
           const query = input.value.trim().toLowerCase();
@@ -2408,27 +2534,10 @@ def render_page(
             const haystack = row.dataset.search || row.textContent.toLowerCase();
             row.style.display = !query || haystack.includes(query) ? '' : 'none';
           }});
-          updateTestedUpdatesCount(table);
+          updateFallbackUpdatesCount(table);
         }});
       }}
-      table.querySelectorAll('th[data-sort-type]').forEach((header, index) => {{
-        header.tabIndex = 0;
-        header.addEventListener('click', () => {{
-          const current = header.getAttribute('aria-sort');
-          const direction = current === 'ascending' ? 'descending' : 'ascending';
-          table.querySelectorAll('th[aria-sort]').forEach(th => th.removeAttribute('aria-sort'));
-          header.setAttribute('aria-sort', direction);
-          sortTestedUpdatesTable(table, index, direction);
-        }});
-        header.addEventListener('keydown', event => {{
-          if (event.key === 'Enter' || event.key === ' ') {{
-            event.preventDefault();
-            header.click();
-          }}
-        }});
-      }});
-      sortTestedUpdatesTable(table, 0, 'descending');
-      updateTestedUpdatesCount(table);
+      updateFallbackUpdatesCount(table);
     }}
     function copySnippetText(text) {{
       if (navigator.clipboard && window.isSecureContext) {{
