@@ -450,10 +450,7 @@ reset_client_visual_state() {
   fi
   set_options_line "$options" "resourcePacks" '["vanilla"]'
   set_options_line "$options" "incompatibleResourcePacks" '[]'
-  set_property_line "$MC_DIR/optionsshaders.txt" "shaderPack" ""
-  set_property_line "$MC_DIR/config/iris.properties" "shaderPack" ""
-  set_property_line "$MC_DIR/iris.properties" "shaderPack" ""
-  echo "Reset active resource packs to vanilla and disabled active shader selection."
+  echo "Reset active resource packs to vanilla. Preserved active shader selection."
 }
 
 verify_section() {
