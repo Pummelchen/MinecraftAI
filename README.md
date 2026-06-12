@@ -1,6 +1,6 @@
 # Minecraft AI Server/Client Mod Updater
 
-An AI-assisted system for automatically managing Minecraft server and client mods.
+An AI-assisted system for automatically managing Minecraft server and client with 300+ mods.
 
 This project uses OpenAI Codex as a natural-language interface for mod management. Instead of manually downloading and validating mods, you can issue instructions such as:
 
