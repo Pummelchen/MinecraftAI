@@ -113,6 +113,7 @@ Clients resolve `/downloads/current-release.json` to find the active release ID,
 | `sync_pummelchen_mods.py` | Register and deploy project-owned custom jars |
 | `safe_reset_world.py` | Safely replace the active world with a new seed, install required datapacks/gamerules, and pregenerate spawn chunks |
 | `build_tropical_worldgen_datapack.py` | Build the project datapack that biases new worlds toward bamboo jungles, jungle variants, and nearby sakura valleys |
+| `build_rich_ores_datapack.py` | Build the project datapack that increases iron, gold, and diamond ore vein sizes |
 
 ## Systemd Services
 
@@ -212,6 +213,9 @@ python3 scripts/safe_reset_world.py --seed <new-seed> --radius-blocks 1000 --yes
 
 # Rebuild tropical worldgen datapack after a Terralith update
 python3 scripts/build_tropical_worldgen_datapack.py --source-overworld-json /tmp/pummelchen-terralith-overworld.json
+
+# Rebuild rich ore vein datapack
+python3 scripts/build_rich_ores_datapack.py
 
 # Acceptance lab
 python3 scripts/mod_acceptance_lab.py run-files --include-active-deps /path/to/candidate.jar

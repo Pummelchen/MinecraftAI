@@ -185,6 +185,46 @@ assert counts["terralith:sakura_valley"] >= 35
 assert tropical_volume >= 7.0
 assert cherry_volume >= 1.5
 PY
+  "$PYTHON_BIN" - "$ROOT_DIR/server-datapacks/pummelchen-rich-ores.zip" <<'PY' \
+    || fail "rich ores datapack does not enforce requested ore vein sizes"
+import json
+import sys
+import zipfile
+
+expected_sizes = {
+    "ore_iron": 64,
+    "ore_iron_small": 40,
+    "ore_gold": 64,
+    "ore_gold_buried": 64,
+    "ore_diamond_small": 40,
+    "ore_diamond_medium": 64,
+    "ore_diamond_large": 64,
+    "ore_diamond_buried": 64,
+}
+expected_blocks = {
+    "ore_iron": {"minecraft:iron_ore", "minecraft:deepslate_iron_ore"},
+    "ore_iron_small": {"minecraft:iron_ore", "minecraft:deepslate_iron_ore"},
+    "ore_gold": {"minecraft:gold_ore", "minecraft:deepslate_gold_ore"},
+    "ore_gold_buried": {"minecraft:gold_ore", "minecraft:deepslate_gold_ore"},
+    "ore_diamond_small": {"minecraft:diamond_ore", "minecraft:deepslate_diamond_ore"},
+    "ore_diamond_medium": {"minecraft:diamond_ore", "minecraft:deepslate_diamond_ore"},
+    "ore_diamond_large": {"minecraft:diamond_ore", "minecraft:deepslate_diamond_ore"},
+    "ore_diamond_buried": {"minecraft:diamond_ore", "minecraft:deepslate_diamond_ore"},
+}
+
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    pack = json.loads(archive.read("pack.mcmeta"))
+    assert pack["pack"]["max_format"] == 101
+    names = set(archive.namelist())
+    for feature, size in expected_sizes.items():
+        path = f"data/minecraft/worldgen/configured_feature/{feature}.json"
+        assert path in names, path
+        data = json.loads(archive.read(path))
+        assert data["type"] == "minecraft:ore"
+        assert data["config"]["size"] == size, (feature, data["config"]["size"])
+        blocks = {target["state"]["Name"] for target in data["config"]["targets"]}
+        assert blocks == expected_blocks[feature], (feature, blocks)
+PY
 fi
 
 SAFE_RESET_SERVER="$TMP_DIR/safe-reset-server"

@@ -15,6 +15,14 @@
       "target_mc": "26.1.2",
       "notes": "Overrides Terralith's Lithostitched overworld biome parameter list to make new worlds heavily favor bamboo jungles, jungle variants, tropical rainforest-style biomes, and nearby Terralith sakura valleys. The generated policy keeps oceans, rivers, beaches, swamps, caves, and existing jungle/cherry cells intact while replacing selected warm land climate cells. Current rough climate-volume factor is 5.42x for tropical/jungle targets and 2.81x for cherry/sakura targets.",
       "sha256": "011366240a05433af9eaaa0b68a8db37830b42c014f5b50d5cd36955f1ed7a13"
+    },
+    {
+      "name": "Pummelchen Rich Ores",
+      "file_name": "pummelchen-rich-ores.zip",
+      "canonical_key": "pummelchen-rich-ores",
+      "target_mc": "26.1.2",
+      "notes": "Overrides vanilla configured ore features for overworld iron, gold, and diamonds so discovered veins are much larger. Placement frequency is unchanged. Small iron/diamond veins scale from 4 to 40 blocks; normal iron/gold and medium/large/buried diamond veins are clamped to Minecraft's valid ore feature maximum of 64 blocks.",
+      "sha256": "bff4aefce905660e05eb6ef16b48dafa76760a844d213e6e4c990a9b238d1f54"
     }
   ]
 }
