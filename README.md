@@ -6,7 +6,7 @@ This project uses OpenAI Codex as a natural-language interface for mod managemen
 
 "Add mod Biomes O' Plenty"
 
-The Minecraft runtime starts from a vanilla server and layers the managed mod pack onto it through NeoForge. The same release flow also supports client-side shader packs, resource packs, and client configuration scripts so the server and macOS clients stay aligned.
+The Minecraft runtime starts from a vanilla server and layers the managed mod pack onto it through NeoForge. The same release flow also supports client-side shader packs, resource packs, and client configuration scripts so the server and macOS clients stay aligned within seconds.
 
 The Swift server app is the live service owner: it exposes the server API, feeds nginx with live status data, and starts the Minecraft NeoForge runtime from the managed server directory.
 
