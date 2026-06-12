@@ -152,6 +152,8 @@ public final class PummelchenServerAPI: @unchecked Sendable {
                 return try siteJSON(named: "tested-updates.json")
             case ("GET", "/api/v1/site/update-activity"):
                 return try siteJSON(named: "update-activity.json")
+            case ("GET", "/api/v1/site/neoforge-version"):
+                return try siteJSON(named: "neoforge-version.json")
             case ("GET", "/h3/v1/control"):
                 return try controlInfo()
             case ("POST", "/api/v1/control/events"):

@@ -310,7 +310,7 @@ private func releasePipeline(args: Arguments, projectRoot: URL) throws -> SwiftR
         releaseID: try args.require("--release-id"),
         serverKey: args.options["--server-key"] ?? "minecraft_26_1_2",
         minecraftVersion: args.options["--minecraft-version"] ?? "26.1.2",
-        loaderVersion: args.options["--loader-version"] ?? "26.1.2.75",
+        loaderVersion: args.options["--loader-version"] ?? "26.1.2.76",
         status: args.options["--status"] ?? "tested",
         notes: args.options["--notes"] ?? "",
         actor: args.options["--actor"] ?? "pummelchen-swift-release",

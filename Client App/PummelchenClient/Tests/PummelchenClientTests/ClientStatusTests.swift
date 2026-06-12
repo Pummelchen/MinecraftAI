@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import PummelchenClientCore
+@testable import PummelchenCore
 
 @Suite("Client read-only status")
 struct ClientStatusTests {
@@ -19,7 +20,10 @@ struct ClientStatusTests {
         shaderPack=BSL_v10.1.3.zip
         enableShaders=true
         """.write(to: root.appendingPathComponent("config/iris.properties"), atomically: true, encoding: .utf8)
-        try #"{"profiles":{"NeoForge":{"javaArgs":"-Xmx8G -XX:+UseG1GC"}}}"#
+        let javaPath = "/Users/test/Library/Application Support/Pummelchen/java/temurin-25.0.3+9/Contents/Home/bin/java"
+        try """
+        {"profiles":{"NeoForge":{"javaArgs":"-Xmx8G -XX:+UseG1GC","javaDir":"\(javaPath)"}}}
+        """
             .write(to: root.appendingPathComponent("launcher_profiles.json"), atomically: true, encoding: .utf8)
         try "Pummelchen 91.99.176.243:25565".write(to: root.appendingPathComponent("servers.dat"), atomically: true, encoding: .utf8)
         try "showLoadWarnings=false\n".write(to: root.appendingPathComponent("config/neoforge-client.toml"), atomically: true, encoding: .utf8)
@@ -27,10 +31,11 @@ struct ClientStatusTests {
         try "showCheckScreen=false\n".write(to: root.appendingPathComponent("config/yuushya-client.toml"), atomically: true, encoding: .utf8)
         try "duck_tamed_no_follow=true\ngoose_tamed_no_follow=true\n".write(to: root.appendingPathComponent("config/untitledduckmod-server.toml"), atomically: true, encoding: .utf8)
 
-        let rows = ClientDefaultsInspector.inspect(minecraftDirectory: root)
+        let rows = ClientDefaultsInspector.inspect(minecraftDirectory: root, defaults: MinecraftClientDefaults(javaExecutablePath: javaPath))
         #expect(rows.allSatisfy { $0.status == .ok })
         #expect(rows.contains { $0.id == "shader" })
         #expect(rows.contains { $0.id == "memory" })
+        #expect(rows.contains { $0.id == "java_runtime" })
         #expect(rows.contains { $0.id == "server_entry" })
     }
 

@@ -19,8 +19,9 @@ struct MinecraftClientDefaultsTests {
         simulationDistance:5
         """.write(to: options, atomically: true, encoding: .utf8)
 
-        try MinecraftClientDefaultWriter.apply(to: root)
-        try MinecraftClientDefaultWriter.apply(to: root)
+        let managedJava = "/Users/test/Library/Application Support/Pummelchen/java/temurin-25.0.3+9/Contents/Home/bin/java"
+        try MinecraftClientDefaultWriter.apply(defaults: MinecraftClientDefaults(javaExecutablePath: managedJava), to: root)
+        try MinecraftClientDefaultWriter.apply(defaults: MinecraftClientDefaults(javaExecutablePath: managedJava), to: root)
 
         let optionsText = try String(contentsOf: options, encoding: .utf8)
         #expect(optionsText.contains(#"resourcePacks:["vanilla","mod_resources","file/ModernArch v2.8.2 [26.1] [128x].zip","file/ModernArch FA Extension v2.2.zip","file/ModernArch Denser Grass Addon.zip"]"#))
@@ -42,6 +43,8 @@ struct MinecraftClientDefaultsTests {
 
         let profiles = try String(contentsOf: root.appendingPathComponent("launcher_profiles.json"), encoding: .utf8)
         #expect(profiles.contains("-Xmx8G"))
+        #expect(profiles.contains("neoforge-26.1.2.76"))
+        #expect(profiles.contains(managedJava) || profiles.contains(managedJava.replacingOccurrences(of: "/", with: "\\/")))
 
         let servers = try Data(contentsOf: root.appendingPathComponent("servers.dat"))
         #expect(servers.range(of: Data("91.99.176.243:25565".utf8)) != nil)

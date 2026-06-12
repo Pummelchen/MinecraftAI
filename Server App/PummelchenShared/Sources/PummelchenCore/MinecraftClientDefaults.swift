@@ -4,6 +4,8 @@ public struct MinecraftClientDefaults: Equatable, Sendable {
     public let shaderPack: String
     public let resourcePacks: [String]
     public let javaArguments: String
+    public let javaExecutablePath: String?
+    public let loaderVersion: String
     public let serverName: String
     public let serverAddress: String
     public let irisProperties: [String: String]
@@ -19,6 +21,8 @@ public struct MinecraftClientDefaults: Equatable, Sendable {
             "file/ModernArch Denser Grass Addon.zip"
         ],
         javaArguments: String = "-Xmx8G -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M",
+        javaExecutablePath: String? = nil,
+        loaderVersion: String = "26.1.2.76",
         serverName: String = "Pummelchen Server",
         serverAddress: String = "91.99.176.243:25565",
         irisProperties: [String: String] = [
@@ -43,6 +47,8 @@ public struct MinecraftClientDefaults: Equatable, Sendable {
         self.shaderPack = shaderPack
         self.resourcePacks = resourcePacks
         self.javaArguments = javaArguments
+        self.javaExecutablePath = javaExecutablePath
+        self.loaderVersion = loaderVersion
         self.serverName = serverName
         self.serverAddress = serverAddress
         self.irisProperties = irisProperties
@@ -146,7 +152,11 @@ public enum MinecraftClientDefaultWriter {
         var profile = profiles["NeoForge"] as? [String: Any] ?? [:]
         profile["name"] = "NeoForge"
         profile["type"] = "custom"
+        profile["lastVersionId"] = "neoforge-\(defaults.loaderVersion)"
         profile["javaArgs"] = defaults.javaArguments
+        if let javaExecutablePath = defaults.javaExecutablePath, !javaExecutablePath.isEmpty {
+            profile["javaDir"] = javaExecutablePath
+        }
         profiles["NeoForge"] = profile
         root["profiles"] = profiles
         let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])

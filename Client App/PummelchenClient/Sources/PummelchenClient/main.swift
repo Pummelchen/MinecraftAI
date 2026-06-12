@@ -8,6 +8,8 @@ final class ClientStatusModel: ObservableObject {
     @Published var serverURL: String
     @Published var snapshot: ClientStatusSnapshot?
     @Published var isRefreshing = false
+    @Published var isSyncing = false
+    @Published var syncMessage: String?
 
     private var configuration: ClientStatusConfiguration
 
@@ -41,6 +43,29 @@ final class ClientStatusModel: ObservableObject {
         )
         refresh()
     }
+
+    func syncNow() {
+        guard !isSyncing else { return }
+        isSyncing = true
+        syncMessage = nil
+        let syncConfiguration = ClientSyncConfiguration.productionDefault()
+        Task {
+            do {
+                let result = try await ClientSyncEngine(configuration: syncConfiguration).sync(force: true)
+                await MainActor.run {
+                    self.syncMessage = "\(result.message) \(result.filesDownloaded) downloaded, \(result.filesVerified) verified."
+                    self.isSyncing = false
+                    self.refresh()
+                }
+            } catch {
+                await MainActor.run {
+                    self.syncMessage = "Sync failed: \(error)"
+                    self.isSyncing = false
+                    self.refresh()
+                }
+            }
+        }
+    }
 }
 
 struct PummelchenStatusView: View {
@@ -56,6 +81,11 @@ struct PummelchenStatusView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button("Sync Now") {
+                    model.syncNow()
+                }
+                .keyboardShortcut("s", modifiers: [.command])
+                .disabled(model.isSyncing)
                 Button("Refresh") {
                     model.refresh()
                 }
@@ -72,6 +102,12 @@ struct PummelchenStatusView: View {
             }
 
             if let snapshot = model.snapshot {
+                if let syncMessage = model.syncMessage {
+                    Text(syncMessage)
+                        .font(.callout)
+                        .foregroundStyle(syncMessage.hasPrefix("Sync failed") ? .red : .secondary)
+                        .textSelection(.enabled)
+                }
                 statusSummary(snapshot)
                 defaultsTable(snapshot.defaultsHealth)
                 footer(snapshot)

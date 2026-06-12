@@ -118,16 +118,22 @@ struct PummelchenServerCoreTests {
         let api = makeAPI(fixture: fixture)
         let testedUpdates = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/tested-updates"))
         let updateActivity = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/update-activity"))
+        let neoForgeVersion = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/neoforge-version"))
 
         #expect(testedUpdates.statusCode == 200)
         #expect(updateActivity.statusCode == 200)
+        #expect(neoForgeVersion.statusCode == 200)
         #expect(testedUpdates.headers["Cache-Control"] == "no-store, max-age=0")
         #expect(updateActivity.headers["Cache-Control"] == "no-store, max-age=0")
+        #expect(neoForgeVersion.headers["Cache-Control"] == "no-store, max-age=0")
 
         let testedObject = try JSONSerialization.jsonObject(with: testedUpdates.body) as? [String: Any]
         let activityObject = try JSONSerialization.jsonObject(with: updateActivity.body) as? [String: Any]
+        let neoForgeObject = try JSONSerialization.jsonObject(with: neoForgeVersion.body) as? [String: Any]
         #expect((testedObject?["updates"] as? [[String: Any]])?.count == 1)
         #expect((activityObject?["entries"] as? [[String: Any]])?.count == 1)
+        #expect(neoForgeObject?["official_url"] as? String == "https://neoforged.net/")
+        #expect(neoForgeObject?["latest_neoforge_version"] as? String == "26.1.2.76")
     }
 
     @Test("rejects writes")
@@ -370,7 +376,8 @@ struct PummelchenServerCoreTests {
             pummelchenHome: home,
             databaseURL: home.appendingPathComponent("client.duckdb"),
             allowWhileMinecraftRunning: true,
-            reportToServer: false
+            reportToServer: false,
+            manageJavaRuntime: false
         ))
         let sync = try await engine.sync(force: true)
         #expect(sync.targetReleaseID == releaseID)
@@ -697,6 +704,19 @@ struct PummelchenServerCoreTests {
           ]
         }
         """.write(to: root.appendingPathComponent("site/public/update-activity.json"), atomically: true, encoding: .utf8)
+        try """
+        {
+          "checked_at": "2026-06-12T17:04:13+00:00",
+          "current_neoforge_version": "26.1.2.75",
+          "latest_neoforge_version": "26.1.2.76",
+          "message": "Newer NeoForge 26.1.2.76 is available for Minecraft 26.1.2",
+          "metadata_url": "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml",
+          "official_url": "https://neoforged.net/",
+          "minecraft_version": "26.1.2",
+          "status": "update_available",
+          "update_available": true
+        }
+        """.write(to: root.appendingPathComponent("site/public/neoforge-version.json"), atomically: true, encoding: .utf8)
         return (root, current, manifest)
     }
 

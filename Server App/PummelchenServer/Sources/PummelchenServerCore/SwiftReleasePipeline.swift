@@ -48,7 +48,7 @@ public struct SwiftReleasePipelineConfig: Sendable {
         releaseID: String,
         serverKey: String = "minecraft_26_1_2",
         minecraftVersion: String = "26.1.2",
-        loaderVersion: String = "26.1.2.75",
+        loaderVersion: String = "26.1.2.76",
         status: String = "tested",
         notes: String = "",
         actor: String = "pummelchen-swift-release",
@@ -545,7 +545,7 @@ public struct SwiftReleasePipeline: Sendable {
             if file.pathExtension.isEmpty {
                 return fileManager.isExecutableFile(atPath: file.path)
             }
-            return ["sh", "java", "txt", "md", "json"].contains(file.pathExtension.lowercased())
+            return ["sh", "java", "txt", "md", "json", "jar", "gz"].contains(file.pathExtension.lowercased())
         }
         if section == .shaderpacks {
             return !file.pathExtension.isEmpty

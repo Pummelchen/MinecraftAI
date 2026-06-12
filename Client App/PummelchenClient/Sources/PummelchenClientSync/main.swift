@@ -10,7 +10,7 @@ enum ClientSyncCLIError: Error, CustomStringConvertible {
         case .usage:
             return """
             usage:
-              pummelchen-client-sync sync [--force] [--server-url <url>] [--minecraft-dir <path>] [--pummelchen-home <path>] [--db <path>] [--client-id <id>] [--client-api-token <token>] [--allow-while-running] [--no-report]
+              pummelchen-client-sync sync [--force] [--server-url <url>] [--minecraft-dir <path>] [--pummelchen-home <path>] [--db <path>] [--client-id <id>] [--client-api-token <token>] [--allow-while-running] [--no-report] [--skip-java-repair]
             """
         case .missingValue(let option):
             return "missing value for \(option)"
@@ -33,7 +33,7 @@ struct Args {
         var index = 2
         while index < raw.count {
             let value = raw[index]
-            if ["--force", "--allow-while-running", "--no-report"].contains(value) {
+            if ["--force", "--allow-while-running", "--no-report", "--skip-java-repair"].contains(value) {
                 flags.insert(value)
                 index += 1
                 continue
@@ -65,6 +65,7 @@ func config(from args: Args) throws -> ClientSyncConfiguration {
         databaseURL: db,
         allowWhileMinecraftRunning: args.flags.contains("--allow-while-running"),
         reportToServer: !args.flags.contains("--no-report"),
+        manageJavaRuntime: !args.flags.contains("--skip-java-repair"),
         clientID: args.options["--client-id"],
         clientAPIToken: args.options["--client-api-token"] ?? ProcessInfo.processInfo.environment["PUMMELCHEN_CLIENT_API_TOKEN"]
     )

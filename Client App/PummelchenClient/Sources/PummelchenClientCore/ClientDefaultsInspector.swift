@@ -45,6 +45,7 @@ public enum ClientDefaultsInspector {
         rows.append(shaderHealth(defaults: defaults, iris: iris, shaderOptions: shaderOptions))
         rows.append(resourcePackHealth(defaults: defaults, options: options))
         rows.append(memoryHealth(launcherProfiles: launcherProfiles))
+        rows.append(javaHealth(defaults: defaults, launcherProfiles: launcherProfiles))
         rows.append(serverEntryHealth(servers: servers))
         rows.append(contentsOf: configHealth(defaults: defaults, minecraftDirectory: minecraftDirectory))
         return rows
@@ -108,6 +109,38 @@ public enum ClientDefaultsInspector {
             desiredValue: "-Xmx8G",
             observedValue: ok ? "8 GB configured" : "8 GB not found",
             status: ok ? .ok : .mismatch,
+            source: "launcher_profiles.json"
+        )
+    }
+
+    private static func javaHealth(defaults: MinecraftClientDefaults, launcherProfiles: String?) -> ClientDefaultHealthRow {
+        guard let desired = defaults.javaExecutablePath, !desired.isEmpty else {
+            return ClientDefaultHealthRow(
+                id: "java_runtime",
+                label: "Java Runtime",
+                desiredValue: "Java 25.0.3 managed by Pummelchen",
+                observedValue: "not managed in this check",
+                status: .unknown,
+                source: "launcher_profiles.json"
+            )
+        }
+        guard let launcherProfiles, !launcherProfiles.isEmpty else {
+            return ClientDefaultHealthRow(
+                id: "java_runtime",
+                label: "Java Runtime",
+                desiredValue: desired,
+                observedValue: "launcher profile missing",
+                status: .missing,
+                source: "launcher_profiles.json"
+            )
+        }
+        let observed = launcherProfiles.contains(desired) ? desired : "managed Java path not found"
+        return ClientDefaultHealthRow(
+            id: "java_runtime",
+            label: "Java Runtime",
+            desiredValue: desired,
+            observedValue: observed,
+            status: observed == desired ? .ok : .mismatch,
             source: "launcher_profiles.json"
         )
     }

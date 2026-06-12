@@ -11,6 +11,7 @@ public struct ClientSyncConfiguration: Sendable {
     public let databaseURL: URL
     public let allowWhileMinecraftRunning: Bool
     public let reportToServer: Bool
+    public let manageJavaRuntime: Bool
     public let clientID: String?
     public let clientAPIToken: String?
 
@@ -21,6 +22,7 @@ public struct ClientSyncConfiguration: Sendable {
         databaseURL: URL,
         allowWhileMinecraftRunning: Bool = false,
         reportToServer: Bool = true,
+        manageJavaRuntime: Bool = true,
         clientID: String? = nil,
         clientAPIToken: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_CLIENT_API_TOKEN"]
     ) {
@@ -30,6 +32,7 @@ public struct ClientSyncConfiguration: Sendable {
         self.databaseURL = databaseURL
         self.allowWhileMinecraftRunning = allowWhileMinecraftRunning
         self.reportToServer = reportToServer
+        self.manageJavaRuntime = manageJavaRuntime
         self.clientID = clientID
         self.clientAPIToken = clientAPIToken
     }
@@ -104,7 +107,8 @@ public struct ClientSyncEngine: Sendable {
             let staleRemoved = try removeStaleManagedFiles(current: manifest)
             let unmanagedMoved = try quarantineUnmanagedFiles(current: manifest)
             let syncCounts = try await installFiles(manifest: manifest)
-            try MinecraftClientDefaultWriter.apply(to: configuration.minecraftDirectory)
+            let defaults = try await minecraftDefaults()
+            try MinecraftClientDefaultWriter.apply(defaults: defaults, to: configuration.minecraftDirectory)
             try writeInstalledRelease(release.releaseID)
             try writeCurrentManifest(manifest)
             let inventory = try installedInventory(manifest: manifest)
@@ -130,7 +134,7 @@ public struct ClientSyncEngine: Sendable {
             )
             try store.record(
                 syncResult: result,
-                defaultsHealth: ClientDefaultsInspector.inspect(minecraftDirectory: configuration.minecraftDirectory),
+                defaultsHealth: ClientDefaultsInspector.inspect(minecraftDirectory: configuration.minecraftDirectory, defaults: defaults),
                 installedFiles: inventory
             )
             if configuration.reportToServer {
@@ -165,6 +169,21 @@ public struct ClientSyncEngine: Sendable {
         let release = try CurrentReleaseValidator.decode(data)
         try CurrentReleaseValidator.validate(release)
         return release
+    }
+
+    private func minecraftDefaults() async throws -> MinecraftClientDefaults {
+        guard configuration.manageJavaRuntime else {
+            return MinecraftClientDefaults()
+        }
+        let status = try await JavaRuntimeManager.ensureInstalled(pummelchenHome: configuration.pummelchenHome)
+        let loader = NeoForgeClientRequirement()
+        try await NeoForgeClientInstaller.ensureInstalled(
+            minecraftDirectory: configuration.minecraftDirectory,
+            pummelchenHome: configuration.pummelchenHome,
+            javaExecutable: status.javaExecutableURL,
+            requirement: loader
+        )
+        return MinecraftClientDefaults(javaExecutablePath: status.javaExecutableURL.path, loaderVersion: loader.loaderVersion)
     }
 
     private func fetchManifest(for release: CurrentRelease) async throws -> ClientSyncManifest {

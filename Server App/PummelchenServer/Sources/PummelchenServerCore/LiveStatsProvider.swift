@@ -102,7 +102,7 @@ final class LiveStatsProvider: @unchecked Sendable {
         stats["Server Address"] = serverAddress()
         stats["Web Address"] = webAddress()
         let clientCounts = clientPackageCounts(release: release)
-        stats["Server Mods"] = "\(serverModCount(release: release) ?? clientCounts.mods) Server Mods"
+        stats["Server Mods"] = "\(serverModCount() ?? clientCounts.mods) Server Mods"
         stats["Client Mods"] = "\(clientCounts.mods) Client Mods · \(clientCounts.shaderpacks) Shaders · \(clientCounts.resourcepacks) Resource Packs · \(clientCounts.config) Config Files"
         stats["Failed Mods"] = "\(failedModCount()) Failed Mods"
         stats["Mac Installer DMG URL"] = macInstallerDMGURL(release: release)
@@ -310,17 +310,18 @@ final class LiveStatsProvider: @unchecked Sendable {
         ProcessInfo.processInfo.environment["PUMMELCHEN_WEB_ADDRESS"] ?? "https://pummelchen.91.99.176.243.nip.io"
     }
 
-    private func serverModCount(release: CurrentRelease?) -> Int? {
-        guard let release,
-              let mrpack = urlForPublicPath(release.mrpackURL),
-              FileManager.default.fileExists(atPath: mrpack.path),
-              let listing = runAndCapture("/usr/bin/unzip", ["-Z1", mrpack.path])
-                ?? runAndCapture("/bin/unzip", ["-Z1", mrpack.path]) else {
+    private func serverModCount() -> Int? {
+        let mods = projectRoot.appendingPathComponent("minecraft/mods", isDirectory: true)
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: mods,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
             return nil
         }
-        return listing.split(separator: "\n")
-            .filter { $0.hasPrefix("overrides/mods/") && $0.hasSuffix(".jar") }
-            .count
+        return entries.filter { url in
+            url.pathExtension.localizedCaseInsensitiveCompare("jar") == .orderedSame
+        }.count
     }
 
     private func clientPackageCounts(release: CurrentRelease?) -> (mods: Int, shaderpacks: Int, resourcepacks: Int, config: Int) {
@@ -369,15 +370,15 @@ final class LiveStatsProvider: @unchecked Sendable {
     }
 
     private func macInstallerDMGURL(release: CurrentRelease?) -> String {
-        let rootPath = "/downloads/Pummelchen-Client-Installer.dmg"
-        if let rootURL = urlForPublicPath(rootPath), FileManager.default.fileExists(atPath: rootURL.path) {
-            return rootPath
-        }
         if let release {
             let releasePath = "/downloads/releases/\(release.releaseID)/Pummelchen-Client-Installer.dmg"
             if let releaseURL = urlForPublicPath(releasePath), FileManager.default.fileExists(atPath: releaseURL.path) {
                 return releasePath
             }
+        }
+        let rootPath = "/downloads/Pummelchen-Client-Installer.dmg"
+        if let rootURL = urlForPublicPath(rootPath), FileManager.default.fileExists(atPath: rootURL.path) {
+            return rootPath
         }
         return rootPath
     }

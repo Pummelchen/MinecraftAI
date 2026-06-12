@@ -64,7 +64,8 @@ struct ClientSyncEngineTests {
             pummelchenHome: home,
             databaseURL: home.appendingPathComponent("client.duckdb"),
             allowWhileMinecraftRunning: true,
-            reportToServer: false
+            reportToServer: false,
+            manageJavaRuntime: false
         ))
 
         let first = try await engine.sync(force: true)
@@ -82,7 +83,7 @@ struct ClientSyncEngineTests {
         #expect(second.message == "all synced, no downloads required")
 
         let defaults = ClientDefaultsInspector.inspect(minecraftDirectory: minecraft)
-        #expect(defaults.allSatisfy { $0.status == .ok })
+        #expect(defaults.allSatisfy { $0.status == .ok || $0.id == "java_runtime" && $0.status == .unknown })
         #endif
     }
 
