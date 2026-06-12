@@ -1,9 +1,24 @@
 # Minecraft Automatic Server/Client Mod Updater
 
-This is an automatic Minecraft Server/Client Mod updater which uses OpenAI Codex as the AI interface to accept human instructions, for example: "Add mod Biomes O' Plenty".
+An AI-assisted system for automatically managing Minecraft server and client mods.
 
-What happens next is that the mod will be searched on the major websites, downloaded, and put into a validation test chain to ensure the new mod is compatible with the other 300+ mods. Once the tests pass, including headless MC client tests, the mod will be automatically distributed into the live MC server and all clients connected to this project.
+This project uses OpenAI Codex as a natural-language interface for mod management. Instead of manually downloading and validating mods, you can issue instructions such as:
 
-For now, the MC server has to be on Debian 13 and all clients should be on macOS 26 with Apple M1-M5 chips.
+“Add mod Biomes O’ Plenty”
 
-For more details please check the git wiki.
+The system then performs the full update pipeline automatically:
+
+Mod discovery — Searches major Minecraft mod repositories and sources.
+Download & integration — Retrieves the requested mod and prepares it for deployment.
+Compatibility validation — Runs automated checks against an existing 300+ mod environment to detect conflicts or breaking changes.
+Automated testing — Executes validation chains, including headless Minecraft client tests, to verify stability and compatibility.
+Live deployment — Once all tests pass, the mod is distributed automatically to the Minecraft server and all connected clients.
+Platform Requirements
+
+At present, the project supports the following environment:
+
+Server: Debian 13
+Clients: macOS 26 on Apple Silicon (M1–M5)
+Documentation
+
+Additional setup details, architecture notes, and operational guidance are available in the project wiki.
