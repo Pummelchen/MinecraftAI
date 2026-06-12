@@ -60,6 +60,23 @@ CREATE TABLE IF NOT EXISTS release.release_events (
     notes TEXT
 );
 
+CREATE TABLE IF NOT EXISTS release.release_health_results (
+    result_id TEXT PRIMARY KEY,
+    release_id TEXT NOT NULL,
+    checked_at TIMESTAMP NOT NULL,
+    status TEXT NOT NULL,
+    details TEXT
+);
+
+CREATE TABLE IF NOT EXISTS release.tested_updates_feed (
+    update_id TEXT PRIMARY KEY,
+    release_id TEXT,
+    tested_at TIMESTAMP,
+    title TEXT,
+    status TEXT,
+    details TEXT
+);
+
 CREATE TABLE IF NOT EXISTS client.client_reports (
     client_id TEXT NOT NULL,
     reported_at TIMESTAMP NOT NULL,

@@ -1352,6 +1352,18 @@ Acceptance:
 - Release health result is persisted and visible.
 - Tested Updates website table data is generated from Swift-owned state or an equivalent compatibility feed.
 
+Implementation status:
+
+- Implemented `SwiftReleasePipeline` in `PummelchenServerCore` and exposed it through `pummelchen-server release-create` / `release-validate`.
+- Swift release creation now writes the legacy-compatible immutable release layout: `CHANGELOG.md`, `metadata.json`, `server-files`, `client-package`, `manifests/server-files.tsv`, `manifests/client-package.tsv`, `artifacts`, `public/client-files`, `public/client-sync-manifest.tsv`, and `public/current-release.json`.
+- Swift activation publishes `/downloads/releases/<release_id>`, writes `current-release.json` and `current-release.txt`, and records release events in DuckDB.
+- Client ZIP and MRPack artifacts are required and checksummed. The Swift pipeline can build the client ZIP via a narrow `zip` wrapper if the artifact is missing; DMG and DMG checksum metadata are copied/published when present.
+- Rollback remains possible through immutable release directories plus `previous_release_id` tracking in DuckDB. The existing production rollback command remains the operational rollback path during migration.
+- Release health is persisted in `release.release_health_results`; an optional `--health-command` runs the current health monitor as a transition hook.
+- Service restart is an optional `--restart-command` transition hook. When not configured, the release event records `restart=skipped` instead of touching production services.
+- A Tested Updates compatibility feed is emitted at `public/data/tested-updates.json`; later Phase 7 hardening can replace this with a full Swift-owned website feed generated from DuckDB reporting tables.
+- End-to-end fixture coverage creates a Swift release, validates it, serves it through the local HTTP fixture, syncs a Swift client from it, and verifies release health/restart state in DuckDB.
+
 ### Phase 8: Bidirectional HTTP/3/QUIC Realtime Events
 
 Add `/h3/v1/control`.

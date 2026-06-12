@@ -19,6 +19,8 @@ enum ServerCommandError: Error, CustomStringConvertible {
             Usage:
               pummelchen-server smoke --project-root <repo>
               pummelchen-server serve --project-root <repo> [--host 127.0.0.1] [--port 8787]
+              pummelchen-server release-create --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id> [--activate true] [--restart-command <shell>] [--health-command <shell>]
+              pummelchen-server release-validate --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id>
             """
         case .missingValue(let option):
             return "missing value for \(option)"
@@ -239,10 +241,10 @@ private func socketStreamType() -> Int32 {
 func run(arguments: [String]) throws {
     let args = try Arguments(arguments)
     let projectRoot = URL(fileURLWithPath: try args.require("--project-root")).standardizedFileURL
-    let api = PummelchenServerAPI(config: PummelchenServerConfig(projectRoot: projectRoot))
 
     switch args.command {
     case "smoke":
+        let api = PummelchenServerAPI(config: PummelchenServerConfig(projectRoot: projectRoot))
         try api.smokeCheck()
         print("pummelchen_server_smoke=ok")
     case "serve":
@@ -252,9 +254,47 @@ func run(arguments: [String]) throws {
             config: PummelchenServerConfig(projectRoot: projectRoot, bindHost: host, port: port)
         )
         try LocalHTTPServer(api: configuredAPI, host: host, port: port).run()
+    case "release-create":
+        let pipeline = try releasePipeline(args: args, projectRoot: projectRoot)
+        let result = try pipeline.createRelease()
+        print("swift_release_created=\(result.releaseID)")
+        print("release_dir=\(result.releaseDir)")
+        print("client_zip_sha256=\(result.clientZipSHA256)")
+        print("mrpack_sha256=\(result.mrpackSHA256)")
+        print("activated=\(result.activated)")
+    case "release-validate":
+        let pipeline = try releasePipeline(args: args, projectRoot: projectRoot)
+        try pipeline.validateRelease()
+        print("swift_release_valid=\(try args.require("--release-id"))")
     default:
         throw ServerCommandError.usage
     }
+}
+
+private func releasePipeline(args: Arguments, projectRoot: URL) throws -> SwiftReleasePipeline {
+    let serverDir = URL(fileURLWithPath: try args.require("--server-dir"), isDirectory: true).standardizedFileURL
+    let releaseRoot = URL(fileURLWithPath: try args.require("--release-root"), isDirectory: true).standardizedFileURL
+    let publicDownloads = URL(fileURLWithPath: try args.require("--public-downloads"), isDirectory: true).standardizedFileURL
+    let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
+    let config = SwiftReleasePipelineConfig(
+        projectRoot: projectRoot,
+        serverDir: serverDir,
+        releaseRoot: releaseRoot,
+        publicDownloads: publicDownloads,
+        databaseURL: duckDB,
+        releaseID: try args.require("--release-id"),
+        serverKey: args.options["--server-key"] ?? "minecraft_26_1_2",
+        minecraftVersion: args.options["--minecraft-version"] ?? "26.1.2",
+        loaderVersion: args.options["--loader-version"] ?? "26.1.2.75",
+        status: args.options["--status"] ?? "tested",
+        notes: args.options["--notes"] ?? "",
+        actor: args.options["--actor"] ?? "pummelchen-swift-release",
+        activate: args.options["--activate"] == "true",
+        buildClientZipIfMissing: args.options["--build-client-zip-if-missing"] != "false",
+        restartCommand: args.options["--restart-command"],
+        healthCommand: args.options["--health-command"]
+    )
+    return SwiftReleasePipeline(config: config)
 }
 
 do {
