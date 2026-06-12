@@ -50,6 +50,15 @@ while IFS= read -r path; do
   bash -n "$path"
 done < <(find "$ROOT_DIR/scripts" "$ROOT_DIR/client-package" "$ROOT_DIR/client-installer" -type f \( -name '*.sh' -o -name '*.command' \) | sort)
 
+if command -v systemd-analyze >/dev/null 2>&1; then
+  log "Systemd unit syntax"
+  while IFS= read -r path; do
+    systemd-analyze verify "$path"
+  done < <(find "$ROOT_DIR/systemd" -maxdepth 1 -type f \( -name '*.service' -o -name '*.timer' \) | sort)
+else
+  log "Systemd unit syntax skipped (systemd-analyze not installed)"
+fi
+
 log "JSON contract syntax"
 "$PYTHON_BIN" - "$ROOT_DIR/docs/contracts/api" <<'PY'
 import json

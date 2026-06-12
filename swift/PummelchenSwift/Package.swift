@@ -19,11 +19,19 @@ let package = Package(
         .executable(
             name: "pummelchen-duckdb",
             targets: ["PummelchenDuckDB"]
+        ),
+        .executable(
+            name: "pummelchen-server",
+            targets: ["PummelchenServer"]
         )
     ],
     targets: [
         .target(
             name: "PummelchenCore"
+        ),
+        .target(
+            name: "PummelchenServerCore",
+            dependencies: ["PummelchenCore"]
         ),
         .executableTarget(
             name: "pummelchen-contracts",
@@ -33,9 +41,16 @@ let package = Package(
             name: "PummelchenDuckDB",
             dependencies: ["PummelchenCore"]
         ),
+        .executableTarget(
+            name: "PummelchenServer",
+            dependencies: ["PummelchenServerCore"]
+        ),
         .testTarget(
             name: "PummelchenCoreTests",
-            dependencies: ["PummelchenCore"],
+            dependencies: [
+                "PummelchenCore",
+                "PummelchenServerCore"
+            ],
             resources: [
                 .copy("Fixtures")
             ]

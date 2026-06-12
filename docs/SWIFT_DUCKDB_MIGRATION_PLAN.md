@@ -1211,6 +1211,18 @@ Acceptance:
 - systemd service restarts cleanly.
 - No write operations yet.
 
+Implementation status:
+
+- Implemented the read-only API behavior in `swift/PummelchenSwift/Sources/PummelchenServerCore`.
+- Added `pummelchen-server smoke --project-root <repo>` for release-pointer and manifest validation.
+- Added `pummelchen-server serve --project-root <repo> [--host 127.0.0.1] [--port 8787]` as the local service entrypoint.
+- Added `systemd/pummelchen-server.service` as the read-only service unit template. It is not enabled by default during Phase 3.
+- Endpoints implemented:
+  - `GET /api/v1/status`
+  - `GET /api/v1/releases/current`
+  - `GET /api/v1/releases/{release_id}/manifest`
+- This phase remains read-only. HTTP/3/QUIC edge transport is still a deployment/networking gate; the Swift API emits transport-target metadata and keeps the compatibility HTTP path for smoke testing.
+
 ### Phase 4: Client GUI Read-Only Status
 
 Create macOS app:
