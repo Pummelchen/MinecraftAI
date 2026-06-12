@@ -1,6 +1,9 @@
 # Pummelchen client sync manifest v1
 # section	name	size	sha256	url_path
 mods	example-mod.jar	12345	sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	downloads/releases/release_20260612_V6_modernarch-refresh/client-files/mods/example-mod.jar
+mods	Solaria.zip	22222	sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee	downloads/releases/release_20260612_V6_modernarch-refresh/client-files/mods/Solaria.zip
 resourcepacks	ModernArch v2.8.2 [26.1] [128x].zip	67890	sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb	downloads/releases/release_20260612_V6_modernarch-refresh/client-files/resourcepacks/ModernArch v2.8.2 [26.1] [128x].zip
+resourcepacks	Fancy_Beds-v4.1.zip	55555	sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff	downloads/releases/release_20260612_V6_modernarch-refresh/client-files/resourcepacks/Fancy_Beds-v4.1.zip
 shaderpacks	BSL_v10.0.zip	45678	sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc	downloads/releases/release_20260612_V6_modernarch-refresh/client-files/shaderpacks/BSL_v10.0.zip
-config	options.txt	100	sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd	downloads/releases/release_20260612_V6_modernarch-refresh/client-files/config/options.txt
+shaderpacks	ComplementaryReimagined_r5.8.1.zip	45679	sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd	downloads/releases/release_20260612_V6_modernarch-refresh/client-files/shaderpacks/ComplementaryReimagined_r5.8.1.zip
+shaderpacks	BSL_v10.0.zip.txt	100	sha256:9999999999999999999999999999999999999999999999999999999999999999	downloads/releases/release_20260612_V6_modernarch-refresh/client-files/shaderpacks/BSL_v10.0.zip.txt

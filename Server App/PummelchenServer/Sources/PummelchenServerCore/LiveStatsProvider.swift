@@ -300,20 +300,36 @@ final class LiveStatsProvider: @unchecked Sendable {
             return (0, 0, 0, 0)
         }
         return data.split(separator: "\n").reduce(into: (mods: 0, shaderpacks: 0, resourcepacks: 0, config: 0)) { counts, line in
-            guard !line.hasPrefix("#"), let section = line.split(separator: "\t").first else { return }
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard !line.hasPrefix("#"), fields.count >= 2 else { return }
+            let section = fields[0]
+            let fileName = String(fields[1])
+            let normalizedFileName = fileName.lowercased()
             switch section {
             case "mods":
-                counts.mods += 1
+                if normalizedFileName.hasSuffix(".jar") {
+                    counts.mods += 1
+                }
             case "shaderpacks":
-                counts.shaderpacks += 1
+                if normalizedFileName.hasSuffix(".zip") {
+                    counts.shaderpacks += 1
+                } else {
+                    counts.config += 1
+                }
             case "resourcepacks":
-                counts.resourcepacks += 1
+                if Self.isDefaultResourcePack(fileName) {
+                    counts.resourcepacks += 1
+                }
             case "config", "configs", "configuration":
                 counts.config += 1
             default:
                 break
             }
         }
+    }
+
+    private static func isDefaultResourcePack(_ fileName: String) -> Bool {
+        fileName.localizedCaseInsensitiveContains("ModernArch")
     }
 
     private func failedModCount() -> Int {

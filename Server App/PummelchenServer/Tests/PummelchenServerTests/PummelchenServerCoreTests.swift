@@ -92,7 +92,7 @@ struct PummelchenServerCoreTests {
         #expect(payload.stats["Last Mod Version"] == "20260612 V6 modernarch-refresh")
         #expect(payload.stats["Server Address"] == "91.99.176.243:25565")
         #expect(payload.stats["Web Address"] == "91.99.176.243:7788")
-        #expect(payload.stats["Client Mods"] == "1 Client Mods · 1 Shaders · 1 Resource Packs · 1 Config Files")
+        #expect(payload.stats["Client Mods"] == "1 Client Mods · 2 Shaders · 1 Resource Packs · 1 Config Files")
         #expect(payload.stats["Failed Mods"] == "0 Failed Mods")
         #expect(payload.stats["Mac Installer DMG URL"] == "/downloads/Pummelchen-Client-Installer.dmg")
         #expect(payload.history.count == 1)
