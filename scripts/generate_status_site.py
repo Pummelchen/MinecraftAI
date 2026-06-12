@@ -449,6 +449,8 @@ def render_failed_mods_page(failed_mods: list[dict[str, Any]]) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Failed Mods — Pummelchen Server</title>
+  <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_midnight.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <style>
     :root {{
       --bg: #000000; --ink: #f4f7f2; --muted: #a5afa6; --line: #273127;
@@ -474,7 +476,63 @@ def render_failed_mods_page(failed_mods: list[dict[str, Any]]) -> str:
       background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
       overflow: hidden;
     }}
+    .toolbar {{
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+      margin: 18px 0 12px;
+    }}
+    .search {{
+      flex: 1 1 280px; min-height: 42px; border: 1px solid var(--line);
+      border-radius: 8px; padding: 0 12px; font: inherit;
+      background: #070b08; color: var(--ink);
+    }}
+    .search::placeholder {{ color: #778177; }}
+    .table-count {{ color: var(--muted); font-size: 13px; font-weight: 800; white-space: nowrap; }}
     .table-shell {{ width: 100%; overflow-x: auto; }}
+    .table-shell.enhanced-fallback {{ display: none; }}
+    .sheet-grid {{
+      margin-top: 12px; border: 1px solid var(--line); border-radius: 8px;
+      overflow: hidden; background: var(--panel); box-shadow: 0 18px 40px var(--shadow);
+    }}
+    .sheet-grid:empty {{ display: none; }}
+    .sheet-grid .tabulator {{
+      border: 0; background: var(--panel); color: var(--ink); font-size: 14px;
+    }}
+    .sheet-grid .tabulator-header {{
+      border-bottom: 1px solid var(--line); background: #0c120d; color: var(--muted);
+      font-weight: 800;
+    }}
+    .sheet-grid .tabulator-col {{
+      background: #0c120d; border-right: 1px solid var(--line);
+    }}
+    .sheet-grid .tabulator-col-title {{ color: var(--muted); letter-spacing: 0; }}
+    .sheet-grid.tabulator .tabulator-row,
+    .sheet-grid .tabulator-row {{
+      background: var(--panel) !important; border-bottom: 1px solid var(--line);
+      color: var(--ink); min-height: 42px;
+    }}
+    .sheet-grid.tabulator .tabulator-row.tabulator-row-even,
+    .sheet-grid .tabulator-row.tabulator-row-even {{ background: #0d120e !important; }}
+    .sheet-grid.tabulator .tabulator-row:hover,
+    .sheet-grid .tabulator-row:hover {{ background: rgba(245, 184, 184, 0.08) !important; }}
+    .sheet-grid.tabulator .tabulator-cell,
+    .sheet-grid .tabulator-cell {{ background: transparent !important; }}
+    .sheet-grid .tabulator-cell {{
+      border-right: 1px solid rgba(39,49,39,0.72); padding: 9px 10px; white-space: nowrap;
+    }}
+    .sheet-grid a {{
+      color: var(--blue); text-decoration: underline; text-decoration-thickness: 1px;
+      text-underline-offset: 3px; font-weight: 800;
+    }}
+    .sheet-grid a:hover, .sheet-grid a:focus-visible {{ color: #b8dcff; }}
+    .sheet-grid .tabulator-footer {{
+      background: #0c120d; border-top: 1px solid var(--line); color: var(--muted);
+    }}
+    .sheet-grid .tabulator-page {{
+      background: #101712; border: 1px solid var(--line); color: var(--muted); border-radius: 6px;
+    }}
+    .sheet-grid .tabulator-page.active {{
+      background: var(--red); color: #1f0808; border-color: var(--red);
+    }}
     th {{
       text-align: left; padding: 12px 16px; background: #111711;
       color: var(--muted); font-size: 13px; font-weight: 600;
@@ -507,8 +565,13 @@ def render_failed_mods_page(failed_mods: list[dict[str, Any]]) -> str:
       <h1>Failed Mods</h1>
       <p class="subtitle"><span class="count">{len(failed_mods)}</span> mods that failed acceptance testing or server boot and were not installed.</p>
     </header>
+    <div class="toolbar">
+      <input id="failedModsSearch" class="search" type="search" placeholder="Filter failed mods by name, reason, test, log, or details">
+      <span id="failedModsCount" class="table-count">{len(failed_mods)} failed mods</span>
+    </div>
+    <div id="failedModsGrid" class="sheet-grid" aria-label="Failed mods data grid"></div>
     <div class="table-shell">
-      <table>
+      <table id="failedModsTable">
         <thead><tr><th>Timestamp</th><th>Mod</th><th>Failure Reason</th><th>Problem Details</th></tr></thead>
         <tbody>
           {table_rows}
@@ -517,6 +580,83 @@ def render_failed_mods_page(failed_mods: list[dict[str, Any]]) -> str:
     </div>
     <footer>Pummelchen Server — mod tracker failure report</footer>
   </div>
+  <script>
+    function updateFailedModsCount(visible, total) {{
+      const count = document.getElementById('failedModsCount');
+      if (!count) return;
+      count.textContent = visible === total ? `${{total}} failed mods` : `${{visible}} of ${{total}} failed mods`;
+    }}
+    function wireFailedModsGrid() {{
+      const table = document.getElementById('failedModsTable');
+      if (!table || !table.tBodies.length) return;
+      const gridTarget = document.getElementById('failedModsGrid');
+      const input = document.getElementById('failedModsSearch');
+      const rows = Array.from(table.tBodies[0].rows).map(row => {{
+        const link = row.cells[1] ? row.cells[1].querySelector('a') : null;
+        return {{
+          timestamp: row.cells[0] ? row.cells[0].textContent.trim() : '',
+          mod: row.cells[1] ? row.cells[1].textContent.trim() : '',
+          modUrl: link ? link.getAttribute('href') || '' : '',
+          reason: row.cells[2] ? row.cells[2].textContent.trim() : '',
+          details: row.cells[3] ? row.cells[3].textContent.trim() : '',
+          search: row.textContent.toLowerCase(),
+        }};
+      }});
+      if (gridTarget && window.Tabulator) {{
+        table.closest('.table-shell')?.classList.add('enhanced-fallback');
+        const grid = new Tabulator(gridTarget, {{
+          data: rows,
+          layout: 'fitColumns',
+          height: rows.length > 12 ? '560px' : undefined,
+          placeholder: 'No failed mods',
+          initialSort: [{{ column: 'timestamp', dir: 'desc' }}],
+          pagination: rows.length > 25 ? 'local' : false,
+          paginationSize: 25,
+          paginationSizeSelector: [25, 50, 100],
+          columnDefaults: {{
+            headerSort: true,
+            resizable: true,
+            tooltip: true,
+          }},
+          columns: [
+            {{ title: 'Timestamp', field: 'timestamp', width: 155, frozen: true }},
+            {{ title: 'Mod', field: 'mod', minWidth: 220, formatter: cell => {{
+              const data = cell.getRow().getData();
+              if (!data.modUrl) return data.mod;
+              return `<a href="${{data.modUrl}}" target="_blank" rel="noopener noreferrer">${{data.mod}}</a>`;
+            }} }},
+            {{ title: 'Failure Reason', field: 'reason', minWidth: 260 }},
+            {{ title: 'Problem Details', field: 'details', minWidth: 520 }},
+          ],
+        }});
+        function applyFilter() {{
+          const query = input ? input.value.trim().toLowerCase() : '';
+          if (!query) grid.clearFilter(true);
+          else grid.setFilter(data => String(data.search || '').includes(query));
+        }}
+        grid.on('dataFiltered', (filters, activeRows) => {{
+          updateFailedModsCount(Array.isArray(activeRows) ? activeRows.length : rows.length, rows.length);
+        }});
+        grid.on('tableBuilt', () => updateFailedModsCount(rows.length, rows.length));
+        if (input) input.addEventListener('input', applyFilter);
+        updateFailedModsCount(rows.length, rows.length);
+        return;
+      }}
+      if (input) {{
+        input.addEventListener('input', () => {{
+          const query = input.value.trim().toLowerCase();
+          Array.from(table.tBodies[0].rows).forEach(row => {{
+            const hit = !query || row.textContent.toLowerCase().includes(query);
+            row.style.display = hit ? '' : 'none';
+          }});
+          const visible = Array.from(table.tBodies[0].rows).filter(row => row.style.display !== 'none').length;
+          updateFailedModsCount(visible, rows.length);
+        }});
+      }}
+      updateFailedModsCount(rows.length, rows.length);
+    }}
+    wireFailedModsGrid();
+  </script>
 </body>
 </html>"""
 
