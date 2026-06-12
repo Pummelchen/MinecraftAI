@@ -75,6 +75,7 @@ Clients resolve `/downloads/current-release.json` to find the active release ID,
 ├── site/                 # Generated static status page
 │   └── assets/           # Static assets (hero image)
 ├── data/                 # SQLite DB and import data (DB is gitignored)
+├── database/duckdb/      # Phase 1 DuckDB schemas, migrations, parity docs
 ├── docs/                 # Design documents, production contracts, migration plans
 ├── swift/                # Swift/DuckDB migration workspace
 │   └── PummelchenSwift/  # SwiftPM package for shared contracts and future apps
@@ -183,6 +184,12 @@ bash scripts/validate_project.sh
 
 # Swift migration contract tests only
 swift test --package-path swift/PummelchenSwift
+
+# Build temporary DuckDB parity database on a host with duckdb installed
+swift run --package-path swift/PummelchenSwift pummelchen-duckdb phase1-build \
+  --duckdb /tmp/pummelchen_phase1.duckdb \
+  --sqlite data/minecraft_mods.sqlite \
+  --project-root .
 
 # Deploy to VPS (runs gate + syncs + smoke tests)
 bash scripts/deploy_project.sh --host root@91.99.176.243

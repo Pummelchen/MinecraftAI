@@ -71,6 +71,7 @@ fi
 if command -v duckdb >/dev/null 2>&1; then
   log "DuckDB contract SQL syntax"
   duckdb "$TMP_DIR/contract-syntax.duckdb" < "$ROOT_DIR/docs/contracts/duckdb/001_initial.sql" >/dev/null
+  duckdb "$TMP_DIR/foundation-syntax.duckdb" < "$ROOT_DIR/database/duckdb/migrations/001_foundation.sql" >/dev/null
 else
   log "DuckDB contract SQL syntax skipped (duckdb not installed)"
 fi

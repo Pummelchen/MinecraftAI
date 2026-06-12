@@ -15,6 +15,10 @@ let package = Package(
         .executable(
             name: "pummelchen-contracts",
             targets: ["pummelchen-contracts"]
+        ),
+        .executable(
+            name: "pummelchen-duckdb",
+            targets: ["PummelchenDuckDB"]
         )
     ],
     targets: [
@@ -23,6 +27,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "pummelchen-contracts",
+            dependencies: ["PummelchenCore"]
+        ),
+        .executableTarget(
+            name: "PummelchenDuckDB",
             dependencies: ["PummelchenCore"]
         ),
         .testTarget(
