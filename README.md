@@ -14,6 +14,16 @@ The system then performs the full update pipeline automatically:
 - Automated testing — Executes validation chains, including headless Minecraft client tests, to verify stability and compatibility.
 - Live deployment — Once all tests pass, the mod is distributed automatically to the Minecraft server and all connected clients.
 
+## Core Benefits For MC Server Admins
+
+- Reduces manual mod management work by turning natural-language requests into repeatable update workflows.
+- Lowers the risk of broken releases by testing new mods against the full existing mod stack before deployment.
+- Keeps server and client mod sets aligned so players do not have to manually repair mismatched installations.
+- Speeds up safe mod adoption by automating discovery, downloads, compatibility checks, and packaging.
+- Provides a structured path for operating very large mod packs with hundreds of active mods.
+- Preserves release state and database history so admins can audit what changed and when.
+- Helps private servers move faster without depending on every player to understand mod loader internals.
+
 ## Platform Requirements
 
 At present, the project supports the following environment:
