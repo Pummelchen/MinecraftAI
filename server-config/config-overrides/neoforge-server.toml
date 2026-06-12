@@ -1,7 +1,0 @@
-# Keep bad ticking entities from taking the whole server down. This is scoped to
-# entities only; block entities remain crash-fatal to avoid silent world damage.
-removeErroringBlockEntities = false
-removeErroringEntities = true
-fullBoundingBoxLadders = false
-permissionHandler = "neoforge:default_handler"
-advertiseDedicatedServerToLan = false

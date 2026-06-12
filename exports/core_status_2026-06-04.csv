@@ -1,7 +1,0 @@
-name,canonical_key,active_status,server_status,client_package,target_mc,primary_url,file_id,release_channel,files
-"BSL Shader",bsl-shaders-classic,ok,"Client-only: shaderpack included via Iris; latest stable file is tagged 1.21.9, not 26.1.x",Included,"26.1.2 client; shader file tagged 1.21.9 + Iris",https://www.curseforge.com/minecraft/shaders/bsl-shaders-classic/files/all?page=1&pageSize=20&showAlphaFiles=hide,6514911,stable,shaderpack:BSLClassic_v10.0.zip
-"Dramatic Skys",dramatic-skys,ok,"Client-only: included",Included,26.1.2,https://www.curseforge.com/minecraft/texture-packs/dramatic-skys/files/all?page=1&pageSize=20,8145817,stable,"server_file:Dramatic Skys Demo 1.5.3.36.4.zip"
-"Iris Shaders",iris,ok,"Client-only: included",Included,26.1.2,https://modrinth.com/mod/iris/versions,"","",server_file:iris-neoforge-1.10.9+mc26.1.1.jar
-ModernArch,modernarch,ok,"Client-only: included",Included,26.1.2,https://www.curseforge.com/minecraft/texture-packs/modernarch/files/all,8102751,stable,"server_file:ModernArch v2.4.3 [26.1] [128x].zip"
-NeoForge,neoforge,ok,"Runtime OK","Client loader required",26.1.2,https://maven.neoforged.net/releases/net/neoforged/neoforge/,"","","server_file:NeoForge 26.1.2.71"
-Sodium,sodium,ok,"Client-only: included",Included,26.1.2,https://www.curseforge.com/minecraft/mc-mods/sodium/files/all?page=1&pageSize=20&gameVersionTypeId=6,8111040,stable,server_file:sodium-neoforge-0.8.12+mc26.1.2.jar

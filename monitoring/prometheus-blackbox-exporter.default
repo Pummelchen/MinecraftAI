@@ -1,2 +1,0 @@
-# Command-line arguments for the Prometheus blackbox exporter.
-ARGS="--config.file=/etc/prometheus/blackbox.yml --web.listen-address=127.0.0.1:9115"

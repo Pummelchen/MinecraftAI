@@ -1,5 +1,0 @@
-SHELL=/bin/sh
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-CRON_TZ=Europe/Berlin
-
-*/5 * * * * root flock -n /var/lock/pummelchen-status-site.lock /usr/bin/python3 /var/minecraft_mods/scripts/generate_status_site.py --db /var/minecraft_mods/data/minecraft_mods.sqlite --output-dir /var/minecraft_mods/site/public --server-dir /var/minecraft_26.1.2 --public-url http://91.99.176.243:7788 >> /var/minecraft_mods/site/generate.log 2>&1

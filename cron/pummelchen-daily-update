@@ -1,5 +1,0 @@
-SHELL=/bin/sh
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-CRON_TZ=UTC
-
-0 12 * * * root flock -n /var/lock/pummelchen-daily-update.lock /bin/sh /var/minecraft_mods/scripts/run_daily_release_pipeline.sh >> /var/minecraft_mods/logs/daily_update.log 2>&1

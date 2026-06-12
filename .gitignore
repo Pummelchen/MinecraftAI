@@ -1,42 +1,39 @@
-# Runtime secrets
-client-package/tools/upload-token.txt
+# Runtime secrets and credentials
 *.token
 secrets/
 
-# Live SQLite databases and local DB backups
-data/*.sqlite
-data/*.sqlite-*
-data/*.db
-data/*.db-*
-data/*.bak*
+# Local databases and backups
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.duckdb
+*.duckdb-*
+*.bak*
 
-# Generated packages and build output
-Backup/
-dist/
-dist2/
+# Swift and local build output
 .build/
 swift/**/.build/
+DerivedData/
+build/
+dist/
+dist2/
+tmp/
+
+# Generated packages and release artifacts
 *.dmg
 *.zip
 *.jar
 *.mrpack
 *.sha256
-!server-datapacks/
-!server-datapacks/*.zip
-
-# Generated status-site output
-site/public/
-!site/assets/
-!site/assets/**
 
 # Logs, caches, bytecode, and temporary files
 *.log
 *.tmp
 __pycache__/
 *.py[cod]
+.ruff_cache/
 .DS_Store
-build/
-tmp/
 
 # Local editor/tooling
 .idea/

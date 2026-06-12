@@ -1098,8 +1098,10 @@ Acceptance:
 
 - No production behavior changed.
 - API/schema docs exist.
-- Swift contract package builds and tests through `scripts/validate_project.sh` when Swift is installed.
-- Current scripts still pass `scripts/validate_project.sh`.
+- Swift package builds and tests through SwiftPM:
+  - `swift build --package-path swift/PummelchenSwift`
+  - `swift test --package-path swift/PummelchenSwift`
+- The retired Python/Bash project tree is no longer part of git; restore it from the VPS retirement backup only for historical inspection.
 
 ### Phase 1: DuckDB Foundation And SQLite Parity
 
@@ -1321,8 +1323,8 @@ Implementation status:
 - Write payloads are bounded by `maxWritePayloadBytes` before JSON decoding.
 - Server-side Phase 6 persistence writes to DuckDB client tables for reports, latest status, inventory, diagnostics, defaults reports, and defaults events.
 - Aggregate health reports counts for synced clients, defaults repair, failed checksums, stale release, and error/blocked clients.
-- The Swift client sync engine can post JSON sync reports to `/api/v1/clients/sync-runs` when `PUMMELCHEN_CLIENT_API_TOKEN` or `--client-api-token` is configured; otherwise it keeps using the legacy `/client-logs/update-status` fallback during migration.
-- Phase 6 is still a migration layer, not the production cutover. nginx/static releases and the existing Python/Bash production writers remain authoritative until later phases.
+- The Swift client sync engine can post JSON sync reports to `/api/v1/clients/sync-runs` when `PUMMELCHEN_CLIENT_API_TOKEN` or `--client-api-token` is configured.
+- Phase 6 is still a migration layer, not the production cutover. Production deployment must only use Swift-owned writers once the matching server-side persistence and release checks are complete.
 
 ### Phase 7: Release Pipeline in Swift
 
@@ -1686,7 +1688,7 @@ PummelchenServer.service
 
 - Server service is built as an optimized `x86_64-unknown-linux-gnu` release binary and verified on the Debian 13 VPS.
 - DuckDB foundation rebuilds from current SQLite/project files and passes parity checks.
-- Current scripts and Swift shadow outputs match for release manifests, Tested Updates, Failed Mods, release health, custom datapacks, and world reset dry-run plans.
+- Swift outputs match the archived legacy behavior for release manifests, Tested Updates, Failed Mods, release health, custom datapacks, and world reset dry-run plans.
 - At least two full releases are created, activated, validated, and rolled back successfully in staging.
 - At least one staging safe world reset completes with seed write, datapack validation, 1000-block pregeneration, no leftover forceloads, and optional backup cleanup.
 - Release health and DB health are visible and green after each staging operation.

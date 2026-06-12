@@ -592,22 +592,81 @@ struct PummelchenServerCoreTests {
 
     private func copyRequiredDatapacks(to target: URL) throws {
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
-        let source = repositoryRoot().appendingPathComponent("server-datapacks", isDirectory: true)
         for name in ["pummelchen-welcome.zip", "pummelchen-tropical-worldgen.zip", "pummelchen-rich-ores.zip"] {
             let destination = target.appendingPathComponent(name)
             if FileManager.default.fileExists(atPath: destination.path) {
                 try FileManager.default.removeItem(at: destination)
             }
-            try FileManager.default.copyItem(at: source.appendingPathComponent(name), to: destination)
+            try makeDatapackFixture(named: name, at: destination)
         }
     }
 
-    private func repositoryRoot() -> URL {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<5 {
-            url.deleteLastPathComponent()
+    private func makeDatapackFixture(named name: String, at destination: URL) throws {
+        let workDir = destination.deletingLastPathComponent()
+            .appendingPathComponent("datapack-fixture-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workDir) }
+
+        let pack = """
+        {
+          "pack": {
+            "pack_format": 82,
+            "description": "\(name) test fixture"
+          }
         }
-        return url
+        """
+        try pack.write(to: workDir.appendingPathComponent("pack.mcmeta"), atomically: true, encoding: .utf8)
+        for relativePath in datapackFixturePaths(for: name) {
+            let fileURL = workDir.appendingPathComponent(relativePath)
+            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "{}\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        }
+        try runZip(arguments: ["-q", "-r", destination.path, "pack.mcmeta"], currentDirectory: workDir)
+        try runZip(arguments: ["-q", "-r", destination.path, "data"], currentDirectory: workDir)
+    }
+
+    private func datapackFixturePaths(for name: String) -> [String] {
+        switch name {
+        case "pummelchen-welcome.zip":
+            [
+                "data/pummelchen/function/load.mcfunction",
+                "data/pummelchen/function/tick.mcfunction",
+                "data/minecraft/loot_table/chests/spawn_bonus_chest.json"
+            ]
+        case "pummelchen-tropical-worldgen.zip":
+            [
+                "data/minecraft/worldgen/multi_noise_biome_source_parameter_list/overworld.json"
+            ]
+        case "pummelchen-rich-ores.zip":
+            [
+                "data/minecraft/worldgen/configured_feature/ore_iron.json",
+                "data/minecraft/worldgen/configured_feature/ore_gold.json",
+                "data/minecraft/worldgen/configured_feature/ore_diamond_large.json"
+            ]
+        default:
+            []
+        }
+    }
+
+    private func runZip(arguments: [String], currentDirectory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["zip"] + arguments
+        process.currentDirectoryURL = currentDirectory
+
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
+        try process.run()
+        process.waitUntilExit()
+
+        if process.terminationStatus != 0 {
+            let error = String(decoding: errorPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            throw NSError(
+                domain: "PummelchenServerCoreTests",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: error]
+            )
+        }
     }
 
     private func authHeaders(token: String, clientID: String) -> [String: String] {

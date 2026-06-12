@@ -1,2 +1,0 @@
-server_key,name,canonical_key,group_tag,side,method,status,memory_delta_mb,cpu_delta_pct,confidence,measured_at,notes
-minecraft_26_1_2,AutoFishing,autofishing,Mobs and Wildlife,server+client,remove-one-idle,ok,482.84244791666606,-0.12536901085366026,low-single-run,2026-06-04T08:56:57+00:00,Positive deltas mean the full pack used more resources than the pack without AutoFishing.

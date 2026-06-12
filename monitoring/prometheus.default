@@ -1,2 +1,0 @@
-# Command-line arguments for the Prometheus server.
-ARGS="--web.listen-address=127.0.0.1:9090 --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus/metrics2 --storage.tsdb.retention.time=15d"
