@@ -426,6 +426,99 @@ struct PummelchenServerCoreTests {
         #expect(afterAck.events.isEmpty)
     }
 
+    @Test("phase 9 safe world reset dry run records plan without deleting active world")
+    func phase9WorldResetDryRunRecordsPlan() throws {
+        try requireDuckDB()
+        let fixture = try makeWorldResetFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let pipeline = SwiftWorldResetPipeline(config: SwiftWorldResetConfig(
+            projectRoot: fixture.root,
+            serverDir: fixture.serverDir,
+            databaseURL: fixture.root.appendingPathComponent("phase9.duckdb"),
+            seed: "123456789",
+            radiusBlocks: 1000,
+            dryRun: true
+        ))
+        let result = try pipeline.run()
+
+        #expect(result.status == "dry_run")
+        #expect(result.pregenerationChunks > 12_000)
+        #expect(result.requiredDatapacksVerified.sorted() == [
+            "pummelchen-rich-ores.zip",
+            "pummelchen-tropical-worldgen.zip",
+            "pummelchen-welcome.zip"
+        ])
+        #expect(FileManager.default.fileExists(atPath: fixture.serverDir.appendingPathComponent("world/region/r.0.0.mca").path))
+        let status = try duckDBScalar(database: fixture.root.appendingPathComponent("phase9.duckdb"), sql: "SELECT status FROM world.reset_jobs WHERE job_id = '\(result.jobID)';")
+        #expect(status == "dry_run")
+    }
+
+    @Test("phase 9 safe world reset requires explicit destructive confirmation")
+    func phase9WorldResetRequiresConfirmation() throws {
+        try requireDuckDB()
+        let fixture = try makeWorldResetFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let pipeline = SwiftWorldResetPipeline(config: SwiftWorldResetConfig(
+            projectRoot: fixture.root,
+            serverDir: fixture.serverDir,
+            databaseURL: fixture.root.appendingPathComponent("phase9.duckdb"),
+            seed: "987654321",
+            radiusBlocks: 1000,
+            dryRun: false,
+            confirmDestructive: false
+        ))
+        #expect(throws: SwiftWorldResetError.self) {
+            _ = try pipeline.run()
+        }
+        #expect(!FileManager.default.fileExists(atPath: fixture.root.appendingPathComponent("phase9.duckdb").path))
+    }
+
+    @Test("phase 9 safe world reset replaces world, installs datapacks, records cleanup")
+    func phase9WorldResetExecutesStagedFilesystemReset() throws {
+        try requireDuckDB()
+        let fixture = try makeWorldResetFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let database = fixture.root.appendingPathComponent("phase9.duckdb")
+        let pipeline = SwiftWorldResetPipeline(config: SwiftWorldResetConfig(
+            projectRoot: fixture.root,
+            serverDir: fixture.serverDir,
+            databaseURL: database,
+            seed: "178127232016679900",
+            radiusBlocks: 1000,
+            dryRun: false,
+            confirmDestructive: true,
+            deleteBackupAfterSuccess: true,
+            stopCommand: "true",
+            startCommand: "true",
+            gameruleCommand: "true",
+            pregenerateCommand: "true",
+            verifyForceloadsCommand: "true"
+        ))
+        let result = try pipeline.run()
+
+        #expect(result.status == "completed")
+        #expect(result.backupDeleted)
+        #expect(result.forceloadsCleared)
+        #expect(result.activeWorldExists)
+        if let backupPath = result.backupPath {
+            #expect(!FileManager.default.fileExists(atPath: backupPath))
+        }
+        #expect(!FileManager.default.fileExists(atPath: fixture.serverDir.appendingPathComponent("world/region/r.0.0.mca").path))
+        #expect(FileManager.default.fileExists(atPath: fixture.serverDir.appendingPathComponent("world/datapacks/pummelchen-welcome.zip").path))
+        #expect(FileManager.default.fileExists(atPath: fixture.serverDir.appendingPathComponent("world/datapacks/pummelchen-tropical-worldgen.zip").path))
+        #expect(FileManager.default.fileExists(atPath: fixture.serverDir.appendingPathComponent("world/datapacks/pummelchen-rich-ores.zip").path))
+        let properties = try String(contentsOf: fixture.serverDir.appendingPathComponent("server.properties"), encoding: .utf8)
+        #expect(properties.contains("level-seed=178127232016679900"))
+        #expect(properties.contains("bonus-chest=true"))
+        let status = try duckDBScalar(database: database, sql: "SELECT status FROM world.reset_jobs WHERE job_id = '\(result.jobID)';")
+        #expect(status == "completed")
+        let cleanup = try duckDBScalar(database: database, sql: "SELECT json_extract_string(result_json, '$.backupDeleted') FROM world.reset_jobs WHERE job_id = '\(result.jobID)';")
+        #expect(cleanup == "true")
+    }
+
     private func makeProjectFixture() throws -> (root: URL, currentReleaseJSON: String, manifestTSV: String) {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("pummelchen-server-\(UUID().uuidString)", isDirectory: true)
@@ -455,6 +548,37 @@ struct PummelchenServerCoreTests {
             clientAPIToken: token,
             maxWritePayloadBytes: maxWritePayloadBytes
         ))
+    }
+
+    private func makeWorldResetFixture() throws -> (root: URL, serverDir: URL) {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-world-reset-\(UUID().uuidString)", isDirectory: true)
+        let serverDir = root.appendingPathComponent("server", isDirectory: true)
+        try FileManager.default.createDirectory(at: serverDir.appendingPathComponent("world/region", isDirectory: true), withIntermediateDirectories: true)
+        try "old region".write(to: serverDir.appendingPathComponent("world/region/r.0.0.mca"), atomically: true, encoding: .utf8)
+        try "level-name=world\nlevel-seed=old\nbonus-chest=false\n".write(to: serverDir.appendingPathComponent("server.properties"), atomically: true, encoding: .utf8)
+        try copyRequiredDatapacks(to: root.appendingPathComponent("server-datapacks", isDirectory: true))
+        return (root, serverDir)
+    }
+
+    private func copyRequiredDatapacks(to target: URL) throws {
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        let source = repositoryRoot().appendingPathComponent("server-datapacks", isDirectory: true)
+        for name in ["pummelchen-welcome.zip", "pummelchen-tropical-worldgen.zip", "pummelchen-rich-ores.zip"] {
+            let destination = target.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.copyItem(at: source.appendingPathComponent(name), to: destination)
+        }
+    }
+
+    private func repositoryRoot() -> URL {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 {
+            url.deleteLastPathComponent()
+        }
+        return url
     }
 
     private func authHeaders(token: String, clientID: String) -> [String: String] {

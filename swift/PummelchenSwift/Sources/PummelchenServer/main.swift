@@ -21,6 +21,7 @@ enum ServerCommandError: Error, CustomStringConvertible {
               pummelchen-server serve --project-root <repo> [--host 127.0.0.1] [--port 8787]
               pummelchen-server release-create --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id> [--activate true] [--restart-command <shell>] [--health-command <shell>]
               pummelchen-server release-validate --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id>
+              pummelchen-server world-reset --project-root <repo> --server-dir <dir> --duckdb <file> --seed <seed> [--dry-run true] [--yes true] [--radius-blocks 1000] [--delete-backup-after-success true] [--stop-command <shell>] [--start-command <shell>] [--gamerule-command <shell>] [--pregenerate-command <shell>] [--verify-forceloads-command <shell>]
             """
         case .missingValue(let option):
             return "missing value for \(option)"
@@ -266,6 +267,17 @@ func run(arguments: [String]) throws {
         let pipeline = try releasePipeline(args: args, projectRoot: projectRoot)
         try pipeline.validateRelease()
         print("swift_release_valid=\(try args.require("--release-id"))")
+    case "world-reset":
+        let pipeline = try worldResetPipeline(args: args, projectRoot: projectRoot)
+        let result = try pipeline.run()
+        print("swift_world_reset=\(result.status)")
+        print("job_id=\(result.jobID)")
+        print("seed=\(result.seed)")
+        print("world_name=\(result.worldName)")
+        print("radius_blocks=\(result.radiusBlocks)")
+        print("pregeneration_chunks=\(result.pregenerationChunks)")
+        print("backup_path=\(result.backupPath ?? "")")
+        print("backup_deleted=\(result.backupDeleted)")
     default:
         throw ServerCommandError.usage
     }
@@ -295,6 +307,32 @@ private func releasePipeline(args: Arguments, projectRoot: URL) throws -> SwiftR
         healthCommand: args.options["--health-command"]
     )
     return SwiftReleasePipeline(config: config)
+}
+
+private func worldResetPipeline(args: Arguments, projectRoot: URL) throws -> SwiftWorldResetPipeline {
+    let serverDir = URL(fileURLWithPath: try args.require("--server-dir"), isDirectory: true).standardizedFileURL
+    let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
+    let radius = Int(args.options["--radius-blocks"] ?? "1000") ?? 1000
+    let shape = PregenerationShape(rawValue: args.options["--shape"] ?? "circle") ?? .circle
+    let config = SwiftWorldResetConfig(
+        projectRoot: projectRoot,
+        serverDir: serverDir,
+        databaseURL: duckDB,
+        serviceName: args.options["--service"] ?? "pummelchen-minecraft.service",
+        seed: try args.require("--seed"),
+        radiusBlocks: radius,
+        shape: shape,
+        dryRun: args.options["--dry-run"] != "false",
+        confirmDestructive: args.options["--yes"] == "true",
+        deleteBackupAfterSuccess: args.options["--delete-backup-after-success"] == "true",
+        actor: args.options["--actor"] ?? "pummelchen-swift-world-reset",
+        stopCommand: args.options["--stop-command"],
+        startCommand: args.options["--start-command"],
+        gameruleCommand: args.options["--gamerule-command"],
+        pregenerateCommand: args.options["--pregenerate-command"],
+        verifyForceloadsCommand: args.options["--verify-forceloads-command"]
+    )
+    return SwiftWorldResetPipeline(config: config)
 }
 
 do {

@@ -1424,6 +1424,16 @@ Acceptance:
 - No force-loaded chunks remain after pregeneration.
 - New world uses the requested seed.
 
+Implementation status:
+
+- Implemented `SwiftWorldResetPipeline` in `PummelchenServerCore` and exposed it through `pummelchen-server world-reset`.
+- Dry-run mode computes the active world, required datapacks, gamerules, pregeneration chunk/segment counts, and intended backup path without mutating the world directory.
+- Non-dry-run execution is intentionally strict: it requires `--yes true` plus explicit stop/start/gamerule/pregeneration/forceload-verification command hooks. This keeps destructive world reset orchestration out of HTTP request handlers and prevents silent live resets.
+- The execution path stops through the configured hook, moves the old active world into `world-reset-backups`, writes `level-seed` and `bonus-chest=true`, creates the new active world directory, installs and validates the required Pummelchen datapacks in both server-level and world-level datapack folders, runs gamerule/pregeneration/forceload verification hooks, and deletes the backup only after success when requested.
+- Spawn detection now reads `level.dat` through a small Swift NBT parser, with a fixture marker fallback for tests.
+- Reset jobs are recorded in DuckDB `world.reset_jobs` with seed, radius, old world path, backup path, JSON result details, completion status, backup cleanup state, pregeneration counts, and forceload cleanup state.
+- Fixture coverage verifies dry-run immutability, destructive confirmation gating with no job record, staged world replacement, datapack installation, seed persistence, backup deletion after success, and DuckDB status/result recording.
+
 ### Phase 10: Decommission Scripts
 
 Remove or archive old scripts only after:
