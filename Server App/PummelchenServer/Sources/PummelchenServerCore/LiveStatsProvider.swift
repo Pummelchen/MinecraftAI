@@ -307,7 +307,7 @@ final class LiveStatsProvider: @unchecked Sendable {
     }
 
     private func webAddress() -> String {
-        ProcessInfo.processInfo.environment["PUMMELCHEN_WEB_ADDRESS"] ?? "91.99.176.243:7788"
+        ProcessInfo.processInfo.environment["PUMMELCHEN_WEB_ADDRESS"] ?? "https://pummelchen.91.99.176.243.nip.io"
     }
 
     private func serverModCount(release: CurrentRelease?) -> Int? {

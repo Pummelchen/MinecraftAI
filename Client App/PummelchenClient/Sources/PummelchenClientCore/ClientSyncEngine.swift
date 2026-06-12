@@ -15,7 +15,7 @@ public struct ClientSyncConfiguration: Sendable {
     public let clientAPIToken: String?
 
     public init(
-        serverURL: URL = URL(string: "http://91.99.176.243:7788")!,
+        serverURL: URL = URL(string: "https://pummelchen.91.99.176.243.nip.io")!,
         minecraftDirectory: URL,
         pummelchenHome: URL,
         databaseURL: URL,
