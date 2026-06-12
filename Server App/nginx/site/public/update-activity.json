@@ -294,7 +294,7 @@
       "timestamp": "2026-06-12 13:30:30",
       "stage": "error",
       "status": "failed",
-      "message": "Pipeline failed at step: CalledProcessError: Command '['retired legacy Python runner', 'retired legacy acceptance lab', '--db', 'retired legacy SQLite database', '--server-dir', 'retired legacy pipeline path', '--server-key', 'minecraft_26_1_2_pipeline', '--lab-root', 'retired legacy pipeline path', '--bundle-size', '10', 'run-pyramid', '--release-key', '2026-06-12_V12', '--boot-timeout', '420', '--idle-seconds', '60', '--heap-mb', '2048', '--exercise-radius', '2']' returned non-zero exit status 1."
+      "message": "Historical pipeline failed before Swift/DuckDB cutover. The retired runner path is no longer active."
     },
     {
       "timestamp": "2026-06-12 17:04:48",

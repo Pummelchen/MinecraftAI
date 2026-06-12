@@ -1,57 +1,39 @@
-# Pummelchen DuckDB Foundation
+# Pummelchen DuckDB
 
-This directory contains the Phase 1 DuckDB foundation. It is read-only with respect to current production: SQLite and the existing Python scripts remain the production writers until the Swift/DuckDB stack passes parity and cutover gates.
+This directory contains the canonical DuckDB schema for the Pummelchen Swift server.
+
+DuckDB is the production database and the only supported project database.
 
 ## Files
 
 - `schema.sql`: canonical schema entrypoint for operators.
-- `migrations/001_foundation.sql`: creates `raw`, `core`, `audit`, `reporting`, and `archive` schemas plus the first reporting views.
-- `normalize_from_raw.sql`: rebuilds typed `core` tables from SQLite imports in `raw`.
+- `migrations/001_foundation.sql`: creates `raw`, `core`, `audit`, `reporting`, and `archive` schemas plus reporting views.
 
-## Build A Temporary Parity Database
+## Health Check
 
 On a host with Swift 6.3.2 and DuckDB installed:
 
 ```sh
-swift run --package-path swift/PummelchenSwift pummelchen-duckdb phase1-build \
-  --duckdb /tmp/pummelchen_phase1.duckdb \
-  --sqlite /var/minecraft_mods/data/minecraft_mods.sqlite \
-  --project-root /var/minecraft_mods
-```
-
-Check health:
-
-```sh
 swift run --package-path swift/PummelchenSwift pummelchen-duckdb health \
-  --duckdb /tmp/pummelchen_phase1.duckdb
-```
-
-Run parity checks against SQLite and current site artifacts:
-
-```sh
-swift run --package-path swift/PummelchenSwift pummelchen-duckdb phase1-check \
-  --duckdb /tmp/pummelchen_phase1.duckdb \
-  --sqlite /var/minecraft_mods/data/minecraft_mods.sqlite \
-  --current-release-json /var/minecraft_mods/site/public/downloads/current-release.json \
-  --tested-updates-json /var/minecraft_mods/site/public/tested-updates.json
+  --duckdb /opt/pummelchen-swift/runtime/data/pummelchen.duckdb
 ```
 
 Export reporting views to Parquet:
 
 ```sh
 swift run --package-path swift/PummelchenSwift pummelchen-duckdb export-parquet \
-  --duckdb /tmp/pummelchen_phase1.duckdb \
-  --output-dir /tmp/pummelchen_phase1_parquet
+  --duckdb /opt/pummelchen-swift/runtime/data/pummelchen.duckdb \
+  --output-dir /tmp/pummelchen_parquet
 ```
 
 Verify the exported Parquet files can be read back by DuckDB:
 
 ```sh
 swift run --package-path swift/PummelchenSwift pummelchen-duckdb verify-parquet \
-  --duckdb /tmp/pummelchen_phase1.duckdb \
-  --input-dir /tmp/pummelchen_phase1_parquet
+  --duckdb /opt/pummelchen-swift/runtime/data/pummelchen.duckdb \
+  --input-dir /tmp/pummelchen_parquet
 ```
 
 ## Current Boundary
 
-The Swift runner invokes the DuckDB CLI through `PATH`. Embedded DuckDB linking is intentionally deferred until the parity database, reporting views, and migration contracts stabilize.
+The Swift server app and database tools read and write DuckDB directly. The helper executable invokes the DuckDB CLI through `PATH` for administrative checks and Parquet exports.

@@ -90,7 +90,7 @@ Each release contains:
 - `server-files/server-datapacks`
 - `client-package`
 - `artifacts`
-- `db/minecraft_mods.sqlite`
+- `db/pummelchen.duckdb`
 - `public/client-sync-manifest.tsv`
 - `public/client-files`
 

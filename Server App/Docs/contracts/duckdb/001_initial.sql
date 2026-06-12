@@ -1,6 +1,5 @@
 -- Pummelchen Swift/DuckDB baseline schema.
--- Phase 0 defines the target contracts only. Phase 1 imports and validates parity
--- from the current SQLite database and project files.
+-- DuckDB is the production database for the Swift server.
 
 CREATE SCHEMA IF NOT EXISTS ops;
 CREATE SCHEMA IF NOT EXISTS release;

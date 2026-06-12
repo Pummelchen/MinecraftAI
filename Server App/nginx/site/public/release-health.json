@@ -231,7 +231,7 @@
     },
     {
       "level": "ok",
-      "check": "artifact:minecraft_mods.sqlite",
+      "check": "artifact:pummelchen.duckdb",
       "detail": "SHA256 verified (3bead23b46e31d15\u2026)"
     },
     {

@@ -1,7 +1,6 @@
--- Phase 1 DuckDB foundation.
--- Current SQLite/Python remains the production writer during this phase.
+-- Pummelchen DuckDB foundation.
+-- DuckDB is the production database for the Swift server.
 
-CREATE SCHEMA IF NOT EXISTS raw;
 CREATE SCHEMA IF NOT EXISTS core;
 CREATE SCHEMA IF NOT EXISTS audit;
 CREATE SCHEMA IF NOT EXISTS reporting;

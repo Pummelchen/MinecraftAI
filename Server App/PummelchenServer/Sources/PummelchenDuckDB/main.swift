@@ -11,8 +11,6 @@ enum DuckDBCommandError: Error, CustomStringConvertible {
         case .usage:
             return """
             Usage:
-              pummelchen-duckdb phase1-build --duckdb <file> --sqlite <file> --project-root <repo>
-              pummelchen-duckdb phase1-check --duckdb <file> --sqlite <file> [--current-release-json <file>] [--tested-updates-json <file>]
               pummelchen-duckdb health --duckdb <file>
               pummelchen-duckdb export-parquet --duckdb <file> --output-dir <dir>
               pummelchen-duckdb verify-parquet --duckdb <file> --input-dir <dir>
@@ -139,52 +137,6 @@ func quotedIdentifier(_ value: String) -> String {
     "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
 }
 
-func readSQL(_ path: String) throws -> String {
-    try String(contentsOfFile: path, encoding: .utf8)
-}
-
-func applyMigration(duckdb: DuckDB, path: String, version: Int, name: String) throws {
-    let checksum = try Hashing.sha256(path: path)
-    let sql = try readSQL(path)
-    try duckdb.execute(sql)
-    try duckdb.execute(
-        """
-        DELETE FROM core.schema_migrations WHERE version = \(version);
-        INSERT INTO core.schema_migrations(version, name, applied_at, checksum)
-        VALUES (\(version), \(sqlString(name)), now(), \(sqlString(checksum)));
-        """
-    )
-}
-
-func importSQLiteTables(duckdb: DuckDB, sqlitePath: String) throws -> Int {
-    let attachSQL = "INSTALL sqlite; LOAD sqlite; ATTACH \(sqlString(sqlitePath)) AS sqlite_source (TYPE sqlite);"
-    let tableOutput = try duckdb.queryCSV("\(attachSQL) SHOW TABLES FROM sqlite_source;")
-    let tables = tableOutput
-        .split(separator: "\n")
-        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty && !$0.hasPrefix("v_") }
-
-    for table in tables {
-        let identifier = quotedIdentifier(table)
-        try duckdb.execute(
-            """
-            \(attachSQL)
-            DROP TABLE IF EXISTS raw.\(identifier);
-            CREATE TABLE raw.\(identifier) AS SELECT * FROM sqlite_source.\(identifier);
-            """
-        )
-    }
-
-    return tables.count
-}
-
-func normalize(duckdb: DuckDB, projectRoot: String) throws {
-    let path = URL(fileURLWithPath: projectRoot)
-        .appendingPathComponent("database/duckdb/normalize_from_raw.sql")
-        .path
-    try duckdb.execute(try readSQL(path))
-}
-
 func firstCSVValue(_ output: String) -> String {
     output.trimmingCharacters(in: .whitespacesAndNewlines)
 }
@@ -193,27 +145,6 @@ func requireCheck(_ condition: Bool, _ message: String) throws {
     if !condition {
         throw CheckFailure(message: message)
     }
-}
-
-func requireCountMatch(duckdb: DuckDB, sqlitePath: String, table: String, coreExpression: String? = nil) throws {
-    let tableIdentifier = quotedIdentifier(table)
-    let sqliteCount = firstCSVValue(
-        try duckdb.queryCSV(
-            """
-            INSTALL sqlite;
-            LOAD sqlite;
-            ATTACH \(sqlString(sqlitePath)) AS sqlite_source (TYPE sqlite);
-            SELECT COUNT(*) FROM sqlite_source.\(tableIdentifier);
-            """
-        )
-    )
-    let duckdbExpression = coreExpression ?? "core.\(tableIdentifier)"
-    let duckdbCount = firstCSVValue(try duckdb.queryCSV("SELECT COUNT(*) FROM \(duckdbExpression);"))
-    try requireCheck(
-        sqliteCount == duckdbCount,
-        "row count mismatch for \(table): sqlite=\(sqliteCount) duckdb=\(duckdbCount)"
-    )
-    print("parity_count table=\(table) rows=\(duckdbCount)")
 }
 
 func requireReportingFields(duckdb: DuckDB) throws {
@@ -238,86 +169,6 @@ func requireReportingFields(duckdb: DuckDB) throws {
         )
     )
     try requireCheck(testedMissing == "0", "tested updates reporting view has rows missing required timestamp/title/type/status")
-
-    print("parity_reporting_fields=ok")
-}
-
-func requireCurrentReleaseParity(duckdb: DuckDB, path: String) throws {
-    let data = try Data(contentsOf: URL(fileURLWithPath: path))
-    let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-    let jsonReleaseID = object?["release_id"] as? String
-    let duckdbReleaseID = firstCSVValue(
-        try duckdb.queryCSV(
-            """
-            SELECT release_id
-            FROM core.pack_releases
-            WHERE active = true
-            ORDER BY activated_at DESC
-            LIMIT 1;
-            """
-        )
-    )
-    try requireCheck(
-        jsonReleaseID == duckdbReleaseID,
-        "current-release mismatch: json=\(jsonReleaseID ?? "nil") duckdb=\(duckdbReleaseID)"
-    )
-    print("parity_current_release=ok release_id=\(duckdbReleaseID)")
-}
-
-func requireTestedUpdatesParity(duckdb: DuckDB, path: String) throws {
-    let data = try Data(contentsOf: URL(fileURLWithPath: path))
-    let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-    guard let totalEntries = object?["total_entries"] as? Int else {
-        throw CheckFailure(message: "tested-updates JSON has no total_entries value")
-    }
-    let viewCount = firstCSVValue(try duckdb.queryCSV("SELECT COUNT(*) FROM reporting.v_tested_updates_table;"))
-    try requireCheck(
-        String(totalEntries) == viewCount,
-        "tested updates count mismatch: json_total_entries=\(totalEntries) duckdb=\(viewCount)"
-    )
-    print("parity_tested_updates=ok rows=\(viewCount)")
-}
-
-func phase1Build(args: Arguments) throws {
-    let duckdb = DuckDB(databasePath: try args.require("--duckdb"))
-    let sqlitePath = try args.require("--sqlite")
-    let projectRoot = try args.require("--project-root")
-    let migration = URL(fileURLWithPath: projectRoot)
-        .appendingPathComponent("database/duckdb/migrations/001_foundation.sql")
-        .path
-
-    try applyMigration(duckdb: duckdb, path: migration, version: 1, name: "phase1_foundation")
-    let imported = try importSQLiteTables(duckdb: duckdb, sqlitePath: sqlitePath)
-    try normalize(duckdb: duckdb, projectRoot: projectRoot)
-    print("phase1_build=ok raw_tables=\(imported)")
-}
-
-func phase1Check(args: Arguments) throws {
-    let duckdb = DuckDB(databasePath: try args.require("--duckdb"))
-    let sqlitePath = try args.require("--sqlite")
-
-    try requireCountMatch(duckdb: duckdb, sqlitePath: sqlitePath, table: "pack_releases")
-    try requireCountMatch(duckdb: duckdb, sqlitePath: sqlitePath, table: "release_artifacts")
-    try requireCountMatch(duckdb: duckdb, sqlitePath: sqlitePath, table: "release_events")
-    try requireCountMatch(duckdb: duckdb, sqlitePath: sqlitePath, table: "mods")
-    try requireCountMatch(duckdb: duckdb, sqlitePath: sqlitePath, table: "mod_files")
-    try requireCountMatch(duckdb: duckdb, sqlitePath: sqlitePath, table: "mod_server_files")
-    try requireCountMatch(duckdb: duckdb, sqlitePath: sqlitePath, table: "test_runs")
-    try requireCountMatch(duckdb: duckdb, sqlitePath: sqlitePath, table: "mod_acceptance_blocks")
-    try requireCountMatch(duckdb: duckdb, sqlitePath: sqlitePath, table: "mod_acceptance_releases")
-    try requireCountMatch(duckdb: duckdb, sqlitePath: sqlitePath, table: "headless_client_runs")
-    try requireCountMatch(duckdb: duckdb, sqlitePath: sqlitePath, table: "client_update_status")
-
-    try requireReportingFields(duckdb: duckdb)
-
-    if let currentReleaseJSON = args.options["--current-release-json"] {
-        try requireCurrentReleaseParity(duckdb: duckdb, path: currentReleaseJSON)
-    }
-    if let testedUpdatesJSON = args.options["--tested-updates-json"] {
-        try requireTestedUpdatesParity(duckdb: duckdb, path: testedUpdatesJSON)
-    }
-
-    print("phase1_check=ok")
 }
 
 func health(args: Arguments) throws {
@@ -334,18 +185,8 @@ func health(args: Arguments) throws {
     } else {
         print(output.trimmingCharacters(in: .whitespacesAndNewlines))
     }
-    let sqliteExtension = firstCSVValue(
-        try duckdb.queryCSV(
-            """
-            INSTALL sqlite;
-            LOAD sqlite;
-            SELECT installed || ',' || loaded
-            FROM duckdb_extensions()
-            WHERE extension_name = 'sqlite_scanner';
-            """
-        )
-    )
-    print("duckdb_extension sqlite_scanner=\(sqliteExtension)")
+    try requireReportingFields(duckdb: duckdb)
+    print("duckdb_reporting_fields=ok")
 
     let schemaCounts = firstCSVValue(
         try duckdb.queryCSV(
@@ -354,7 +195,7 @@ func health(args: Arguments) throws {
             FROM (
                 SELECT table_schema, COUNT(*) AS table_count
                 FROM information_schema.tables
-                WHERE table_schema IN ('raw', 'core', 'audit', 'reporting', 'archive')
+                WHERE table_schema IN ('core', 'audit', 'reporting', 'archive')
                 GROUP BY table_schema
             );
             """
@@ -466,10 +307,6 @@ func verifyParquet(args: Arguments) throws {
 func run() throws {
     let args = try Arguments(CommandLine.arguments)
     switch args.command {
-    case "phase1-build":
-        try phase1Build(args: args)
-    case "phase1-check":
-        try phase1Check(args: args)
     case "health":
         try health(args: args)
     case "export-parquet":
