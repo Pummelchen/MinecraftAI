@@ -1348,8 +1348,8 @@ def render_updates(updates: list[dict[str, Any]]) -> str:
 <tr data-search="{row_search}">
   <td data-sort-value="{tested_at}"><time datetime="{tested_at}" title="{tested_at}">{tested_at_display}</time></td>
   <td class="update-title-cell">{title_html}</td>
-  <td><span class="badge">{event_type}</span></td>
-  <td><span class="badge muted-badge">{source_badge}</span></td>
+  <td class="update-meta-cell">{event_type}</td>
+  <td class="update-meta-cell">{source_badge}</td>
   <td class="filename-cell" title="{file_summary}">{file_summary}</td>
   <td>{file_version}</td>
   <td>{test_label}</td>
@@ -1746,6 +1746,11 @@ def render_page(
       text-overflow: ellipsis;
       white-space: nowrap;
       color: var(--stone);
+    }}
+    .update-meta-cell {{
+      color: var(--stone);
+      font-weight: 700;
+      white-space: nowrap;
     }}
     .muted-badge {{
       background: #1a2a1a;
