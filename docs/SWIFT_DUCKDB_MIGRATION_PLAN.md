@@ -208,6 +208,169 @@ Client DB:
 ~/Library/Application Support/Pummelchen/client.duckdb
 ```
 
+### DuckDB Features To Use Deliberately
+
+Do not migrate SQLite into DuckDB as a flat 1:1 copy. Use DuckDB's stronger analytical and embedded features where they fit production needs.
+
+#### SQLite Compatibility Extension
+
+Use DuckDB's SQLite extension for the initial migration and parity phase:
+
+- attach/read the existing SQLite database without immediately replacing it;
+- copy tables into DuckDB with explicit casts and normalization;
+- compare source and target row counts, hashes, and representative query outputs;
+- keep the current SQLite-backed scripts as the production writer until parity is proven.
+
+This supports the side-by-side migration strategy: current scripts remain authoritative while Swift/DuckDB runs in shadow mode.
+
+#### Schemas
+
+Use schemas to separate raw imports, normalized state, audits, and report contracts:
+
+```sql
+CREATE SCHEMA IF NOT EXISTS raw;
+CREATE SCHEMA IF NOT EXISTS core;
+CREATE SCHEMA IF NOT EXISTS audit;
+CREATE SCHEMA IF NOT EXISTS reporting;
+CREATE SCHEMA IF NOT EXISTS archive;
+```
+
+Recommended use:
+
+- `raw`: imported SQLite rows, raw API responses, raw log/diagnostic payloads.
+- `core`: normalized releases, mods, clients, files, datapacks, and world reset state.
+- `audit`: append-only jobs, reset runs, release actions, cleanup actions, and operator events.
+- `reporting`: stable views consumed by Swift APIs and static website generation.
+- `archive`: exported/imported historical summary tables and Parquet-backed analysis.
+
+#### JSON
+
+Keep critical query/filter fields as typed columns, but retain full payloads as JSON for diagnostics and future replay.
+
+Use JSON payload columns for:
+
+- release health check details;
+- failed mod problem details;
+- client diagnostic bundles;
+- custom datapack validation results;
+- safe world reset phase/progress details;
+- raw Modrinth/CurseForge metadata.
+
+Swift code should not parse opaque strings when DuckDB can expose stable JSON fields through views.
+
+#### Parquet Exports
+
+Use Parquet as the durable history/export format for analytical and rollback-adjacent data:
+
+```text
+/var/minecraft_mods/exports/parquet/
+  releases/
+  client_sync_runs/
+  failed_mod_reports/
+  tested_updates/
+  world_reset_runs/
+  datapack_validation_runs/
+```
+
+Exports should be generated after release activation, after safe world reset, and during scheduled maintenance. Parquet exports are not the primary database backup; they are compact historical snapshots for audit and analysis.
+
+#### Full-Text Search
+
+Use the `fts` extension for operator search once basic DuckDB migration is stable.
+
+Searchable content:
+
+- mod names and canonical keys;
+- failure reasons and problem details;
+- changelog notes;
+- test labels;
+- crash headlines and sanitized stack traces;
+- custom datapack notes.
+
+Do not make FTS part of the first production cutover. It is a quality-of-life layer after core parity is stable.
+
+#### Views As API Contracts
+
+Expose website/API data through DuckDB views so Swift handlers do not duplicate reporting logic:
+
+```sql
+CREATE OR REPLACE VIEW reporting.v_tested_updates_table AS ...;
+CREATE OR REPLACE VIEW reporting.v_failed_mods_table AS ...;
+CREATE OR REPLACE VIEW reporting.v_release_health_latest AS ...;
+CREATE OR REPLACE VIEW reporting.v_client_sync_status AS ...;
+CREATE OR REPLACE VIEW reporting.v_custom_datapack_status AS ...;
+CREATE OR REPLACE VIEW reporting.v_world_reset_history AS ...;
+```
+
+Views are the compatibility boundary for static site generation and API output. If a table layout changes, keep the view contract stable.
+
+#### Constraints And Indexes
+
+Use constraints for production invariants:
+
+- SHA256 values are 64 hex characters;
+- file sizes and chunk counts are non-negative;
+- world reset radius is positive;
+- ore configured feature size is between 1 and 64;
+- job and release statuses are constrained to known values;
+- manifest sections are one of `mods`, `resourcepacks`, `shaderpacks`, `config`, `server-datapacks`, or `tools`.
+
+Use ART indexes sparingly for highly selective lookups:
+
+- `release_id`;
+- `client_id`;
+- `job_id`;
+- `mod_id`;
+- `canonical_key`;
+- `sha256`.
+
+Do not add broad dashboard indexes by default. DuckDB is optimized for scans, aggregation, joins, and analytical reporting; unnecessary indexes slow writes and imports.
+
+#### Concurrency
+
+The Swift server process should be the only writer to the server DuckDB file. Background jobs must use a serialized write queue for schema migrations and destructive operations.
+
+Allowed:
+
+- multiple read connections inside the Swift server process;
+- append-heavy job/event inserts through the server job runner;
+- client-side DuckDB writes only to each client's local DB.
+
+Not allowed:
+
+- multiple daemons writing `/var/minecraft_mods/data/pummelchen.duckdb`;
+- clients connecting directly to DuckDB;
+- sharing a DuckDB file over network storage;
+- writing schema migrations while release/reset jobs are active.
+
+#### Health And Introspection
+
+Add DB health checks using DuckDB metadata functions:
+
+- loaded extensions;
+- schema version;
+- row counts for critical tables;
+- current settings;
+- memory and temporary file usage;
+- last checkpoint/export time;
+- latest migration status.
+
+Expose this through `GET /api/v1/admin/db-health` after authentication exists.
+
+#### DuckDB Reference Links
+
+Implementation agents should verify exact syntax against current official DuckDB docs before coding:
+
+- SQLite extension: https://duckdb.org/docs/current/core_extensions/sqlite.html
+- JSON: https://duckdb.org/docs/current/data/json/overview.html
+- Parquet: https://duckdb.org/docs/current/data/parquet/overview.html
+- Full-text search: https://duckdb.org/docs/current/core_extensions/full_text_search.html
+- Concurrency: https://duckdb.org/docs/current/connect/concurrency.html
+- Transactions: https://duckdb.org/docs/current/sql/statements/transactions.html
+- Constraints: https://duckdb.org/docs/current/sql/constraints.html
+- Indexes: https://duckdb.org/docs/current/sql/indexes.html
+- Metadata functions: https://duckdb.org/docs/current/sql/meta/duckdb_table_functions.html
+
 ## 6.1 Current Production Contracts To Preserve
 
 The Swift migration must treat the following behaviors as compatibility contracts.
@@ -877,7 +1040,52 @@ Acceptance:
 - API/schema docs exist.
 - Current scripts still pass `scripts/validate_project.sh`.
 
-### Phase 1: Swift Shared Core Library
+### Phase 1: DuckDB Foundation And SQLite Parity
+
+Build the DuckDB foundation before replacing application behavior.
+
+Tasks:
+
+1. Create `database/duckdb/schema.sql` with schemas:
+   - `raw`
+   - `core`
+   - `audit`
+   - `reporting`
+   - `archive`
+2. Create migrations table and migration runner:
+   ```sql
+   CREATE TABLE IF NOT EXISTS core.schema_migrations (
+     version INTEGER PRIMARY KEY,
+     name VARCHAR NOT NULL,
+     applied_at TIMESTAMP NOT NULL,
+     checksum VARCHAR NOT NULL
+   );
+   ```
+3. Use DuckDB's SQLite extension to import current SQLite into `raw`.
+4. Build normalized `core` tables from `raw` with explicit type conversion.
+5. Add critical constraints and selective indexes only where justified.
+6. Create reporting views:
+   - `reporting.v_tested_updates_table`
+   - `reporting.v_failed_mods_table`
+   - `reporting.v_release_health_latest`
+   - `reporting.v_client_sync_status`
+   - `reporting.v_custom_datapack_status`
+   - `reporting.v_world_reset_history`
+7. Add Parquet export jobs for release/client/mod/reset/datapack history.
+8. Add DuckDB health/introspection queries for extensions, settings, table counts, memory, temp files, and schema version.
+9. Add a read-only Swift or CLI proof that opens the DuckDB file, runs the reporting views, and exits cleanly on Debian and macOS.
+10. Keep current SQLite/Python scripts as production writers during this entire phase.
+
+Acceptance:
+
+- DuckDB can be rebuilt from current SQLite and project files without production downtime.
+- Row counts and representative query outputs match current SQLite/status-site outputs.
+- Reporting views emit Tested Updates and Failed Mods table rows with required timestamp/detail fields.
+- Parquet exports are created and can be read back by DuckDB.
+- DB health query reports schema version, extension state, table counts, and no critical errors.
+- No production writer has switched from SQLite/Python to DuckDB/Swift yet.
+
+### Phase 2: Swift Shared Core Library
 
 Create shared Swift package:
 
@@ -906,8 +1114,9 @@ Acceptance:
 - Can hash and verify current client files.
 - Can apply client defaults into fixture Minecraft config folders without duplicate keys.
 - Can render Tested Updates timestamps as `YYYY-MM-DD HH:MM:SS`.
+- Can open the DuckDB foundation database read-only and query reporting views.
 
-### Phase 2: Server Read-Only API
+### Phase 3: Server Read-Only API
 
 Create `PummelchenServer` service with read-only endpoints:
 
@@ -924,7 +1133,7 @@ Acceptance:
 - systemd service restarts cleanly.
 - No write operations yet.
 
-### Phase 3: Client GUI Read-Only Status
+### Phase 4: Client GUI Read-Only Status
 
 Create macOS app:
 
@@ -945,7 +1154,7 @@ Acceptance:
 - Does not mutate Minecraft folder yet.
 - Clearly reports whether shader/resource-pack/memory/server-entry defaults are OK.
 
-### Phase 4: Swift Client Sync Engine
+### Phase 5: Swift Client Sync Engine
 
 Implement native sync in macOS client:
 
@@ -971,7 +1180,7 @@ Acceptance:
 - BSL shader, ModernArch stack, 8 GB memory, server entry, suppressed warnings, and duck/goose no-follow defaults are applied idempotently.
 - Re-running sync does not duplicate config keys.
 
-### Phase 5: Server Write APIs and Client Reports
+### Phase 6: Server Write APIs and Client Reports
 
 Implement:
 
@@ -990,7 +1199,7 @@ Acceptance:
 - Request payloads are size-limited.
 - Server can distinguish `synced`, `needs defaults repair`, `failed checksum`, and `stale release`.
 
-### Phase 6: Release Pipeline in Swift
+### Phase 7: Release Pipeline in Swift
 
 Move release logic into `PummelchenServer` or a companion Swift CLI:
 
@@ -1018,7 +1227,7 @@ Acceptance:
 - Release health result is persisted and visible.
 - Tested Updates website table data is generated from Swift-owned state or an equivalent compatibility feed.
 
-### Phase 7: WebSocket Realtime Events
+### Phase 8: WebSocket Realtime Events
 
 Add `/ws/v1`.
 
@@ -1036,7 +1245,7 @@ Acceptance:
 - Missed messages are fetched via HTTPS fallback.
 - No downloads happen over WebSocket.
 
-### Phase 8: Safe World Reset in Swift
+### Phase 9: Safe World Reset in Swift
 
 Port safe reset workflow:
 
@@ -1068,7 +1277,7 @@ Acceptance:
 - No force-loaded chunks remain after pregeneration.
 - New world uses the requested seed.
 
-### Phase 9: Decommission Scripts
+### Phase 10: Decommission Scripts
 
 Remove or archive old scripts only after:
 
@@ -1085,6 +1294,12 @@ Keep emergency fallback scripts in `legacy/` until the new system has lived thro
 ### Server Tests
 
 - DuckDB migration tests
+- DuckDB SQLite-extension import tests
+- DuckDB schema migration/checksum tests
+- DuckDB reporting view contract tests
+- DuckDB Parquet export/readback tests
+- DuckDB FTS smoke tests for mod/failure search after FTS is enabled
+- DuckDB health/introspection tests
 - API contract tests
 - manifest generation comparison tests
 - release activation dry-run tests
@@ -1212,6 +1427,11 @@ LaunchAgent:
 11. Always validate DMG contents before publishing.
 12. Always run release health after release activation and package publication.
 13. Always keep old Bash/Python repair path available until the Swift CLI has survived multiple real client repairs.
+14. Keep the current SQLite/Python path as production writer until DuckDB parity checks pass repeatedly.
+15. Make the Swift server the only writer to server DuckDB; all background jobs write through its job queue.
+16. Treat `reporting.*` views as API contracts and protect them with contract tests.
+17. Pin required DuckDB extensions and verify extension availability during startup health checks.
+18. Export Parquet history after destructive operations and release activations, but do not treat Parquet as the primary backup.
 
 ## 16. AI Coding Agent Instructions
 
@@ -1361,21 +1581,22 @@ Minimum first useful version:
 After server and client review, the recommended order is:
 
 1. Define contracts: schemas, manifest model, API JSON, client identity.
-2. Build `PummelchenCore` Swift package.
-3. Build server read-only API behind nginx.
-4. Build macOS read-only client GUI.
-5. Build Swift config/defaults engine with fixture parity against the current updater.
-6. Build client DuckDB history and inventory.
-7. Build Swift CLI helper with `status`, `sync --force`, `repair`, and `diagnostics`, while keeping Bash fallback.
-8. Build Swift client sync engine and wire it into both GUI and CLI.
-9. Add client report APIs and server-side client dashboard data.
-10. Add server job queue and audit log.
-11. Port custom datapack registry/build/validation into Swift or a Swift-owned compatibility wrapper.
-12. Port release health, Tested Updates, and Failed Mods feed generation.
-13. Port release pipeline into Swift job system, including DMG metadata/publication.
-14. Add WebSocket events.
-15. Port safe world reset into Swift job system, including backup retention and cleanup.
-16. Decommission legacy scripts only after repeated live success.
+2. Build DuckDB foundation: SQLite import, normalized schemas, reporting views, Parquet exports, health checks.
+3. Build `PummelchenCore` Swift package against the DuckDB foundation.
+4. Build server read-only API behind nginx.
+5. Build macOS read-only client GUI.
+6. Build Swift config/defaults engine with fixture parity against the current updater.
+7. Build client DuckDB history and inventory.
+8. Build Swift CLI helper with `status`, `sync --force`, `repair`, and `diagnostics`, while keeping Bash fallback.
+9. Build Swift client sync engine and wire it into both GUI and CLI.
+10. Add client report APIs and server-side client dashboard data.
+11. Add server job queue and audit log.
+12. Port custom datapack registry/build/validation into Swift or a Swift-owned compatibility wrapper.
+13. Port release health, Tested Updates, and Failed Mods feed generation.
+14. Port release pipeline into Swift job system, including DMG metadata/publication.
+15. Add WebSocket events.
+16. Port safe world reset into Swift job system, including backup retention and cleanup.
+17. Decommission legacy scripts only after repeated live success.
 
 ## 20. Sign-Off Criteria
 
@@ -1383,6 +1604,10 @@ Do not declare the migration complete until:
 
 - all clients can sync through the Swift client
 - the server can create and activate releases through Swift
+- DuckDB foundation can rebuild from current SQLite/project files and pass parity checks
+- reporting views are the source for Tested Updates, Failed Mods, release health, client sync status, datapack status, and world reset history
+- Parquet history exports run and can be read back
+- DuckDB health endpoint reports schema version, extensions, row counts, and no critical errors
 - nginx serves downloads and proxies APIs correctly
 - current website/manual repair path still exists
 - Tested Updates table remains sortable/filterable and timestamped
