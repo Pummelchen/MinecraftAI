@@ -257,7 +257,7 @@ public struct ModUpdateScanner: Sendable {
             return 0
         }
         let updates = object["updates"] as? [[String: Any]] ?? object["rows"] as? [[String: Any]] ?? []
-        var seeded = 0
+        var seededSourceIDs = Set<String>()
         for row in updates {
             guard let sourceURL = row["source_url"] as? String,
                   sourceURL.hasPrefix("http://") || sourceURL.hasPrefix("https://") else {
@@ -281,10 +281,10 @@ public struct ModUpdateScanner: Sendable {
                     sourceURL: sourceURL
                 )
                 try upsert(source: source)
-                seeded += 1
+                seededSourceIDs.insert(source.sourceID)
             }
         }
-        return seeded
+        return seededSourceIDs.count
     }
 
     private func loadSources(limit: Int?) throws -> [ModSourceRecord] {
@@ -413,6 +413,11 @@ public struct ModUpdateScanner: Sendable {
                 return
             }
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                if let data,
+                   String(decoding: data, as: UTF8.self).lowercased().contains("challenges.cloudflare.com") {
+                    output.store(.success(data))
+                    return
+                }
                 output.store(.failure(ModUpdateScannerError.network("HTTP \(http.statusCode) for \(url.absoluteString)")))
                 return
             }
