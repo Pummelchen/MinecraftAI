@@ -408,7 +408,9 @@ public struct SwiftWorldResetPipeline: Sendable {
         let updates = [
             "level-name": worldName,
             "level-seed": config.seed,
-            "bonus-chest": "true"
+            "bonus-chest": "true",
+            "white-list": "false",
+            "enforce-whitelist": "false"
         ]
         var seen = Set<String>()
         lines = lines.map { line in

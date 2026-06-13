@@ -910,6 +910,8 @@ struct PummelchenServerCoreTests {
         let properties = try String(contentsOf: fixture.serverDir.appendingPathComponent("server.properties"), encoding: .utf8)
         #expect(properties.contains("level-seed=178127232016679900"))
         #expect(properties.contains("bonus-chest=true"))
+        #expect(properties.contains("white-list=false"))
+        #expect(properties.contains("enforce-whitelist=false"))
         let status = try duckDBScalar(database: database, sql: "SELECT status FROM world.reset_jobs WHERE job_id = '\(result.jobID)';")
         #expect(status == "completed")
         let cleanup = try duckDBScalar(database: database, sql: "SELECT json_extract_string(result_json, '$.backupDeleted') FROM world.reset_jobs WHERE job_id = '\(result.jobID)';")
@@ -1005,7 +1007,7 @@ struct PummelchenServerCoreTests {
         let serverDir = root.appendingPathComponent("server", isDirectory: true)
         try FileManager.default.createDirectory(at: serverDir.appendingPathComponent("world/region", isDirectory: true), withIntermediateDirectories: true)
         try "old region".write(to: serverDir.appendingPathComponent("world/region/r.0.0.mca"), atomically: true, encoding: .utf8)
-        try "level-name=world\nlevel-seed=old\nbonus-chest=false\n".write(to: serverDir.appendingPathComponent("server.properties"), atomically: true, encoding: .utf8)
+        try "level-name=world\nlevel-seed=old\nbonus-chest=false\nwhite-list=true\nenforce-whitelist=true\n".write(to: serverDir.appendingPathComponent("server.properties"), atomically: true, encoding: .utf8)
         try copyRequiredDatapacks(to: root.appendingPathComponent("server-datapacks", isDirectory: true))
         return (root, serverDir)
     }

@@ -24,6 +24,7 @@ enum ServerCommandError: Error, CustomStringConvertible {
               pummelchen-server release-validate --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id>
               pummelchen-server mod-update-scan --project-root <repo> --duckdb <file> [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-tested-updates true] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
               pummelchen-server world-reset --project-root <repo> --server-dir <dir> --duckdb <file> --seed <seed> [--dry-run true] [--yes true] [--radius-blocks 1000] [--delete-backup-after-success true] [--stop-command <shell>] [--start-command <shell>] [--gamerule-command <shell>] [--pregenerate-command <shell>] [--verify-forceloads-command <shell>] [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>] [--pregeneration-batch-size 384]
+              pummelchen-server rcon-command --project-root <repo> --server-dir <dir> --command <minecraft command> [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>]
             """
         case .missingValue(let option):
             return "missing value for \(option)"
@@ -349,9 +350,56 @@ func run(arguments: [String]) throws {
         print("pregeneration_chunks=\(result.pregenerationChunks)")
         print("backup_path=\(result.backupPath ?? "")")
         print("backup_deleted=\(result.backupDeleted)")
+    case "rcon-command":
+        let response = try runRCONCommand(args: args)
+        print("rcon_command=ok")
+        if !response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            print(response)
+        }
     default:
         throw ServerCommandError.usage
     }
+}
+
+private func runRCONCommand(args: Arguments) throws -> String {
+    let serverDir = URL(fileURLWithPath: try args.require("--server-dir"), isDirectory: true).standardizedFileURL
+    let command = try args.require("--command")
+    let port = Int(args.options["--rcon-port"] ?? "25575") ?? 25575
+    let password = try resolvedRCONPassword(args: args, serverDir: serverDir)
+    let client = MinecraftRCONClient(
+        host: args.options["--rcon-host"] ?? "127.0.0.1",
+        port: port,
+        password: password
+    )
+    return try client.command(command)
+}
+
+private func resolvedRCONPassword(args: Arguments, serverDir: URL) throws -> String {
+    if let password = args.options["--rcon-password"]?.trimmingCharacters(in: .whitespacesAndNewlines), !password.isEmpty {
+        return password
+    }
+    let properties = try readServerProperties(serverDir.appendingPathComponent("server.properties"))
+    if let password = properties["rcon.password"]?.trimmingCharacters(in: .whitespacesAndNewlines), !password.isEmpty {
+        return password
+    }
+    throw ServerCommandError.missingValue("--rcon-password")
+}
+
+private func readServerProperties(_ path: URL) throws -> [String: String] {
+    guard FileManager.default.fileExists(atPath: path.path) else {
+        return [:]
+    }
+    var values: [String: String] = [:]
+    for raw in try String(contentsOf: path, encoding: .utf8).split(separator: "\n") {
+        let line = raw.trimmingCharacters(in: .whitespaces)
+        guard !line.isEmpty, !line.hasPrefix("#"), let eq = line.firstIndex(of: "=") else {
+            continue
+        }
+        let key = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
+        let value = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+        values[key] = value
+    }
+    return values
 }
 
 private func releasePipeline(args: Arguments, projectRoot: URL) throws -> SwiftReleasePipeline {
