@@ -11,6 +11,16 @@ public struct MinecraftClientDefaults: Equatable, Sendable {
     public let irisProperties: [String: String]
     public let configProperties: [String: [String: String]]
 
+    public static func recommendedHeapGB(physicalMemoryBytes: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Int {
+        let gib = UInt64(1024 * 1024 * 1024)
+        let eightGBClassMac = physicalMemoryBytes <= (9 * gib)
+        return eightGBClassMac ? 6 : 8
+    }
+
+    public static func recommendedJavaArguments(physicalMemoryBytes: UInt64 = ProcessInfo.processInfo.physicalMemory) -> String {
+        "-Xmx\(recommendedHeapGB(physicalMemoryBytes: physicalMemoryBytes))G -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M"
+    }
+
     public init(
         shaderPack: String = "BSL_v10.1.3.zip",
         resourcePacks: [String] = [
@@ -20,7 +30,7 @@ public struct MinecraftClientDefaults: Equatable, Sendable {
             "file/ModernArch FA Extension v2.2.zip",
             "file/ModernArch Denser Grass Addon.zip"
         ],
-        javaArguments: String = "-Xmx8G -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M",
+        javaArguments: String = MinecraftClientDefaults.recommendedJavaArguments(),
         javaExecutablePath: String? = nil,
         loaderVersion: String = "26.1.2.76",
         serverName: String = "Pummelchen Server",

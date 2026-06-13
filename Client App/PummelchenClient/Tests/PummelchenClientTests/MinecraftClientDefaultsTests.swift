@@ -20,8 +20,9 @@ struct MinecraftClientDefaultsTests {
         """.write(to: options, atomically: true, encoding: .utf8)
 
         let managedJava = "/tmp/pummelchen-test/java/temurin-25.0.3+9/Contents/Home/bin/java"
-        try MinecraftClientDefaultWriter.apply(defaults: MinecraftClientDefaults(javaExecutablePath: managedJava), to: root)
-        try MinecraftClientDefaultWriter.apply(defaults: MinecraftClientDefaults(javaExecutablePath: managedJava), to: root)
+        let highMemoryJavaArguments = MinecraftClientDefaults.recommendedJavaArguments(physicalMemoryBytes: 16 * 1024 * 1024 * 1024)
+        try MinecraftClientDefaultWriter.apply(defaults: MinecraftClientDefaults(javaArguments: highMemoryJavaArguments, javaExecutablePath: managedJava), to: root)
+        try MinecraftClientDefaultWriter.apply(defaults: MinecraftClientDefaults(javaArguments: highMemoryJavaArguments, javaExecutablePath: managedJava), to: root)
 
         let optionsText = try String(contentsOf: options, encoding: .utf8)
         #expect(optionsText.contains(#"resourcePacks:["vanilla","mod_resources","file/ModernArch v2.8.2 [26.1] [128x].zip","file/ModernArch FA Extension v2.2.zip","file/ModernArch Denser Grass Addon.zip"]"#))
@@ -59,5 +60,15 @@ struct MinecraftClientDefaultsTests {
         let mergedServers = try Data(contentsOf: otherRoot.appendingPathComponent("servers.dat"))
         #expect(mergedServers.range(of: Data("example.org:25565".utf8)) != nil)
         #expect(mergedServers.range(of: Data("91.99.176.243:25565".utf8)) != nil)
+    }
+
+    @Test("uses 6 GB heap on 8 GB Macs and 8 GB heap otherwise")
+    func adaptsHeapToPhysicalMemory() throws {
+        let eightGB = UInt64(8 * 1024 * 1024 * 1024)
+        let sixteenGB = UInt64(16 * 1024 * 1024 * 1024)
+        #expect(MinecraftClientDefaults.recommendedHeapGB(physicalMemoryBytes: eightGB) == 6)
+        #expect(MinecraftClientDefaults.recommendedJavaArguments(physicalMemoryBytes: eightGB).contains("-Xmx6G"))
+        #expect(MinecraftClientDefaults.recommendedHeapGB(physicalMemoryBytes: sixteenGB) == 8)
+        #expect(MinecraftClientDefaults.recommendedJavaArguments(physicalMemoryBytes: sixteenGB).contains("-Xmx8G"))
     }
 }

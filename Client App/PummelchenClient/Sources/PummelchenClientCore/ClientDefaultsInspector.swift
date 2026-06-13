@@ -44,7 +44,7 @@ public enum ClientDefaultsInspector {
         var rows: [ClientDefaultHealthRow] = []
         rows.append(shaderHealth(defaults: defaults, iris: iris, shaderOptions: shaderOptions))
         rows.append(resourcePackHealth(defaults: defaults, options: options))
-        rows.append(memoryHealth(launcherProfiles: launcherProfiles))
+        rows.append(memoryHealth(defaults: defaults, launcherProfiles: launcherProfiles))
         rows.append(javaHealth(defaults: defaults, launcherProfiles: launcherProfiles))
         rows.append(serverEntryHealth(servers: servers))
         rows.append(contentsOf: configHealth(defaults: defaults, minecraftDirectory: minecraftDirectory))
@@ -91,26 +91,55 @@ public enum ClientDefaultsInspector {
         )
     }
 
-    private static func memoryHealth(launcherProfiles: String?) -> ClientDefaultHealthRow {
+    private static func memoryHealth(defaults: MinecraftClientDefaults, launcherProfiles: String?) -> ClientDefaultHealthRow {
+        let desiredHeap = maxHeapArgument(in: defaults.javaArguments) ?? "-Xmx8G"
+        let desiredGB = heapGB(from: desiredHeap) ?? 8
         guard let launcherProfiles, !launcherProfiles.isEmpty else {
             return ClientDefaultHealthRow(
                 id: "memory",
                 label: "Memory",
-                desiredValue: "-Xmx8G",
+                desiredValue: desiredHeap,
                 observedValue: "launcher profile missing",
                 status: .missing,
                 source: "launcher_profiles.json"
             )
         }
-        let ok = launcherProfiles.contains("-Xmx8G") || launcherProfiles.contains("-Xmx8192M")
+        let observedHeap = maxHeapArgument(in: launcherProfiles)
+        let ok = observedHeap.flatMap(heapGB(from:)) == desiredGB
         return ClientDefaultHealthRow(
             id: "memory",
             label: "Memory",
-            desiredValue: "-Xmx8G",
-            observedValue: ok ? "8 GB configured" : "8 GB not found",
+            desiredValue: desiredHeap,
+            observedValue: observedHeap.map { "\(heapGB(from: $0) ?? 0) GB configured" } ?? "\(desiredGB) GB not found",
             status: ok ? .ok : .mismatch,
             source: "launcher_profiles.json"
         )
+    }
+
+    private static func maxHeapArgument(in text: String) -> String? {
+        let pattern = #"-Xmx([0-9]+)([GgMm])"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              let argumentRange = Range(match.range(at: 0), in: text) else {
+            return nil
+        }
+        return String(text[argumentRange])
+    }
+
+    private static func heapGB(from argument: String) -> Int? {
+        let value = argument.replacingOccurrences(of: "-Xmx", with: "")
+        let uppercased = value.uppercased()
+        if uppercased.hasSuffix("G") {
+            return Int(value.dropLast())
+        }
+        if uppercased.hasSuffix("M"),
+           let megabytes = Int(value.dropLast()) {
+            return megabytes / 1024
+        }
+        return nil
     }
 
     private static func javaHealth(defaults: MinecraftClientDefaults, launcherProfiles: String?) -> ClientDefaultHealthRow {
