@@ -71,6 +71,10 @@ public struct PummelchenServerConfig: Sendable {
     public let maxWritePayloadBytes: Int
     public let transportTarget: String
     public let transportFallback: String
+    public let webTransportPublicHost: String
+    public let webTransportPort: Int
+    public let webTransportPath: String
+    public let webTransportSessionEngineActive: Bool
 
     public init(
         projectRoot: URL,
@@ -79,8 +83,12 @@ public struct PummelchenServerConfig: Sendable {
         duckDBURL: URL? = nil,
         clientAPIToken: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_CLIENT_API_TOKEN"],
         maxWritePayloadBytes: Int = 256 * 1024,
-        transportTarget: String = ProcessInfo.processInfo.environment["PUMMELCHEN_TRANSPORT_TARGET"] ?? "http3_quic_edge",
-        transportFallback: String = "authenticated_https_long_poll"
+        transportTarget: String = ProcessInfo.processInfo.environment["PUMMELCHEN_TRANSPORT_TARGET"] ?? "webtransport_h3_dedicated_udp",
+        transportFallback: String = "authenticated_https_long_poll",
+        webTransportPublicHost: String = ProcessInfo.processInfo.environment["PUMMELCHEN_WEBTRANSPORT_PUBLIC_HOST"] ?? "pummelchen.91.99.176.243.nip.io",
+        webTransportPort: Int = Int(ProcessInfo.processInfo.environment["PUMMELCHEN_WEBTRANSPORT_PORT"] ?? "7443") ?? 7443,
+        webTransportPath: String = ProcessInfo.processInfo.environment["PUMMELCHEN_WEBTRANSPORT_PATH"] ?? "/webtransport/v1/control",
+        webTransportSessionEngineActive: Bool = false
     ) {
         self.projectRoot = projectRoot
         self.bindHost = bindHost
@@ -90,6 +98,10 @@ public struct PummelchenServerConfig: Sendable {
         self.maxWritePayloadBytes = maxWritePayloadBytes
         self.transportTarget = transportTarget
         self.transportFallback = transportFallback
+        self.webTransportPublicHost = webTransportPublicHost
+        self.webTransportPort = webTransportPort
+        self.webTransportPath = webTransportPath.hasPrefix("/") ? webTransportPath : "/\(webTransportPath)"
+        self.webTransportSessionEngineActive = webTransportSessionEngineActive
     }
 }
 
@@ -282,15 +294,27 @@ public final class PummelchenServerAPI: @unchecked Sendable {
 
     private func webTransportPreflight() throws -> HTTPResponse {
         let preflight = WebTransportH3Preflight(
-            serverHTTP3Settings: [:],
-            maxDatagramFrameSize: nil,
-            resetStreamAtEnabled: false
+            serverHTTP3Settings: config.webTransportSessionEngineActive ? [
+                WebTransportH3Draft15.Setting.wtEnabled: 1,
+                WebTransportH3Draft15.Setting.enableConnectProtocol: 1,
+                WebTransportH3Draft15.Setting.h3Datagram: 1
+            ] : [:],
+            maxDatagramFrameSize: config.webTransportSessionEngineActive ? 1_200 : nil,
+            resetStreamAtEnabled: config.webTransportSessionEngineActive,
+            sessionEngineActive: config.webTransportSessionEngineActive,
+            dedicatedUDPPort: config.webTransportPort,
+            behindNginx: false
         )
+        let endpoint = config.webTransportPath
+        let sessionURL = "https://\(config.webTransportPublicHost):\(config.webTransportPort)\(endpoint)"
         let payload = WebTransportPreflightPayload(
             apiVersion: "v1",
             serverTime: Self.isoNow(),
             draft: "draft-ietf-webtrans-http3-15",
-            endpoint: "/webtransport/v1/control",
+            endpoint: endpoint,
+            sessionURL: sessionURL,
+            publicHost: config.webTransportPublicHost,
+            publicPort: config.webTransportPort,
             ready: preflight.unsupportedReason() == nil,
             unsupportedReason: preflight.unsupportedReason(),
             upgradeToken: WebTransportH3Draft15.upgradeToken,
@@ -301,7 +325,8 @@ public final class PummelchenServerAPI: @unchecked Sendable {
             ],
             requiresQUICDatagrams: true,
             requiresResetStreamAt: true,
-            nginxRole: "http3_static_api_edge_only"
+            usesNginx: false,
+            nginxRole: "not_in_webtransport_path"
         )
         return .json(try encoder.encode(payload), headers: [
             "Cache-Control": "no-store, max-age=0",

@@ -31,6 +31,12 @@ public struct ClientControlChannel: Sendable {
         return try JSONDecoder().decode(ControlChannelInfo.self, from: data)
     }
 
+    public func webTransportPreflight() async throws -> WebTransportPreflightPayload {
+        let url = configuration.serverURL.appendingPathComponent("api/v1/transport/webtransport/preflight")
+        let data = try await http.data(from: url)
+        return try JSONDecoder().decode(WebTransportPreflightPayload.self, from: data)
+    }
+
     public func fetchMissedEvents(afterEventID: String? = nil, limit: Int = 50, waitSeconds: Int = 0) async throws -> ControlEventBatch {
         var components = URLComponents(url: configuration.serverURL.appendingPathComponent("api/v1/control/events"), resolvingAgainstBaseURL: false)!
         var query = [
@@ -68,6 +74,9 @@ public struct ClientControlChannel: Sendable {
     }
 
     public func reconnectWithFallback(afterEventID: String? = nil) async throws -> ControlEventBatch {
+        if let preflight = try? await webTransportPreflight(), preflight.ready {
+            throw ContractValidationError.invalid("WebTransport endpoint \(preflight.sessionURL) is ready, but native WebTransport sessions are not implemented in this client build")
+        }
         do {
             let info = try await controlInfo()
             if !info.transportTarget.contains("http3_quic") || !info.bidirectional || info.downloadsAllowed {

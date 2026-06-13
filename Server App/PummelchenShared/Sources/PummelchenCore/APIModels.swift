@@ -399,12 +399,16 @@ public struct WebTransportPreflightPayload: Codable, Equatable, Sendable {
     public let serverTime: String
     public let draft: String
     public let endpoint: String
+    public let sessionURL: String
+    public let publicHost: String
+    public let publicPort: Int
     public let ready: Bool
     public let unsupportedReason: String?
     public let upgradeToken: String
     public let requiredHTTP3Settings: [String: UInt64]
     public let requiresQUICDatagrams: Bool
     public let requiresResetStreamAt: Bool
+    public let usesNginx: Bool
     public let nginxRole: String
 
     enum CodingKeys: String, CodingKey {
@@ -412,26 +416,34 @@ public struct WebTransportPreflightPayload: Codable, Equatable, Sendable {
         case serverTime = "server_time"
         case draft
         case endpoint
+        case sessionURL = "session_url"
+        case publicHost = "public_host"
+        case publicPort = "public_port"
         case ready
         case unsupportedReason = "unsupported_reason"
         case upgradeToken = "upgrade_token"
         case requiredHTTP3Settings = "required_http3_settings"
         case requiresQUICDatagrams = "requires_quic_datagrams"
         case requiresResetStreamAt = "requires_reset_stream_at"
+        case usesNginx = "uses_nginx"
         case nginxRole = "nginx_role"
     }
 
-    public init(apiVersion: String, serverTime: String, draft: String, endpoint: String, ready: Bool, unsupportedReason: String?, upgradeToken: String, requiredHTTP3Settings: [String: UInt64], requiresQUICDatagrams: Bool, requiresResetStreamAt: Bool, nginxRole: String) {
+    public init(apiVersion: String, serverTime: String, draft: String, endpoint: String, sessionURL: String, publicHost: String, publicPort: Int, ready: Bool, unsupportedReason: String?, upgradeToken: String, requiredHTTP3Settings: [String: UInt64], requiresQUICDatagrams: Bool, requiresResetStreamAt: Bool, usesNginx: Bool, nginxRole: String) {
         self.apiVersion = apiVersion
         self.serverTime = serverTime
         self.draft = draft
         self.endpoint = endpoint
+        self.sessionURL = sessionURL
+        self.publicHost = publicHost
+        self.publicPort = publicPort
         self.ready = ready
         self.unsupportedReason = unsupportedReason
         self.upgradeToken = upgradeToken
         self.requiredHTTP3Settings = requiredHTTP3Settings
         self.requiresQUICDatagrams = requiresQUICDatagrams
         self.requiresResetStreamAt = requiresResetStreamAt
+        self.usesNginx = usesNginx
         self.nginxRole = nginxRole
     }
 }

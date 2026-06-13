@@ -60,9 +60,26 @@ struct WebTransportH3Tests {
         let nginxHTTP3Only = WebTransportH3Preflight(
             serverHTTP3Settings: [:],
             maxDatagramFrameSize: nil,
-            resetStreamAtEnabled: false
+            resetStreamAtEnabled: false,
+            sessionEngineActive: false,
+            dedicatedUDPPort: 7443,
+            behindNginx: false
         )
-        #expect(nginxHTTP3Only.unsupportedReason()?.contains("SETTINGS_WT_ENABLED") == true)
+        #expect(nginxHTTP3Only.unsupportedReason()?.contains("session engine is not active") == true)
+
+        let forbiddenNginxPath = WebTransportH3Preflight(
+            serverHTTP3Settings: [
+                WebTransportH3Draft15.Setting.wtEnabled: 1,
+                WebTransportH3Draft15.Setting.enableConnectProtocol: 1,
+                WebTransportH3Draft15.Setting.h3Datagram: 1
+            ],
+            maxDatagramFrameSize: 1_200,
+            resetStreamAtEnabled: true,
+            sessionEngineActive: true,
+            dedicatedUDPPort: 443,
+            behindNginx: true
+        )
+        #expect(forbiddenNginxPath.unsupportedReason()?.contains("not the nginx HTTP/3 edge") == true)
 
         let capable = WebTransportH3Preflight(
             serverHTTP3Settings: [
@@ -71,7 +88,10 @@ struct WebTransportH3Tests {
                 WebTransportH3Draft15.Setting.h3Datagram: 1
             ],
             maxDatagramFrameSize: 1_200,
-            resetStreamAtEnabled: true
+            resetStreamAtEnabled: true,
+            sessionEngineActive: true,
+            dedicatedUDPPort: 7443,
+            behindNginx: false
         )
         #expect(capable.unsupportedReason() == nil)
         try capable.validateServerSupport()

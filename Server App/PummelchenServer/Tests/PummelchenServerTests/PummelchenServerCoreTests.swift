@@ -52,7 +52,7 @@ struct PummelchenServerCoreTests {
         #expect(object?["api_version"] as? String == "v1")
         #expect(object?["mode"] as? String == "read_only")
         #expect(object?["current_release_id"] as? String == "release_20260612_V6_modernarch-refresh")
-        #expect(object?["transport_target"] as? String == "http3_quic_edge")
+        #expect(object?["transport_target"] as? String == "webtransport_h3_dedicated_udp")
     }
 
     @Test("Minecraft autostart config is explicit and environment driven")
@@ -423,10 +423,30 @@ struct PummelchenServerCoreTests {
         #expect(preflight.draft == "draft-ietf-webtrans-http3-15")
         #expect(preflight.upgradeToken == "webtransport-h3")
         #expect(!preflight.ready)
-        #expect(preflight.unsupportedReason?.contains("SETTINGS_WT_ENABLED") == true)
+        #expect(preflight.endpoint == "/webtransport/v1/control")
+        #expect(preflight.sessionURL == "https://pummelchen.91.99.176.243.nip.io:7443/webtransport/v1/control")
+        #expect(preflight.publicPort == 7443)
+        #expect(!preflight.usesNginx)
+        #expect(preflight.nginxRole == "not_in_webtransport_path")
+        #expect(preflight.unsupportedReason?.contains("session engine is not active") == true)
         #expect(preflight.requiredHTTP3Settings["SETTINGS_WT_ENABLED"] == WebTransportH3Draft15.Setting.wtEnabled)
         #expect(preflight.requiresQUICDatagrams)
         #expect(preflight.requiresResetStreamAt)
+
+        let readyAPI = PummelchenServerAPI(
+            config: PummelchenServerConfig(
+                projectRoot: fixture.root,
+                duckDBURL: fixture.root.appendingPathComponent("data/test-phase8-webtransport-ready.duckdb"),
+                clientAPIToken: "phase8-token",
+                webTransportPublicHost: "pummelchen.91.99.176.243.nip.io",
+                webTransportPort: 7443,
+                webTransportSessionEngineActive: true
+            )
+        )
+        let readyPreflightResponse = readyAPI.response(for: HTTPRequest(method: "GET", path: "/api/v1/transport/webtransport/preflight"))
+        let readyPreflight = try JSONDecoder().decode(WebTransportPreflightPayload.self, from: readyPreflightResponse.body)
+        #expect(readyPreflight.ready)
+        #expect(readyPreflight.unsupportedReason == nil)
 
         let eventRequest = ControlEventCreateRequest(
             eventType: .releaseAvailable,

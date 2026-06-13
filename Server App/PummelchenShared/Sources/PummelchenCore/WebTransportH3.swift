@@ -8,6 +8,7 @@ public enum WebTransportH3Error: Error, Equatable, CustomStringConvertible {
     case invalidStreamPrefix
     case missingRequiredSetting(String)
     case missingRequiredTransportParameter(String)
+    case sessionEngineInactive(String)
 
     public var description: String {
         switch self {
@@ -25,6 +26,8 @@ public enum WebTransportH3Error: Error, Equatable, CustomStringConvertible {
             return "missing required HTTP/3 WebTransport setting \(name)"
         case .missingRequiredTransportParameter(let name):
             return "missing required QUIC WebTransport transport parameter \(name)"
+        case .sessionEngineInactive(let message):
+            return message
         }
     }
 }
@@ -119,18 +122,33 @@ public struct WebTransportH3Preflight: Equatable, Sendable {
     public let serverHTTP3Settings: [UInt64: UInt64]
     public let maxDatagramFrameSize: UInt64?
     public let resetStreamAtEnabled: Bool
+    public let sessionEngineActive: Bool
+    public let dedicatedUDPPort: Int
+    public let behindNginx: Bool
 
     public init(
         serverHTTP3Settings: [UInt64: UInt64],
         maxDatagramFrameSize: UInt64?,
-        resetStreamAtEnabled: Bool
+        resetStreamAtEnabled: Bool,
+        sessionEngineActive: Bool = false,
+        dedicatedUDPPort: Int = 7443,
+        behindNginx: Bool = false
     ) {
         self.serverHTTP3Settings = serverHTTP3Settings
         self.maxDatagramFrameSize = maxDatagramFrameSize
         self.resetStreamAtEnabled = resetStreamAtEnabled
+        self.sessionEngineActive = sessionEngineActive
+        self.dedicatedUDPPort = dedicatedUDPPort
+        self.behindNginx = behindNginx
     }
 
     public func validateServerSupport() throws {
+        guard sessionEngineActive else {
+            throw WebTransportH3Error.sessionEngineInactive("Swift WebTransport session engine is not active on dedicated UDP port \(dedicatedUDPPort)")
+        }
+        guard !behindNginx else {
+            throw WebTransportH3Error.sessionEngineInactive("WebTransport must use the Swift server app dedicated UDP port, not the nginx HTTP/3 edge")
+        }
         try requireSetting(WebTransportH3Draft15.Setting.wtEnabled, name: "SETTINGS_WT_ENABLED", greaterThanZero: true)
         try requireSetting(WebTransportH3Draft15.Setting.enableConnectProtocol, name: "SETTINGS_ENABLE_CONNECT_PROTOCOL")
         try requireSetting(WebTransportH3Draft15.Setting.h3Datagram, name: "SETTINGS_H3_DATAGRAM")

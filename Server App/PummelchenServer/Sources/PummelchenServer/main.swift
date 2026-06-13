@@ -18,7 +18,7 @@ enum ServerCommandError: Error, CustomStringConvertible {
             return """
             Usage:
               pummelchen-server smoke --project-root <repo>
-              pummelchen-server serve --project-root <repo> [--host 127.0.0.1] [--port 8787]
+              pummelchen-server serve --project-root <repo> [--host 127.0.0.1] [--port 8787] [--webtransport-host pummelchen.91.99.176.243.nip.io] [--webtransport-port 7443] [--webtransport-path /webtransport/v1/control]
               pummelchen-server release-create --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id> [--activate true] [--restart-command <shell>] [--health-command <shell>]
               pummelchen-server release-validate --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id>
               pummelchen-server world-reset --project-root <repo> --server-dir <dir> --duckdb <file> --seed <seed> [--dry-run true] [--yes true] [--radius-blocks 1000] [--delete-backup-after-success true] [--stop-command <shell>] [--start-command <shell>] [--gamerule-command <shell>] [--pregenerate-command <shell>] [--verify-forceloads-command <shell>] [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>] [--pregeneration-batch-size 384]
@@ -254,6 +254,9 @@ func run(arguments: [String]) throws {
     case "serve":
         let host = args.options["--host"] ?? "127.0.0.1"
         let port = Int(args.options["--port"] ?? "8787") ?? 8787
+        let webTransportHost = args.options["--webtransport-host"] ?? "pummelchen.91.99.176.243.nip.io"
+        let webTransportPort = Int(args.options["--webtransport-port"] ?? "7443") ?? 7443
+        let webTransportPath = args.options["--webtransport-path"] ?? "/webtransport/v1/control"
         let minecraftSupervisor: MinecraftLiveServerSupervisor?
         if let minecraftConfig = MinecraftLiveServerSupervisorConfig.fromEnvironment() {
             let supervisor = MinecraftLiveServerSupervisor(config: minecraftConfig)
@@ -263,7 +266,14 @@ func run(arguments: [String]) throws {
             minecraftSupervisor = nil
         }
         let configuredAPI = PummelchenServerAPI(
-            config: PummelchenServerConfig(projectRoot: projectRoot, bindHost: host, port: port)
+            config: PummelchenServerConfig(
+                projectRoot: projectRoot,
+                bindHost: host,
+                port: port,
+                webTransportPublicHost: webTransportHost,
+                webTransportPort: webTransportPort,
+                webTransportPath: webTransportPath
+            )
         )
         try withExtendedLifetime(minecraftSupervisor) {
             try LocalHTTPServer(api: configuredAPI, host: host, port: port).run()
