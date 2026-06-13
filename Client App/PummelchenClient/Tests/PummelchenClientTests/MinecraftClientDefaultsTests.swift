@@ -19,7 +19,7 @@ struct MinecraftClientDefaultsTests {
         simulationDistance:5
         """.write(to: options, atomically: true, encoding: .utf8)
 
-        let managedJava = "/Users/test/Library/Application Support/Pummelchen/java/temurin-25.0.3+9/Contents/Home/bin/java"
+        let managedJava = "/tmp/pummelchen-test/java/temurin-25.0.3+9/Contents/Home/bin/java"
         try MinecraftClientDefaultWriter.apply(defaults: MinecraftClientDefaults(javaExecutablePath: managedJava), to: root)
         try MinecraftClientDefaultWriter.apply(defaults: MinecraftClientDefaults(javaExecutablePath: managedJava), to: root)
 

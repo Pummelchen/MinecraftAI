@@ -20,7 +20,7 @@ struct ClientStatusTests {
         shaderPack=BSL_v10.1.3.zip
         enableShaders=true
         """.write(to: root.appendingPathComponent("config/iris.properties"), atomically: true, encoding: .utf8)
-        let javaPath = "/Users/test/Library/Application Support/Pummelchen/java/temurin-25.0.3+9/Contents/Home/bin/java"
+        let javaPath = "/tmp/pummelchen-test/java/temurin-25.0.3+9/Contents/Home/bin/java"
         try """
         {"profiles":{"NeoForge":{"javaArgs":"-Xmx8G -XX:+UseG1GC","javaDir":"\(javaPath)"}}}
         """
