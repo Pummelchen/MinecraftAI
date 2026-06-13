@@ -30,11 +30,13 @@ public struct MinecraftRCONClient: Sendable {
     public let host: String
     public let port: Int
     public let password: String
+    public let timeoutSeconds: Int
 
-    public init(host: String = "127.0.0.1", port: Int = 25575, password: String) {
+    public init(host: String = "127.0.0.1", port: Int = 25575, password: String, timeoutSeconds: Int = 600) {
         self.host = host
         self.port = port
         self.password = password
+        self.timeoutSeconds = timeoutSeconds
     }
 
     public func command(_ command: String) throws -> String {
@@ -70,7 +72,7 @@ public struct MinecraftRCONClient: Sendable {
             throw MinecraftRCONError.socket("socket creation failed")
         }
 
-        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        var timeout = timeval(tv_sec: timeoutSeconds, tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
 
