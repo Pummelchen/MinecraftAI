@@ -10,7 +10,7 @@ Web Monitor of the Live Minecraft Server
 
 An AI-assisted system for automatically managing Minecraft server and clients with 300+ mods.
 
-This project uses OpenAI Codex as a natural-language interface for mod management. Instead of manually downloading and validating mods, you can issue instructions such as:
+This project uses AI environments like OpenCode/Codex/Qoder as a natural-language interface for mod management. Instead of manually downloading and validating mods, you can issue instructions such as:
 
 "Add mod Biomes O' Plenty"
 
