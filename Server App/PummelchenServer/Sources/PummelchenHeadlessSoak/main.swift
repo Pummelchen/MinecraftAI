@@ -411,11 +411,13 @@ struct HeadlessSoakRunner {
         process.standardOutput = outputHandle
         process.standardError = outputHandle
         try process.run()
+        defer { stopProcess(process) }
         Thread.sleep(forTimeInterval: 4)
 
         let server = parsedServerAddress()
+        let launchVersion = "\(config.loader)-\(config.loaderVersion)"
         let launch = """
-        launch \(config.loader):\(config.minecraftVersion) -specifics --jvm "-Xmx\(config.heapGB)G -Dio.netty.transport.noNative=true -Djava.net.preferIPv4Stack=true" --game-args "--quickPlayMultiplayer \(server.host):\(server.port)"
+        launch \(launchVersion) -specifics --jvm "-Xmx\(config.heapGB)G -Dio.netty.transport.noNative=true -Djava.net.preferIPv4Stack=true" --game-args "--quickPlayMultiplayer \(server.host):\(server.port)"
         """
         try send(command: launch, to: stdin)
         try waitForInGame(process: process, stdin: stdin, hmcLog: hmcLog, minecraftDir: minecraftDir, timeoutSeconds: config.inGameTimeoutSeconds)
@@ -429,12 +431,14 @@ struct HeadlessSoakRunner {
             let fatals = countFatalLogLines(extraOutput: readText(hmcLog), minecraftDir: minecraftDir)
             if crashes > 0 { throw HeadlessSoakError.crashReports(crashes) }
             if fatals > 0 { throw HeadlessSoakError.fatalLogLines(fatals) }
+            if headlessMCNeedsAccount(readText(hmcLog)) {
+                throw HeadlessSoakError.commandFailed("HeadlessMC account login is required for online-mode live soak")
+            }
             Thread.sleep(forTimeInterval: 1)
         }
         try? send(command: "disconnect", to: stdin)
         Thread.sleep(forTimeInterval: 2)
         try? send(command: "quit", to: stdin)
-        stopProcess(process)
         let output = readText(hmcLog)
         return ProcessResult(
             exitCode: 0,
@@ -540,6 +544,9 @@ struct HeadlessSoakRunner {
         if let display = ProcessInfo.processInfo.environment["DISPLAY"], !display.isEmpty {
             return (nil, display)
         }
+        #if os(macOS)
+        return (nil, "")
+        #else
         let which = try runProcess(executable: "/usr/bin/which", arguments: ["Xvfb"], timeoutSeconds: 10, environment: [:])
         guard which.exitCode == 0 else {
             throw HeadlessSoakError.commandFailed("Xvfb is required when DISPLAY is not set")
@@ -557,6 +564,7 @@ struct HeadlessSoakRunner {
         Thread.sleep(forTimeInterval: 2)
         try? handle.close()
         return (process, display)
+        #endif
     }
 
     private func firstFreeDisplay() throws -> String {
@@ -577,6 +585,9 @@ struct HeadlessSoakRunner {
             try? send(command: "gui", to: stdin)
             Thread.sleep(forTimeInterval: 5)
             let text = readText(hmcLog)
+            if headlessMCNeedsAccount(text) {
+                throw HeadlessSoakError.commandFailed("HeadlessMC account login is required for online-mode live soak")
+            }
             if text.localizedCaseInsensitiveContains("currently not displaying a Gui") || observedLogin(in: text, minecraftDir: minecraftDir) {
                 return
             }
@@ -589,6 +600,11 @@ struct HeadlessSoakRunner {
             }
         }
         throw HeadlessSoakError.loginNotObserved
+    }
+
+    private func headlessMCNeedsAccount(_ text: String) -> Bool {
+        text.localizedCaseInsensitiveContains("You can't play the game without an account")
+            || text.localizedCaseInsensitiveContains("Please use the login command")
     }
 
     private func parsedServerAddress() -> (host: String, port: Int) {
@@ -615,14 +631,24 @@ struct HeadlessSoakRunner {
 
     private func observedLogin(in output: String, minecraftDir: URL) -> Bool {
         let text = (output + "\n" + collectedMinecraftLogs(minecraftDir: minecraftDir)).lowercased()
-        return [
+        let explicitLogin = [
             "joined the game",
             "logged in",
             "connected to server",
-            "connecting to 91.99.176.243",
-            "pummelchen",
-            "multiplayer server"
+            "clientboundloginpacket",
+            "minecraft:finish_configuration"
         ].contains { text.contains($0) }
+        if explicitLogin {
+            return true
+        }
+
+        let server = parsedServerAddress()
+        let connectedToTargetServer = text.contains("connecting to \(server.host), \(server.port)")
+            || text.contains("connecting to \(server.host):\(server.port)")
+            || text.contains("--quickplaymultiplayer \(server.host):\(server.port)")
+        let enteredGame = text.contains("time from main menu to in-game")
+            || text.contains("total time to load game and open world")
+        return connectedToTargetServer && enteredGame
     }
 
     private func countCrashReports(minecraftDir: URL) -> Int {
@@ -635,20 +661,36 @@ struct HeadlessSoakRunner {
 
     private func countFatalLogLines(extraOutput: String, minecraftDir: URL) -> Int {
         let text = extraOutput + "\n" + collectedMinecraftLogs(minecraftDir: minecraftDir)
-        let fatalPatterns = [
-            "FATAL",
-            "Crash report",
-            "ModLoadingException",
-            "NoClassDefFoundError",
-            "ClassNotFoundException",
-            "Failed to connect",
-            "Connection refused",
-            "mismatch"
-        ]
         return text
             .split(separator: "\n")
-            .filter { line in fatalPatterns.contains { String(line).localizedCaseInsensitiveContains($0) } }
+            .filter { isFatalLogLine(String($0)) }
             .count
+    }
+
+    private func isFatalLogLine(_ rawLine: String) -> Bool {
+        let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = line.lowercased()
+        if lower.isEmpty { return false }
+
+        if lower.contains("/fatal]") || lower.contains("[fatal]") {
+            return true
+        }
+
+        if lower.contains("modloadingexception")
+            || lower.contains("noclassdeffounderror")
+            || lower.contains("crash report")
+            || lower.contains("failed to connect")
+            || lower.contains("connection refused")
+            || lower.contains("version mismatch")
+            || lower.contains("channel mismatch") {
+            return true
+        }
+
+        if lower.contains("classnotfoundexception") {
+            return lower.contains("/error]") && !lower.contains("[mixin/]")
+        }
+
+        return false
     }
 
     private func collectedMinecraftLogs(minecraftDir: URL) -> String {

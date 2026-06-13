@@ -107,9 +107,10 @@ public enum NeoForgeClientInstaller {
 
     private static func runInstaller(installer: URL, javaExecutable: URL, minecraftDirectory: URL) throws {
         try FileManager.default.createDirectory(at: minecraftDirectory, withIntermediateDirectories: true)
+        try ensureLauncherProfiles(minecraftDirectory: minecraftDirectory)
         let process = Process()
         process.executableURL = javaExecutable
-        process.arguments = ["-jar", installer.path, "--install-client"]
+        process.arguments = ["-jar", installer.path, "--install-client", minecraftDirectory.path]
         process.currentDirectoryURL = minecraftDirectory
         let output = Pipe()
         process.standardOutput = output
@@ -120,5 +121,21 @@ public enum NeoForgeClientInstaller {
         guard process.terminationStatus == 0 else {
             throw NeoForgeClientInstallerError.installFailed(text.trimmingCharacters(in: .whitespacesAndNewlines))
         }
+    }
+
+    private static func ensureLauncherProfiles(minecraftDirectory: URL) throws {
+        let profiles = minecraftDirectory.appendingPathComponent("launcher_profiles.json")
+        guard !FileManager.default.fileExists(atPath: profiles.path) else {
+            return
+        }
+        let payload = """
+        {
+          "profiles": {},
+          "settings": {},
+          "version": 3
+        }
+
+        """
+        try payload.write(to: profiles, atomically: true, encoding: .utf8)
     }
 }
