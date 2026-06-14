@@ -234,6 +234,45 @@ public enum MinecraftClientDefaultWriter {
     }
 }
 
+public struct MinecraftServerDefaults: Equatable, Sendable {
+    public let physicsCollapseEnabled: Bool
+
+    public init(physicsCollapseEnabled: Bool = false) {
+        self.physicsCollapseEnabled = physicsCollapseEnabled
+    }
+}
+
+public enum MinecraftServerDefaultWriter {
+    public static func apply(defaults: MinecraftServerDefaults = MinecraftServerDefaults(), to serverDirectory: URL) throws {
+        try setPhysicsServerDefaults(defaults, serverDirectory: serverDirectory)
+    }
+
+    private static func setPhysicsServerDefaults(_ defaults: MinecraftServerDefaults, serverDirectory: URL) throws {
+        let path = serverDirectory.appendingPathComponent("config/physicsmod/physics_server_config.json")
+        try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        var root: [String: Any] = [:]
+        if let data = try? Data(contentsOf: path),
+           let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            root = parsed
+        }
+
+        root["collapse"] = defaults.physicsCollapseEnabled
+        if root["collapseSpeed"] == nil {
+            root["collapseSpeed"] = 10
+        }
+        if root["dropBlocks"] == nil {
+            root["dropBlocks"] = true
+        }
+        if root["maxCollapseObjects"] == nil {
+            root["maxCollapseObjects"] = 100
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: path, options: .atomic)
+    }
+}
+
 private extension Data {
     mutating func appendUTF(_ value: String) {
         let bytes = Array(value.utf8)

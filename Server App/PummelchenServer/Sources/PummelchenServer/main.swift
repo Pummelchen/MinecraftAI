@@ -1,4 +1,5 @@
 import Foundation
+import PummelchenCore
 import PummelchenServerCore
 
 #if os(Linux)
@@ -294,6 +295,7 @@ func run(arguments: [String]) throws {
         webTransportService.start()
         let minecraftSupervisor: MinecraftLiveServerSupervisor?
         if let minecraftConfig = MinecraftLiveServerSupervisorConfig.fromEnvironment() {
+            try MinecraftServerDefaultWriter.apply(to: minecraftConfig.serverDirectory)
             let supervisor = MinecraftLiveServerSupervisor(config: minecraftConfig)
             try supervisor.startIfNeeded()
             minecraftSupervisor = supervisor

@@ -47,7 +47,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "PummelchenServer",
-            dependencies: ["PummelchenServerCore"]
+            dependencies: [
+                "PummelchenServerCore",
+                .product(name: "PummelchenCore", package: "PummelchenShared")
+            ]
         ),
         .executableTarget(
             name: "PummelchenDuckDB",

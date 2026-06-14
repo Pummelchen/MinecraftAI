@@ -4,6 +4,33 @@ import Testing
 
 @Suite("Core utility contracts")
 struct CoreUtilityTests {
+    @Test("server defaults disable Physics Mod Pro collapse")
+    func disablesPhysicsModProCollapse() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-server-defaults-\(UUID().uuidString)", isDirectory: true)
+        let config = root.appendingPathComponent("config/physicsmod/physics_server_config.json")
+        try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try """
+        {
+          "collapse": true,
+          "collapseSpeed": 10,
+          "dropBlocks": true,
+          "maxCollapseObjects": 100
+        }
+        """.write(to: config, atomically: true, encoding: .utf8)
+
+        try MinecraftServerDefaultWriter.apply(to: root)
+
+        let data = try Data(contentsOf: config)
+        let rootObject = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(rootObject["collapse"] as? Bool == false)
+        #expect(rootObject["dropBlocks"] as? Bool == true)
+        #expect(rootObject["collapseSpeed"] as? Int == 10)
+        #expect(rootObject["maxCollapseObjects"] as? Int == 100)
+    }
+
     @Test("formats website timestamps in UTC table shape")
     func formatsWebsiteTimestamp() throws {
         let display = try PummelchenTimestamp.displayUTC(fromISO8601: "2026-06-12T15:59:23+00:00")
