@@ -47,6 +47,7 @@ public enum ClientDefaultsInspector {
         rows.append(memoryHealth(defaults: defaults, launcherProfiles: launcherProfiles))
         rows.append(javaHealth(defaults: defaults, launcherProfiles: launcherProfiles))
         rows.append(serverEntryHealth(servers: servers))
+        rows.append(physicsMobFracturingHealth(defaults: defaults, minecraftDirectory: minecraftDirectory))
         rows.append(contentsOf: configHealth(defaults: defaults, minecraftDirectory: minecraftDirectory))
         return rows
     }
@@ -194,6 +195,57 @@ public enum ClientDefaultsInspector {
             status: ok ? .ok : .mismatch,
             source: "servers.dat"
         )
+    }
+
+    private static func physicsMobFracturingHealth(defaults: MinecraftClientDefaults, minecraftDirectory: URL) -> ClientDefaultHealthRow {
+        let relativePath = "config/physicsmod/physics_client_config.json"
+        let path = minecraftDirectory.appendingPathComponent(relativePath)
+        guard let data = try? Data(contentsOf: path),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let mobSettings = root["mobSettings"] as? [String: Any] else {
+            return ClientDefaultHealthRow(
+                id: "physics_mob_fracturing",
+                label: "Physics Mob Fracturing",
+                desiredValue: "Mob Fracturing (with blood)",
+                observedValue: "missing",
+                status: .missing,
+                source: relativePath
+            )
+        }
+
+        let observedType = mobSettings["Physics Type"] as? Int
+            ?? (mobSettings["Physics Type"] as? NSNumber)?.intValue
+        return ClientDefaultHealthRow(
+            id: "physics_mob_fracturing",
+            label: "Physics Mob Fracturing",
+            desiredValue: "Mob Fracturing (with blood)",
+            observedValue: observedType.map(physicsMobTypeDescription) ?? "missing",
+            status: observedType == defaults.physicsMobType ? .ok : .mismatch,
+            source: relativePath
+        )
+    }
+
+    private static func physicsMobTypeDescription(_ value: Int) -> String {
+        switch value {
+        case 0:
+            return "Ragdoll"
+        case 1:
+            return "Blocky"
+        case 2:
+            return "Mob Fracturing"
+        case 3:
+            return "Mob Fracturing (with blood)"
+        case 4:
+            return "Off"
+        case 5:
+            return "Main Rule"
+        case 6:
+            return "Ragdoll Breaking"
+        case 7:
+            return "Ragdoll Breaking (with blood)"
+        default:
+            return "unknown (\(value))"
+        }
     }
 
     private static func configHealth(defaults: MinecraftClientDefaults, minecraftDirectory: URL) -> [ClientDefaultHealthRow] {

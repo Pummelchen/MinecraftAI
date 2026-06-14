@@ -30,6 +30,15 @@ struct ClientStatusTests {
         try "showLoadWarnings=false\n".write(to: root.appendingPathComponent("config/forge-client.toml"), atomically: true, encoding: .utf8)
         try "showCheckScreen=false\n".write(to: root.appendingPathComponent("config/yuushya-client.toml"), atomically: true, encoding: .utf8)
         try "duck_tamed_no_follow=true\ngoose_tamed_no_follow=true\n".write(to: root.appendingPathComponent("config/untitledduckmod-server.toml"), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("config/physicsmod"), withIntermediateDirectories: true)
+        try """
+        {
+          "mobSettings": {
+            "Physics Type": 3
+          },
+          "jointBlood": 1.0
+        }
+        """.write(to: root.appendingPathComponent("config/physicsmod/physics_client_config.json"), atomically: true, encoding: .utf8)
 
         let rows = ClientDefaultsInspector.inspect(minecraftDirectory: root, defaults: MinecraftClientDefaults(javaExecutablePath: javaPath))
         #expect(rows.allSatisfy { $0.status == .ok })
@@ -37,6 +46,7 @@ struct ClientStatusTests {
         #expect(rows.contains { $0.id == "memory" })
         #expect(rows.contains { $0.id == "java_runtime" })
         #expect(rows.contains { $0.id == "server_entry" })
+        #expect(rows.contains { $0.id == "physics_mob_fracturing" && $0.observedValue == "Mob Fracturing (with blood)" })
     }
 
     @Test("default inspector detects missing read-only defaults without mutating files")

@@ -42,6 +42,12 @@ struct MinecraftClientDefaultsTests {
         #expect(ducks.contains("duck_tamed_no_follow=true"))
         #expect(ducks.contains("goose_tamed_no_follow=true"))
 
+        let physicsConfig = try Data(contentsOf: root.appendingPathComponent("config/physicsmod/physics_client_config.json"))
+        let physicsRoot = try #require(JSONSerialization.jsonObject(with: physicsConfig) as? [String: Any])
+        let mobSettings = try #require(physicsRoot["mobSettings"] as? [String: Any])
+        #expect(mobSettings["Physics Type"] as? Int == 3)
+        #expect(physicsRoot["jointBlood"] as? Double == 1.0)
+
         let profiles = try String(contentsOf: root.appendingPathComponent("launcher_profiles.json"), encoding: .utf8)
         #expect(profiles.contains("-Xmx8G"))
         #expect(profiles.contains("neoforge-26.1.2.76"))

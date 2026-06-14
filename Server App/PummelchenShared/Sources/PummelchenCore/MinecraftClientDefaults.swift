@@ -10,6 +10,7 @@ public struct MinecraftClientDefaults: Equatable, Sendable {
     public let serverAddress: String
     public let irisProperties: [String: String]
     public let configProperties: [String: [String: String]]
+    public let physicsMobType: Int
 
     public static func recommendedHeapGB(physicalMemoryBytes: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Int {
         let gib = UInt64(1024 * 1024 * 1024)
@@ -52,7 +53,8 @@ public struct MinecraftClientDefaults: Equatable, Sendable {
                 "duck_tamed_no_follow": "true",
                 "goose_tamed_no_follow": "true"
             ]
-        ]
+        ],
+        physicsMobType: Int = 3
     ) {
         self.shaderPack = shaderPack
         self.resourcePacks = resourcePacks
@@ -63,6 +65,7 @@ public struct MinecraftClientDefaults: Equatable, Sendable {
         self.serverAddress = serverAddress
         self.irisProperties = irisProperties
         self.configProperties = configProperties
+        self.physicsMobType = physicsMobType
     }
 }
 
@@ -105,8 +108,31 @@ public enum MinecraftClientDefaultWriter {
                 )
             }
         }
+        try setPhysicsMobType(defaults.physicsMobType, minecraftDirectory: minecraftDirectory)
         try setLauncherProfile(defaults: defaults, minecraftDirectory: minecraftDirectory)
         try ensureServerEntry(defaults: defaults, minecraftDirectory: minecraftDirectory)
+    }
+
+    private static func setPhysicsMobType(_ mobType: Int, minecraftDirectory: URL) throws {
+        let path = minecraftDirectory.appendingPathComponent("config/physicsmod/physics_client_config.json")
+        try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        var root: [String: Any] = [:]
+        if let data = try? Data(contentsOf: path),
+           let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            root = parsed
+        }
+
+        var mobSettings = root["mobSettings"] as? [String: Any] ?? [:]
+        mobSettings["Physics Type"] = mobType
+        root["mobSettings"] = mobSettings
+
+        if root["jointBlood"] == nil {
+            root["jointBlood"] = 1.0
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: path, options: .atomic)
     }
 
     private static func setColonValue(path: URL, key: String, value: String) throws {
