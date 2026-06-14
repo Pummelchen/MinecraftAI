@@ -147,12 +147,13 @@ public struct ClientSyncEngine: Sendable {
             try writeCurrentManifest(manifest)
             let inventory = try installedInventory(manifest: manifest)
             let defaultsHealth = ClientDefaultsInspector.inspect(minecraftDirectory: configuration.minecraftDirectory, defaults: defaults)
-            let selfUpdate = try await ClientAppSelfUpdater.stageAndScheduleIfNeeded(
+            let selfUpdateResult = try? await Self.evaluateSelfUpdate(
                 release: release,
                 serverURL: configuration.serverURL,
                 pummelchenHome: configuration.pummelchenHome,
                 http: http
             )
+            let (selfUpdate, selfUpdateMessage) = selfUpdateResult ?? (.unavailable, nil)
             let networkProtocol = await http.lastNegotiatedProtocol()
 
             let finished = Date()
@@ -162,7 +163,7 @@ public struct ClientSyncEngine: Sendable {
             let syncMessage = downloaded == 0
                 ? (defaultsChanged ? "files synced; client defaults need attention" : "all synced, no downloads required")
                 : "synced after \(downloaded) download(s)"
-            let message = selfUpdate.scheduled ? "\(syncMessage); \(selfUpdate.message)" : syncMessage
+            let message = [syncMessage, selfUpdateMessage].compactMap(\.self).joined(separator: "; ")
             let result = ClientSyncResult(
                 runID: runID,
                 startedAt: Self.iso(started),
@@ -213,6 +214,26 @@ public struct ClientSyncEngine: Sendable {
                 await report(result: failed, changedFiles: 0, inventory: [], defaultsHealth: defaultsHealth, networkProtocol: await http.lastNegotiatedProtocol())
             }
             throw error
+        }
+    }
+
+    private static func evaluateSelfUpdate(
+        release: CurrentRelease,
+        serverURL: URL,
+        pummelchenHome: URL,
+        http: ClientHTTPClient
+    ) async -> (ClientAppSelfUpdateResult, String?) {
+        do {
+            let result = try await ClientAppSelfUpdater.stageAndScheduleIfNeeded(
+                release: release,
+                serverURL: serverURL,
+                pummelchenHome: pummelchenHome,
+                http: http
+            )
+            return (result, nil)
+        } catch {
+            let warning = String(describing: error)
+            return (.unavailable, "self-update check skipped: \(warning)")
         }
     }
 

@@ -209,6 +209,9 @@ hdiutil create \
 )
 
 if [[ -n "${PUMMELCHEN_RELEASE_ID:-}" ]]; then
+    if [[ "${PUMMELCHEN_SKIP_HEADLESS_SOAK:-false}" == "true" ]]; then
+        echo "Skipping headless soak because PUMMELCHEN_SKIP_HEADLESS_SOAK=true"
+    else
     SERVER_PACKAGE_DIR="${PUMMELCHEN_SERVER_PACKAGE_DIR:-$ROOT_DIR/../../Server App/MCPummelchenModServer}"
     SOAK_ARGS=(
         --dmg "$DMG_PATH"
@@ -225,6 +228,7 @@ if [[ -n "${PUMMELCHEN_RELEASE_ID:-}" ]]; then
         -c release \
         pummelchen-headless-soak \
         "${SOAK_ARGS[@]}"
+    fi
 elif [[ "${PUMMELCHEN_REQUIRE_HEADLESS_SOAK:-false}" == "true" ]]; then
     echo "PUMMELCHEN_REQUIRE_HEADLESS_SOAK=true but PUMMELCHEN_RELEASE_ID is missing" >&2
     exit 1

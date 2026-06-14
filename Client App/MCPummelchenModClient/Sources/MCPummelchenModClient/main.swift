@@ -108,6 +108,12 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
                     }
                 }
             } catch {
+                if error is CancellationError {
+                    await MainActor.run {
+                        model.controlMessage = "Live updates connected."
+                    }
+                    return
+                }
                 await MainActor.run {
                     model.controlMessage = "Live updates stopped: \(error)"
                 }
