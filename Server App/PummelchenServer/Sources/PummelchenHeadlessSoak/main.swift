@@ -19,15 +19,17 @@ enum HeadlessSoakError: Error, CustomStringConvertible {
         case .usage:
             return """
             usage:
-              pummelchen-headless-soak --dmg <path> --release-id <id> --server-address <host:25565> [--headless-command <shell>] [--server-url <url>] [--duration-seconds 300] [--work-dir <dir>] [--report <path>] [--client-api-token <token>] [--keep-work-dir true]
+              pummelchen-headless-soak --dmg <path> --release-id <id> --server-address <host:25565> [--headless-command <shell>] [--server-url <url>] [--duration-seconds 300] [--work-dir <dir>] [--report <path>] [--client-api-token <token>] [--suppress-gui true] [--keep-work-dir true]
 
             By default this uses HeadlessMC plus HMC-Specifics to start a real Minecraft client from the synced isolated Minecraft directory and stay alive for the soak duration.
+            The built-in runner suppresses HeadlessMC GUI probing by default so macOS soak runs do not steal focus or capture the mouse.
             Environment provided to the command:
               PUMMELCHEN_SOAK_MINECRAFT_DIR
               PUMMELCHEN_SOAK_HOME
               PUMMELCHEN_SOAK_JAVA
               PUMMELCHEN_SOAK_SERVER_ADDRESS
               PUMMELCHEN_SOAK_DURATION_SECONDS
+              PUMMELCHEN_SOAK_SUPPRESS_GUI
             """
         case .missingValue(let option):
             return "missing value for \(option)"
@@ -92,6 +94,7 @@ struct HeadlessSoakConfig {
     let heapGB: Int
     let inGameTimeoutSeconds: Double
     let clientAPIToken: String?
+    let suppressGUI: Bool
     let keepWorkDir: Bool
 
     init(arguments: Arguments) throws {
@@ -131,7 +134,20 @@ struct HeadlessSoakConfig {
         self.heapGB = Int(arguments.options["--heap-gb"] ?? "8") ?? 8
         self.inGameTimeoutSeconds = Double(arguments.options["--ingame-timeout-seconds"] ?? "300") ?? 300
         self.clientAPIToken = arguments.options["--client-api-token"] ?? ProcessInfo.processInfo.environment["PUMMELCHEN_CLIENT_API_TOKEN"]
+        self.suppressGUI = Self.boolOption(arguments.options["--suppress-gui"], default: true)
         self.keepWorkDir = arguments.options["--keep-work-dir"] == "true"
+    }
+
+    private static func boolOption(_ value: String?, default defaultValue: Bool) -> Bool {
+        guard let value else { return defaultValue }
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        case "0", "false", "no", "off":
+            return false
+        default:
+            return defaultValue
+        }
     }
 }
 
@@ -616,6 +632,7 @@ struct HeadlessSoakRunner {
         env["PUMMELCHEN_SOAK_SERVER_ADDRESS"] = config.serverAddress
         env["PUMMELCHEN_SOAK_DURATION_SECONDS"] = String(Int(config.durationSeconds))
         env["PUMMELCHEN_SOAK_RELEASE_ID"] = config.releaseID
+        env["PUMMELCHEN_SOAK_SUPPRESS_GUI"] = config.suppressGUI ? "true" : "false"
         let timeout = config.durationSeconds + 180
         return try runProcess(executable: "/bin/sh", arguments: ["-lc", command], timeoutSeconds: timeout, environment: env)
     }
@@ -656,7 +673,7 @@ struct HeadlessSoakRunner {
         let server = parsedServerAddress()
         let launchVersion = "\(config.loader)-\(config.loaderVersion)"
         let launch = """
-        launch \(launchVersion) -specifics --jvm "-Xmx\(config.heapGB)G -Dio.netty.transport.noNative=true -Djava.net.preferIPv4Stack=true" --game-args "--quickPlayMultiplayer \(server.host):\(server.port)"
+        launch \(launchVersion) -specifics --jvm "-Xmx\(config.heapGB)G -Dio.netty.transport.noNative=true -Djava.net.preferIPv4Stack=true" --game-args "--quickPlayMultiplayer \(server.host):\(server.port) --width 320 --height 240"
         """
         try send(command: launch, to: stdin)
         try waitForInGame(process: process, stdin: stdin, hmcLog: hmcLog, minecraftDir: minecraftDir, timeoutSeconds: config.inGameTimeoutSeconds)
@@ -821,7 +838,9 @@ struct HeadlessSoakRunner {
             if !process.isRunning {
                 throw HeadlessSoakError.commandFailed("HeadlessMC exited before the client reached in-game state")
             }
-            try? send(command: "gui", to: stdin)
+            if !config.suppressGUI {
+                try? send(command: "gui", to: stdin)
+            }
             Thread.sleep(forTimeInterval: 5)
             let text = readText(hmcLog)
             if headlessMCNeedsAccount(text) {
