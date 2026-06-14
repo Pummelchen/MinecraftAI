@@ -280,10 +280,10 @@ public final class PummelchenWebTransportService: @unchecked Sendable {
     private func authorize(_ request: WebTransportControlRequest) throws {
         try ContractValidation.requireClientID(request.clientID)
         guard let expected = config.clientAPIToken, !expected.isEmpty else {
-            throw PummelchenServerError.unauthorized("client API token not configured")
+            throw MCPummelchenModServerError.unauthorized("client API token not configured")
         }
         guard request.clientAPIToken == expected else {
-            throw PummelchenServerError.unauthorized("invalid client API token")
+            throw MCPummelchenModServerError.unauthorized("invalid client API token")
         }
     }
 
@@ -296,7 +296,7 @@ public final class PummelchenWebTransportService: @unchecked Sendable {
 
     private func requireMatchingClientID(_ requestClientID: String, _ payloadClientID: String) throws {
         if requestClientID != payloadClientID {
-            throw PummelchenServerError.unauthorized("client id does not match payload")
+            throw MCPummelchenModServerError.unauthorized("client id does not match payload")
         }
     }
 
@@ -309,7 +309,7 @@ public final class PummelchenWebTransportService: @unchecked Sendable {
             }
             data.append(chunk)
             if data.count > config.maxControlPayloadBytes {
-                throw PummelchenServerError.payloadTooLarge(data.count)
+                throw MCPummelchenModServerError.payloadTooLarge(data.count)
             }
         }
     }

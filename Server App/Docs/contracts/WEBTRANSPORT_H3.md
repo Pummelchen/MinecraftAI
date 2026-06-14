@@ -29,7 +29,7 @@ WebTransport is deliberately kept away from nginx.
 The Swift server can advertise a different endpoint with:
 
 ```text
-pummelchen-server serve --project-root <repo> --webtransport-host <host> --webtransport-port 443 --webtransport-path /webtransport/v1/control
+MCPummelchenModServer serve --project-root <repo> --webtransport-host <host> --webtransport-port 443 --webtransport-path /webtransport/v1/control
 ```
 
 ## nginx Role

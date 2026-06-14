@@ -1,6 +1,6 @@
 import Foundation
 import PummelchenCore
-import PummelchenServerCore
+import MCPummelchenModServerCore
 
 #if os(Linux)
 import Glibc
@@ -19,13 +19,13 @@ enum ServerCommandError: Error, CustomStringConvertible {
         case .usage:
             return """
             Usage:
-              pummelchen-server smoke --project-root <repo>
-              pummelchen-server serve --project-root <repo> [--host 127.0.0.1] [--port 8787] [--webtransport-host pummelchen.91.99.176.243.nip.io] [--webtransport-bind-host 0.0.0.0] [--webtransport-port 443] [--webtransport-path /webtransport/v1/control] [--webtransport-cert <cert.pem>] [--webtransport-key <privkey.pem>]
-              pummelchen-server release-create --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id> [--activate true] [--restart-command <shell>] [--health-command <shell>]
-              pummelchen-server release-validate --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id>
-              pummelchen-server mod-update-scan --project-root <repo> --duckdb <file> [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-tested-updates true] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
-              pummelchen-server world-reset --project-root <repo> --server-dir <dir> --duckdb <file> --seed <seed> [--dry-run true] [--yes true] [--radius-blocks 1000] [--delete-backup-after-success true] [--stop-command <shell>] [--start-command <shell>] [--gamerule-command <shell>] [--pregenerate-command <shell>] [--verify-forceloads-command <shell>] [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>] [--pregeneration-batch-size 384]
-              pummelchen-server rcon-command --project-root <repo> --server-dir <dir> --command <minecraft command> [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>]
+              MCPummelchenModServer smoke --project-root <repo>
+              MCPummelchenModServer serve --project-root <repo> [--host 127.0.0.1] [--port 8787] [--webtransport-host pummelchen.91.99.176.243.nip.io] [--webtransport-bind-host 0.0.0.0] [--webtransport-port 443] [--webtransport-path /webtransport/v1/control] [--webtransport-cert <cert.pem>] [--webtransport-key <privkey.pem>]
+              MCPummelchenModServer release-create --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id> [--activate true] [--restart-command <shell>] [--health-command <shell>]
+              MCPummelchenModServer release-validate --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id>
+              MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-tested-updates true] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
+              MCPummelchenModServer world-reset --project-root <repo> --server-dir <dir> --duckdb <file> --seed <seed> [--dry-run true] [--yes true] [--radius-blocks 1000] [--delete-backup-after-success true] [--stop-command <shell>] [--start-command <shell>] [--gamerule-command <shell>] [--pregenerate-command <shell>] [--verify-forceloads-command <shell>] [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>] [--pregeneration-batch-size 384]
+              MCPummelchenModServer rcon-command --project-root <repo> --server-dir <dir> --command <minecraft command> [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>]
             """
         case .missingValue(let option):
             return "missing value for \(option)"
@@ -72,11 +72,11 @@ struct Arguments {
 }
 
 final class LocalHTTPServer {
-    private let api: PummelchenServerAPI
+    private let api: MCPummelchenModServerAPI
     private let host: String
     private let port: Int
 
-    init(api: PummelchenServerAPI, host: String, port: Int) {
+    init(api: MCPummelchenModServerAPI, host: String, port: Int) {
         self.api = api
         self.host = host
         self.port = port
@@ -110,7 +110,7 @@ final class LocalHTTPServer {
             throw ServerCommandError.socket("listen failed on \(host):\(port)")
         }
 
-        FileHandle.standardOutput.write(Data("pummelchen_server=ready host=\(host) port=\(port) mode=read_only\n".utf8))
+        FileHandle.standardOutput.write(Data("MCPummelchenModServer=ready host=\(host) port=\(port) mode=read_only\n".utf8))
 
         while true {
             let client = accept(fd, nil, nil)
@@ -254,9 +254,9 @@ func run(arguments: [String]) throws {
 
     switch args.command {
     case "smoke":
-        let api = PummelchenServerAPI(config: PummelchenServerConfig(projectRoot: projectRoot))
+        let api = MCPummelchenModServerAPI(config: MCPummelchenModServerConfig(projectRoot: projectRoot))
         try api.smokeCheck()
-        print("pummelchen_server_smoke=ok")
+        print("MCPummelchenModServer_smoke=ok")
     case "serve":
         let host = args.options["--host"] ?? "127.0.0.1"
         let port = Int(args.options["--port"] ?? "8787") ?? 8787
@@ -302,8 +302,8 @@ func run(arguments: [String]) throws {
         } else {
             minecraftSupervisor = nil
         }
-        let configuredAPI = PummelchenServerAPI(
-            config: PummelchenServerConfig(
+        let configuredAPI = MCPummelchenModServerAPI(
+            config: MCPummelchenModServerConfig(
                 projectRoot: projectRoot,
                 bindHost: host,
                 port: port,

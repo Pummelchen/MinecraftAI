@@ -77,8 +77,8 @@ struct MinecraftClientDefaultsTests {
             to: existingPummelchenRoot
         )
         try MinecraftClientDefaultWriter.apply(to: existingPummelchenRoot)
-        let existingPummelchenServers = try Data(contentsOf: existingPummelchenRoot.appendingPathComponent("servers.dat"))
-        #expect(existingPummelchenServers.occurrences(of: Data("91.99.176.243:25565".utf8)) == 1)
+        let existingManagedServers = try Data(contentsOf: existingPummelchenRoot.appendingPathComponent("servers.dat"))
+        #expect(existingManagedServers.occurrences(of: Data("91.99.176.243:25565".utf8)) == 1)
 
         let defaultPortRoot = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("pummelchen-minecraft-default-port-\(UUID().uuidString)", isDirectory: true)

@@ -1,0 +1,21 @@
+[Unit]
+Description=MCPummelchenModServer API and WebTransport
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/pummelchen-swift/runtime
+EnvironmentFile=/etc/pummelchen-swift/server.env
+ExecStart=/opt/pummelchen-swift/bin/MCPummelchenModServer serve --project-root /opt/pummelchen-swift/runtime --host 127.0.0.1 --port 8787 --webtransport-host pummelchen.91.99.176.243.nip.io --webtransport-bind-host 0.0.0.0 --webtransport-port 443 --webtransport-path /webtransport/v1/control
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/pummelchen-swift/runtime /etc/pummelchen-swift
+
+[Install]
+WantedBy=multi-user.target

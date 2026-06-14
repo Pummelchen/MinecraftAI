@@ -115,7 +115,7 @@ hdiutil create \
 )
 
 if [[ -n "${PUMMELCHEN_RELEASE_ID:-}" ]]; then
-    SERVER_PACKAGE_DIR="${PUMMELCHEN_SERVER_PACKAGE_DIR:-$ROOT_DIR/../../Server App/PummelchenServer}"
+    SERVER_PACKAGE_DIR="${PUMMELCHEN_SERVER_PACKAGE_DIR:-$ROOT_DIR/../../Server App/MCPummelchenModServer}"
     SOAK_ARGS=(
         --dmg "$DMG_PATH"
         --release-id "$PUMMELCHEN_RELEASE_ID"

@@ -15,7 +15,7 @@ DuckDB is the production database and the only supported project database.
 Apply pending migrations before starting or upgrading the Swift server app:
 
 ```sh
-swift run --package-path "Server App/PummelchenServer" pummelchen-duckdb migrate \
+swift run --package-path "Server App/MCPummelchenModServer" pummelchen-duckdb migrate \
   --duckdb /opt/pummelchen-swift/runtime/data/pummelchen.duckdb \
   --migrations-dir "Server App/Database/duckdb/migrations"
 ```
@@ -27,14 +27,14 @@ The migration command records applied files in `core.schema_migrations`. Runtime
 On a host with Swift 6.3.2 and DuckDB installed:
 
 ```sh
-swift run --package-path "Server App/PummelchenServer" pummelchen-duckdb health \
+swift run --package-path "Server App/MCPummelchenModServer" pummelchen-duckdb health \
   --duckdb /opt/pummelchen-swift/runtime/data/pummelchen.duckdb
 ```
 
 Export reporting views to Parquet:
 
 ```sh
-swift run --package-path "Server App/PummelchenServer" pummelchen-duckdb export-parquet \
+swift run --package-path "Server App/MCPummelchenModServer" pummelchen-duckdb export-parquet \
   --duckdb /opt/pummelchen-swift/runtime/data/pummelchen.duckdb \
   --output-dir /tmp/pummelchen_parquet
 ```
@@ -42,7 +42,7 @@ swift run --package-path "Server App/PummelchenServer" pummelchen-duckdb export-
 Verify the exported Parquet files can be read back by DuckDB:
 
 ```sh
-swift run --package-path "Server App/PummelchenServer" pummelchen-duckdb verify-parquet \
+swift run --package-path "Server App/MCPummelchenModServer" pummelchen-duckdb verify-parquet \
   --duckdb /opt/pummelchen-swift/runtime/data/pummelchen.duckdb \
   --input-dir /tmp/pummelchen_parquet
 ```

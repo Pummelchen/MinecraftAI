@@ -83,12 +83,12 @@ public final class MinecraftLiveServerSupervisor: @unchecked Sendable {
         }
 
         guard fileManager.fileExists(atPath: config.serverDirectory.path) else {
-            throw PummelchenServerError.badRequest("Minecraft server directory is missing: \(config.serverDirectory.path)")
+            throw MCPummelchenModServerError.badRequest("Minecraft server directory is missing: \(config.serverDirectory.path)")
         }
 
         let runScript = config.serverDirectory.appendingPathComponent("run.sh")
         guard fileManager.isExecutableFile(atPath: runScript.path) else {
-            throw PummelchenServerError.badRequest("Minecraft run.sh is missing or not executable: \(runScript.path)")
+            throw MCPummelchenModServerError.badRequest("Minecraft run.sh is missing or not executable: \(runScript.path)")
         }
 
         if Self.isTCPPortOpen(host: config.host, port: config.port) {

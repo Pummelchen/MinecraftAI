@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import PummelchenCore
 import PummelchenClientCore
-@testable import PummelchenServerCore
+@testable import MCPummelchenModServerCore
 
 #if os(Linux)
 import Glibc
@@ -10,8 +10,8 @@ import Glibc
 import Darwin
 #endif
 
-@Suite("Pummelchen read-only server API")
-struct PummelchenServerCoreTests {
+@Suite("MCPummelchenModServer API")
+struct MCPummelchenModServerCoreTests {
     @Test("serves current release identical to static JSON")
     func servesCurrentRelease() throws {
         let fixture = try makeProjectFixture()
@@ -688,8 +688,8 @@ struct PummelchenServerCoreTests {
         #expect(preflight.requiresQUICDatagrams)
         #expect(preflight.requiresResetStreamAt)
 
-        let readyAPI = PummelchenServerAPI(
-            config: PummelchenServerConfig(
+        let readyAPI = MCPummelchenModServerAPI(
+            config: MCPummelchenModServerConfig(
                 projectRoot: fixture.root,
                 duckDBURL: fixture.root.appendingPathComponent("data/test-phase8-webtransport-ready.duckdb"),
                 clientAPIToken: "phase8-token",
@@ -1019,7 +1019,7 @@ struct PummelchenServerCoreTests {
 
     private func makeProjectFixture() throws -> (root: URL, currentReleaseJSON: String, manifestTSV: String) {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("pummelchen-server-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("MCPummelchenModServer-\(UUID().uuidString)", isDirectory: true)
         let releaseID = "release_20260612_V6_modernarch-refresh"
         let downloads = root.appendingPathComponent("site/public/downloads", isDirectory: true)
         let releaseDir = downloads.appendingPathComponent("releases/\(releaseID)", isDirectory: true)
@@ -1091,8 +1091,8 @@ struct PummelchenServerCoreTests {
         fixture: (root: URL, currentReleaseJSON: String, manifestTSV: String),
         token: String? = nil,
         maxWritePayloadBytes: Int = 256 * 1024
-    ) -> PummelchenServerAPI {
-        PummelchenServerAPI(config: PummelchenServerConfig(
+    ) -> MCPummelchenModServerAPI {
+        MCPummelchenModServerAPI(config: MCPummelchenModServerConfig(
             projectRoot: fixture.root,
             duckDBURL: fixture.root.appendingPathComponent("data/test-phase6.duckdb"),
             clientAPIToken: token,
@@ -1183,7 +1183,7 @@ struct PummelchenServerCoreTests {
         if process.terminationStatus != 0 {
             let error = String(decoding: errorPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             throw NSError(
-                domain: "PummelchenServerCoreTests",
+                domain: "MCPummelchenModServerCoreTests",
                 code: Int(process.terminationStatus),
                 userInfo: [NSLocalizedDescriptionKey: error]
             )
@@ -1330,13 +1330,13 @@ final class LocalHTTPServer {
 }
 
 final class APIRouterHTTPServer: @unchecked Sendable {
-    let api: PummelchenServerAPI
+    let api: MCPummelchenModServerAPI
     let port: Int
     private var socketFD: Int32 = -1
     private var thread: Thread?
     private var running = false
 
-    init(api: PummelchenServerAPI) {
+    init(api: MCPummelchenModServerAPI) {
         self.api = api
         self.port = Int.random(in: 29_000...39_000)
     }

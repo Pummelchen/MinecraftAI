@@ -3,18 +3,18 @@
 import PackageDescription
 
 let package = Package(
-    name: "PummelchenServer",
+    name: "MCPummelchenModServer",
     platforms: [
         .macOS("26.0")
     ],
     products: [
         .library(
-            name: "PummelchenServerCore",
-            targets: ["PummelchenServerCore"]
+            name: "MCPummelchenModServerCore",
+            targets: ["MCPummelchenModServerCore"]
         ),
         .executable(
-            name: "pummelchen-server",
-            targets: ["PummelchenServer"]
+            name: "MCPummelchenModServer",
+            targets: ["MCPummelchenModServer"]
         ),
         .executable(
             name: "pummelchen-duckdb",
@@ -36,7 +36,7 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "PummelchenServerCore",
+            name: "MCPummelchenModServerCore",
             dependencies: [
                 .product(name: "PummelchenCore", package: "PummelchenShared"),
                 .product(name: "HTTP3", package: "Quiver"),
@@ -46,9 +46,9 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "PummelchenServer",
+            name: "MCPummelchenModServer",
             dependencies: [
-                "PummelchenServerCore",
+                "MCPummelchenModServerCore",
                 .product(name: "PummelchenCore", package: "PummelchenShared")
             ]
         ),
@@ -72,9 +72,9 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "PummelchenServerTests",
+            name: "MCPummelchenModServerTests",
             dependencies: [
-                "PummelchenServerCore",
+                "MCPummelchenModServerCore",
                 .product(name: "PummelchenCore", package: "PummelchenShared"),
                 .product(name: "PummelchenClientCore", package: "PummelchenClient")
             ],

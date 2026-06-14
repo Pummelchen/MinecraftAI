@@ -7,7 +7,7 @@ struct CoreUtilityTests {
     @Test("server defaults disable Physics Mod Pro collapse")
     func disablesPhysicsModProCollapse() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("pummelchen-server-defaults-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("MCPummelchenModServer-defaults-\(UUID().uuidString)", isDirectory: true)
         let config = root.appendingPathComponent("config/physicsmod/physics_server_config.json")
         try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }

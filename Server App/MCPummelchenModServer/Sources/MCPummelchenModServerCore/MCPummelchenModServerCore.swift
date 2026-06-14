@@ -2,7 +2,7 @@ import Foundation
 import PummelchenCore
 import QUICCrypto
 
-public enum PummelchenServerError: Error, CustomStringConvertible {
+public enum MCPummelchenModServerError: Error, CustomStringConvertible {
     case badRequest(String)
     case unauthorized(String)
     case payloadTooLarge(Int)
@@ -63,7 +63,7 @@ public struct HTTPResponse: Equatable, Sendable {
     }
 }
 
-public struct PummelchenServerConfig: Sendable {
+public struct MCPummelchenModServerConfig: Sendable {
     public let projectRoot: URL
     public let bindHost: String
     public let port: Int
@@ -136,15 +136,15 @@ public struct ServerStatusPayload: Codable, Equatable, Sendable {
     }
 }
 
-public final class PummelchenServerAPI: @unchecked Sendable {
-    private let config: PummelchenServerConfig
+public final class MCPummelchenModServerAPI: @unchecked Sendable {
+    private let config: MCPummelchenModServerConfig
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let store: ServerClientReportStore
     private let controlStore: ControlEventStore
     private let liveStats: LiveStatsProvider
 
-    public init(config: PummelchenServerConfig) {
+    public init(config: MCPummelchenModServerConfig) {
         self.config = config
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -208,19 +208,19 @@ public final class PummelchenServerAPI: @unchecked Sendable {
                 if let releaseID = releaseManifestID(from: request.path) {
                     return try manifest(releaseID: releaseID)
                 }
-                throw PummelchenServerError.notFound(request.path)
+                throw MCPummelchenModServerError.notFound(request.path)
             default:
-                throw PummelchenServerError.methodNotAllowed
+                throw MCPummelchenModServerError.methodNotAllowed
             }
-        } catch PummelchenServerError.unauthorized(let message) {
+        } catch MCPummelchenModServerError.unauthorized(let message) {
             return errorResponse(status: 401, message: message)
-        } catch PummelchenServerError.payloadTooLarge(let size) {
+        } catch MCPummelchenModServerError.payloadTooLarge(let size) {
             return errorResponse(status: 413, message: "payload too large: \(size) bytes")
-        } catch PummelchenServerError.methodNotAllowed {
+        } catch MCPummelchenModServerError.methodNotAllowed {
             return errorResponse(status: 405, message: "method not allowed")
-        } catch PummelchenServerError.notFound(let message) {
+        } catch MCPummelchenModServerError.notFound(let message) {
             return errorResponse(status: 404, message: message)
-        } catch PummelchenServerError.badRequest(let message) {
+        } catch MCPummelchenModServerError.badRequest(let message) {
             return errorResponse(status: 400, message: message)
         } catch ContractValidationError.invalid(let message) {
             return errorResponse(status: 400, message: message)
@@ -242,7 +242,7 @@ public final class PummelchenServerAPI: @unchecked Sendable {
             apiVersion: "v1",
             serverTime: Self.isoNow(),
             requestID: UUID().uuidString,
-            service: "PummelchenServer",
+            service: "MCPummelchenModServer",
             mode: config.clientAPIToken == nil ? "read_only" : "phase6_writes_enabled",
             projectRoot: config.projectRoot.path,
             currentReleaseID: release?.releaseID,
@@ -276,7 +276,7 @@ public final class PummelchenServerAPI: @unchecked Sendable {
     private func siteJSON(named filename: String) throws -> HTTPResponse {
         guard filename.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "." }),
               filename.hasSuffix(".json") else {
-            throw PummelchenServerError.badRequest("invalid site JSON filename")
+            throw MCPummelchenModServerError.badRequest("invalid site JSON filename")
         }
         let data = try Data(contentsOf: config.projectRoot.appendingPathComponent("site/public/\(filename)"))
         _ = try JSONSerialization.jsonObject(with: data)
@@ -306,7 +306,7 @@ public final class PummelchenServerAPI: @unchecked Sendable {
             return left > right
         }
         object["generated_at"] = Self.isoNow()
-        object["generated_by"] = "pummelchen-swift-server-duckdb-live"
+        object["generated_by"] = "MCPummelchenModServer-duckdb-live"
         object["cutoff_days"] = object["cutoff_days"] ?? 30
         object["total_entries"] = updates.count
         object["updates"] = updates
@@ -523,27 +523,27 @@ public final class PummelchenServerAPI: @unchecked Sendable {
     private func decodeBody<T: Decodable>(_ request: HTTPRequest) throws -> T {
         try requirePayloadLimit(request)
         guard !request.body.isEmpty else {
-            throw PummelchenServerError.badRequest("JSON body is required")
+            throw MCPummelchenModServerError.badRequest("JSON body is required")
         }
         do {
             return try decoder.decode(T.self, from: request.body)
         } catch {
-            throw PummelchenServerError.badRequest("invalid JSON body: \(error)")
+            throw MCPummelchenModServerError.badRequest("invalid JSON body: \(error)")
         }
     }
 
     private func requirePayloadLimit(_ request: HTTPRequest) throws {
         if request.body.count > config.maxWritePayloadBytes {
-            throw PummelchenServerError.payloadTooLarge(request.body.count)
+            throw MCPummelchenModServerError.payloadTooLarge(request.body.count)
         }
     }
 
     private func requireAuthorized(_ request: HTTPRequest) throws {
         guard let expected = config.clientAPIToken, !expected.isEmpty else {
-            throw PummelchenServerError.unauthorized("client write API token is not configured")
+            throw MCPummelchenModServerError.unauthorized("client write API token is not configured")
         }
         guard Self.constantTimeEquals(request.headers["authorization"] ?? "", "Bearer \(expected)") else {
-            throw PummelchenServerError.unauthorized("invalid client API token")
+            throw MCPummelchenModServerError.unauthorized("invalid client API token")
         }
     }
 
@@ -551,7 +551,7 @@ public final class PummelchenServerAPI: @unchecked Sendable {
         let trimmed = bodyClientID.trimmingCharacters(in: .whitespacesAndNewlines)
         try ContractValidation.requireClientID(trimmed)
         if let header, !header.isEmpty, header.trimmingCharacters(in: .whitespacesAndNewlines) != trimmed {
-            throw PummelchenServerError.unauthorized("client id header does not match payload")
+            throw MCPummelchenModServerError.unauthorized("client id header does not match payload")
         }
     }
 
@@ -727,7 +727,7 @@ public final class PummelchenServerAPI: @unchecked Sendable {
     }
 }
 
-public typealias PummelchenReadOnlyAPI = PummelchenServerAPI
+public typealias MCPummelchenModReadOnlyAPI = MCPummelchenModServerAPI
 
 public struct ServerClientReportStore: Sendable {
     public let databaseURL: URL
