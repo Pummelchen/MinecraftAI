@@ -163,7 +163,11 @@ public struct ClientSyncEngine: Sendable {
             let syncMessage = downloaded == 0
                 ? (defaultsChanged ? "files synced; client defaults need attention" : "all synced, no downloads required")
                 : "synced after \(downloaded) download(s)"
-            let message = [syncMessage, selfUpdateMessage].compactMap(\.self).joined(separator: "; ")
+            let cleanupMessages = [
+                staleRemoved > 0 ? "removed \(staleRemoved) stale managed file(s)" : nil,
+                unmanagedMoved > 0 ? "quarantined \(unmanagedMoved) unmanaged file(s)" : nil
+            ].compactMap(\.self)
+            let message = ([syncMessage] + cleanupMessages + [selfUpdateMessage]).compactMap(\.self).joined(separator: "; ")
             let result = ClientSyncResult(
                 runID: runID,
                 startedAt: Self.iso(started),

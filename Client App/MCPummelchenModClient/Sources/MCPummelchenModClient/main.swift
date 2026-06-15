@@ -15,6 +15,7 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
 
     private var configuration: ClientStatusConfiguration
     private var controlTask: Task<Void, Never>?
+    private var startupSyncAttempted = false
 
     init(configuration: ClientStatusConfiguration) {
         self.configuration = configuration
@@ -35,6 +36,7 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
             await MainActor.run {
                 self.snapshot = next
                 self.isRefreshing = false
+                self.syncOnStartupIfNeeded(snapshot: next)
             }
         }
     }
@@ -158,6 +160,18 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
             clientAPIToken: configuration.clientAPIToken,
             retryPolicy: configuration.retryPolicy
         )
+    }
+
+    private func syncOnStartupIfNeeded(snapshot: ClientStatusSnapshot) {
+        guard !startupSyncAttempted, !isSyncing else {
+            return
+        }
+        guard snapshot.state == .updateAvailable || snapshot.state == .repairNeeded else {
+            return
+        }
+        startupSyncAttempted = true
+        syncMessage = "Auto-sync started to repair local files before Minecraft launch."
+        syncNow()
     }
 }
 
