@@ -244,8 +244,16 @@ public struct ClientSyncEngine: Sendable {
     private func fetchCurrentRelease() async throws -> CurrentRelease {
         if let token = configuration.clientAPIToken, !token.isEmpty {
             let clientID = Self.validClientID(configuration.clientID ?? Host.current().localizedName)
-            return try await requireWebTransportChannel(token: token, clientID: clientID).currentRelease()
+            do {
+                return try await requireWebTransportChannel(token: token, clientID: clientID).currentRelease()
+            } catch {
+                try? store.recordClientState(key: "last_webtransport_release_error", value: String(describing: error))
+            }
         }
+        return try await fetchCurrentReleaseFromDownloads()
+    }
+
+    private func fetchCurrentReleaseFromDownloads() async throws -> CurrentRelease {
         let url = configuration.serverURL.appendingPathComponent("downloads/current-release.json")
         let data: Data
         do {
@@ -562,10 +570,10 @@ public struct ClientSyncEngine: Sendable {
         )
     }
 
-    private static func minecraftIsRunning() -> Bool {
+    public static func minecraftIsRunning() -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        process.arguments = ["-f", "net\\.minecraft\\.client|com\\.mojang|Minecraft Launcher|Minecraft\\.app|minecraft\\.launcher"]
+        process.arguments = ["-f", "net\\.minecraft\\.client\\.main\\.Main|net\\.neoforged\\.fml\\.startup\\.Client|Minecraft\\.app/Contents/MacOS/Minecraft"]
         process.standardOutput = Pipe()
         process.standardError = Pipe()
         try? process.run()

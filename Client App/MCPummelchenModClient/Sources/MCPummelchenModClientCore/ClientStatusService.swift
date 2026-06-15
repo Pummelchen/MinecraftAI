@@ -357,17 +357,6 @@ public struct ClientStatusService: Sendable {
     }
 
     private func fetchCurrentRelease() async throws -> CurrentRelease {
-        if let token = configuration.clientAPIToken, !token.isEmpty {
-            let preflight = try await fetchWebTransportPreflight()
-            guard preflight.ready else {
-                throw ContractValidationError.invalid(preflight.unsupportedReason ?? "WebTransport preflight is not ready")
-            }
-            return try await ClientWebTransportControlChannel(
-                preflight: preflight,
-                clientID: Self.validClientID(configuration.clientID),
-                clientAPIToken: token
-            ).currentRelease()
-        }
         return try await fetchCurrentReleaseFromNginx()
     }
 

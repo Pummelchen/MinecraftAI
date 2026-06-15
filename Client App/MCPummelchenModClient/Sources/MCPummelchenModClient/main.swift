@@ -15,6 +15,7 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
 
     private var configuration: ClientStatusConfiguration
     private var controlTask: Task<Void, Never>?
+    private var minecraftCloseRetryTask: Task<Void, Never>?
     private var startupSyncAttempted = false
 
     init(configuration: ClientStatusConfiguration) {
@@ -24,6 +25,7 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
 
     deinit {
         controlTask?.cancel()
+        minecraftCloseRetryTask?.cancel()
     }
 
     func refresh() {
@@ -79,7 +81,12 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
                 }
             } catch {
                 await MainActor.run {
-                    self.syncMessage = "Sync failed: \(error)"
+                    if case ClientSyncError.minecraftRunning = error {
+                        self.syncMessage = "Minecraft is running. Close Minecraft; sync will continue automatically."
+                        self.scheduleSyncAfterMinecraftCloses()
+                    } else {
+                        self.syncMessage = "Sync failed: \(error)"
+                    }
                     self.isSyncing = false
                     self.refresh()
                 }
@@ -172,6 +179,26 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
         startupSyncAttempted = true
         syncMessage = "Auto-sync started to repair local files before Minecraft launch."
         syncNow()
+    }
+
+    private func scheduleSyncAfterMinecraftCloses() {
+        guard minecraftCloseRetryTask == nil else {
+            return
+        }
+        let model = self
+        minecraftCloseRetryTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                if !ClientSyncEngine.minecraftIsRunning() {
+                    await MainActor.run {
+                        model.minecraftCloseRetryTask = nil
+                        model.syncMessage = "Minecraft closed. Continuing sync now."
+                        model.syncNow()
+                    }
+                    return
+                }
+            }
+        }
     }
 }
 

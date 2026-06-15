@@ -37,7 +37,7 @@ run_webtransport_live_test() {
     local before_json="$BUILD_DIR/webtransport-live-before.json"
     local after_event_id=""
     curl -sk --max-time 15 "${token_header[@]}" \
-        "$SERVER_URL/api/v1/control/events?client_id=$client_id&limit=1" > "$before_json"
+        "$SERVER_URL/api/v1/control/events?client_id=$client_id&limit=200" > "$before_json"
     after_event_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("next_after_event_id") or "")' "$before_json")"
     local event_json
     event_json="$(CLIENT_ID="$client_id" python3 - <<'PY'
@@ -77,7 +77,8 @@ PY
         --pummelchen-home "$work/home" \
         --db "$work/home/client.duckdb" \
         --client-id "$client_id" \
-        --max-cycles 1 \
+        --client-api-token "$CLIENT_API_TOKEN" \
+        --max-cycles 3 \
         --allow-while-running \
         --no-report \
         --skip-java-repair
@@ -85,7 +86,20 @@ PY
     if [[ -n "$after_event_id" ]]; then
         watch_args+=(--after-event-id "$after_event_id")
     fi
-    "$MACOS_DIR/pummelchen-client-sync" "${watch_args[@]}" > "$BUILD_DIR/webtransport-live-test.log"
+    "$MACOS_DIR/pummelchen-client-sync" "${watch_args[@]}" > "$BUILD_DIR/webtransport-live-test.log" &
+    local watch_pid=$!
+    local elapsed=0
+    while kill -0 "$watch_pid" 2>/dev/null && [[ "$elapsed" -lt 45 ]]; do
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+    if kill -0 "$watch_pid" 2>/dev/null; then
+        kill "$watch_pid" 2>/dev/null || true
+        wait "$watch_pid" 2>/dev/null || true
+        echo "DMG validation failed: WebTransport probe timed out" >&2
+        exit 1
+    fi
+    wait "$watch_pid"
 
     if ! grep -q "Events handled: 1" "$BUILD_DIR/webtransport-live-test.log"; then
         echo "DMG validation failed: WebTransport probe event was not fetched" >&2

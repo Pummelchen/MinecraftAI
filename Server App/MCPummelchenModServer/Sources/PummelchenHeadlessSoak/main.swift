@@ -449,7 +449,7 @@ struct HeadlessSoakRunner {
         if let token = config.clientAPIToken, !token.isEmpty {
             args.append(contentsOf: ["--client-api-token", token])
         } else {
-            args.append("--no-report")
+            args.append(contentsOf: ["--no-client-api-token", "--no-report"])
         }
         return try runProcess(executable: syncBinary.path, arguments: args, timeoutSeconds: 900, environment: [:])
     }
