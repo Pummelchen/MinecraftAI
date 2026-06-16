@@ -177,3 +177,25 @@ extension Varint: Comparable {
         lhs.value < rhs.value
     }
 }
+
+// MARK: - Convenience Static Methods
+
+extension Varint {
+    /// Encode a UInt64 value as a varint.
+    public static func encode(_ value: UInt64) -> Data {
+        return Varint(value).encode()
+    }
+
+    /// Decode a varint at the given offset in data.
+    /// Returns (value, bytes consumed) or nil if not enough data.
+    public static func decode(_ data: Data, offset: Int) -> (UInt64, Int)? {
+        guard offset < data.count else { return nil }
+        let subdata = data[data.startIndex.advanced(by: offset)...]
+        do {
+            let (varint, consumed) = try Varint.decode(from: Data(subdata))
+            return (varint.value, consumed)
+        } catch {
+            return nil
+        }
+    }
+}
