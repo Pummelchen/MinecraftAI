@@ -18,10 +18,10 @@ var targets: [Target] = [
         name: "MCPummelchenModClientCore",
         dependencies: [
             .product(name: "MCPummelchenModShared", package: "MCPummelchenModShared"),
-            .product(name: "HTTP3", package: "Quiver"),
-            .product(name: "QUIC", package: "Quiver"),
-            .product(name: "QUICCore", package: "Quiver"),
-            .product(name: "QUICCrypto", package: "Quiver")
+            .product(name: "PummelchenHTTP3", package: "PummelchenTransport"),
+            .product(name: "PummelchenQuic", package: "PummelchenTransport"),
+            .product(name: "PummelchenQuicCore", package: "PummelchenTransport"),
+            .product(name: "PummelchenQuicCrypto", package: "PummelchenTransport")
         ]
     ),
     .executableTarget(
@@ -60,7 +60,7 @@ let package = Package(
     products: products,
     dependencies: [
         .package(path: "../../Server App/MCPummelchenModShared"),
-        .package(path: "../../Server App/Vendor/Quiver")
+        .package(path: "../../Server App/Vendor/PummelchenTransport")
     ],
     targets: targets
 )

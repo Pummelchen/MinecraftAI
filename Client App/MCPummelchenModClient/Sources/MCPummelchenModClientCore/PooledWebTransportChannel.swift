@@ -9,20 +9,34 @@ import MCPummelchenModShared
 import PummelchenQuic
 import PummelchenQuicCrypto
 
-public struct ClientWebTransportControlChannel: Sendable {
+/// A persistent WebTransport channel that reuses a single QUIC connection
+/// across multiple control requests. Reconnects automatically on failure
+/// or after the idle timeout expires.
+actor PooledWebTransportChannel {
     private static let maxControlPayloadBytes = 512 * 1024
+    private let idleTimeout: TimeInterval = 40
 
-    public let preflight: WebTransportPreflightPayload
-    public let clientID: String
-    public let clientAPIToken: String
+    private let preflightProvider: @Sendable () async throws -> WebTransportPreflightPayload
+    private let clientID: String
+    private let clientAPIToken: String
 
-    public init(preflight: WebTransportPreflightPayload, clientID: String, clientAPIToken: String) {
-        self.preflight = preflight
+    private var endpoint: QUICEndpoint?
+    private var connection: (any QUICConnectionProtocol)?
+    private var client: WebTransportClient?
+    private var session: WebTransportSession?
+    private var lastUsed: Date = .distantPast
+
+    init(
+        preflightProvider: @escaping @Sendable () async throws -> WebTransportPreflightPayload,
+        clientID: String,
+        clientAPIToken: String
+    ) {
+        self.preflightProvider = preflightProvider
         self.clientID = clientID
         self.clientAPIToken = clientAPIToken
     }
 
-    public func fetchEvents(afterEventID: String? = nil, limit: Int = 50) async throws -> ControlEventBatch {
+    func fetchEvents(afterEventID: String? = nil, limit: Int = 50) async throws -> ControlEventBatch {
         let response = try await send(WebTransportControlRequest(
             action: "fetch_events",
             clientID: clientID,
@@ -36,20 +50,7 @@ public struct ClientWebTransportControlChannel: Sendable {
         throw ContractValidationError.invalid(response.error ?? "WebTransport fetch_events returned no batch")
     }
 
-    public func currentRelease() async throws -> CurrentRelease {
-        let response = try await send(WebTransportControlRequest(
-            action: "current_release",
-            clientID: clientID,
-            clientAPIToken: clientAPIToken
-        ))
-        guard let release = response.currentRelease else {
-            throw ContractValidationError.invalid(response.error ?? "WebTransport current_release returned no release")
-        }
-        try CurrentReleaseValidator.validate(release)
-        return release
-    }
-
-    public func acknowledge(_ event: ControlEvent) async throws {
+    func acknowledge(_ event: ControlEvent) async throws {
         let response = try await send(WebTransportControlRequest(
             action: "ack_event",
             clientID: clientID,
@@ -62,19 +63,20 @@ public struct ClientWebTransportControlChannel: Sendable {
         }
     }
 
-    public func register(_ payload: ClientRegistrationRequest) async throws -> ClientWriteAck {
-        try await write(
-            action: "register_client",
-            request: WebTransportControlRequest(
-                action: "register_client",
-                clientID: clientID,
-                clientAPIToken: clientAPIToken,
-                registration: payload
-            )
-        )
+    func currentRelease() async throws -> CurrentRelease {
+        let response = try await send(WebTransportControlRequest(
+            action: "current_release",
+            clientID: clientID,
+            clientAPIToken: clientAPIToken
+        ))
+        guard let release = response.currentRelease else {
+            throw ContractValidationError.invalid(response.error ?? "WebTransport current_release returned no release")
+        }
+        try CurrentReleaseValidator.validate(release)
+        return release
     }
 
-    public func reportStatus(_ payload: ClientStatusReport, action: String = "status_report") async throws -> ClientWriteAck {
+    func reportStatus(_ payload: ClientStatusReport, action: String = "status_report") async throws -> ClientWriteAck {
         try await write(
             action: action,
             request: WebTransportControlRequest(
@@ -86,7 +88,7 @@ public struct ClientWebTransportControlChannel: Sendable {
         )
     }
 
-    public func uploadInventory(_ payload: ClientInventoryUpload) async throws -> ClientWriteAck {
+    func uploadInventory(_ payload: ClientInventoryUpload) async throws -> ClientWriteAck {
         try await write(
             action: "inventory_upload",
             request: WebTransportControlRequest(
@@ -98,19 +100,7 @@ public struct ClientWebTransportControlChannel: Sendable {
         )
     }
 
-    public func uploadDiagnostics(_ payload: ClientDiagnosticsUpload) async throws -> ClientWriteAck {
-        try await write(
-            action: "diagnostics_upload",
-            request: WebTransportControlRequest(
-                action: "diagnostics_upload",
-                clientID: clientID,
-                clientAPIToken: clientAPIToken,
-                diagnostics: payload
-            )
-        )
-    }
-
-    public func uploadDefaultsEvents(_ payload: ClientDefaultsEventUpload) async throws -> ClientWriteAck {
+    func uploadDefaultsEvents(_ payload: ClientDefaultsEventUpload) async throws -> ClientWriteAck {
         try await write(
             action: "defaults_events_upload",
             request: WebTransportControlRequest(
@@ -122,6 +112,20 @@ public struct ClientWebTransportControlChannel: Sendable {
         )
     }
 
+    func teardown() async {
+        try? await session?.close()
+        session = nil
+        await client?.close()
+        client = nil
+        await connection?.close(error: nil)
+        connection = nil
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        await endpoint?.stop()
+        endpoint = nil
+    }
+
+    // MARK: - Private
+
     private func write(action: String, request: WebTransportControlRequest) async throws -> ClientWriteAck {
         let response = try await send(request)
         if let ack = response.ack {
@@ -131,6 +135,38 @@ public struct ClientWebTransportControlChannel: Sendable {
     }
 
     private func send(_ request: WebTransportControlRequest) async throws -> WebTransportControlResponse {
+        if Date().timeIntervalSince(lastUsed) > idleTimeout {
+            await teardown()
+        }
+
+        if session == nil {
+            try await establishConnection()
+        }
+
+        lastUsed = Date()
+
+        do {
+            let stream = try await session!.openBidirectionalStream()
+            try await stream.write(JSONEncoder().encode(request))
+            try await stream.closeWrite()
+            let data = try await readAll(from: stream)
+            let response = try JSONDecoder().decode(WebTransportControlResponse.self, from: data)
+            if !response.ok {
+                throw ContractValidationError.invalid(response.error ?? "WebTransport control request failed")
+            }
+            return response
+        } catch {
+            await teardown()
+            throw error
+        }
+    }
+
+    private func establishConnection() async throws {
+        let preflight = try await preflightProvider()
+        guard preflight.ready else {
+            throw ContractValidationError.invalid(preflight.unsupportedReason ?? "WebTransport is not ready")
+        }
+
         guard let url = URL(string: preflight.sessionURL),
               let host = url.host(),
               let port = url.port else {
@@ -173,16 +209,16 @@ public struct ClientWebTransportControlChannel: Sendable {
         quic.maxDatagramFrameSize = 65_535
 
         let dialHost = try Self.resolveDialHost(host)
-        let endpoint = QUICEndpoint(configuration: quic)
-        var endpointStopped = false
+        let newEndpoint = QUICEndpoint(configuration: quic)
+
         do {
-            let connection = try await endpoint.dial(
+            let newConnection = try await newEndpoint.dial(
                 address: QUIC.SocketAddress(ipAddress: dialHost, port: UInt16(port)),
                 timeout: .seconds(10)
             )
 
-            let client = WebTransportClient(
-                quicConnection: connection,
+            let newClient = WebTransportClient(
+                quicConnection: newConnection,
                 configuration: WebTransportClient.Configuration(
                     maxSessions: 1,
                     connectionReadyTimeout: .seconds(10),
@@ -191,16 +227,15 @@ public struct ClientWebTransportControlChannel: Sendable {
             )
 
             do {
-                try await client.initialize()
+                try await newClient.initialize()
             } catch {
-                await client.close()
-                await Self.shutdown(connection: connection, endpoint: endpoint)
-                endpointStopped = true
+                await newClient.close()
+                await newEndpoint.stop()
                 throw error
             }
 
             do {
-                let session = try await client.connect(
+                let newSession = try await newClient.connect(
                     authority: authority,
                     path: path,
                     headers: [
@@ -209,47 +244,19 @@ public struct ClientWebTransportControlChannel: Sendable {
                     ]
                 )
 
-                do {
-                    let stream = try await session.openBidirectionalStream()
-                    try await stream.write(JSONEncoder().encode(request))
-                    try await stream.closeWrite()
-                    let responseData = try await readAll(from: stream)
-                    let response = try JSONDecoder().decode(WebTransportControlResponse.self, from: responseData)
-                    if !response.ok {
-                        throw ContractValidationError.invalid(response.error ?? "WebTransport control request failed")
-                    }
-                    try? await session.close()
-                    await client.close()
-                    await Self.shutdown(endpoint: endpoint)
-                    endpointStopped = true
-                    return response
-                } catch {
-                    try? await session.close()
-                    throw error
-                }
+                self.endpoint = newEndpoint
+                self.connection = newConnection
+                self.client = newClient
+                self.session = newSession
             } catch {
-                await client.close()
-                await Self.shutdown(endpoint: endpoint)
-                endpointStopped = true
+                await newClient.close()
+                await newEndpoint.stop()
                 throw error
             }
         } catch {
-            if !endpointStopped {
-                await endpoint.stop()
-            }
+            await newEndpoint.stop()
             throw error
         }
-    }
-
-    private static func shutdown(endpoint: QUICEndpoint) async {
-        try? await Task.sleep(nanoseconds: 150_000_000)
-        await endpoint.stop()
-    }
-
-    private static func shutdown(connection: any QUICConnectionProtocol, endpoint: QUICEndpoint) async {
-        await connection.close(error: nil)
-        try? await Task.sleep(nanoseconds: 150_000_000)
-        await endpoint.stop()
     }
 
     private func readAll(from stream: WebTransportStream) async throws -> Data {
@@ -279,13 +286,13 @@ public struct ClientWebTransportControlChannel: Sendable {
 
         var hints = addrinfo()
         hints.ai_family = AF_UNSPEC
-        hints.ai_socktype = Self.datagramSocketType()
-        hints.ai_protocol = Self.udpProtocol()
+        hints.ai_socktype = SOCK_DGRAM
+        hints.ai_protocol = IPPROTO_UDP
         hints.ai_flags = AI_ADDRCONFIG
         var result: UnsafeMutablePointer<addrinfo>?
         let status = getaddrinfo(host, nil, &hints, &result)
         guard status == 0, let first = result else {
-            throw ContractValidationError.invalid("failed to resolve WebTransport host \(host): \(String(cString: gai_strerror(status)))")
+            throw ContractValidationError.invalid("failed to resolve host \(host): \(String(cString: gai_strerror(status)))")
         }
         defer { freeaddrinfo(result) }
 
@@ -304,7 +311,7 @@ public struct ClientWebTransportControlChannel: Sendable {
 
         let chosen = ipv4Candidate ?? ipv6Candidate
         guard let selected = chosen else {
-            throw ContractValidationError.invalid("no usable address found for WebTransport host \(host)")
+            throw ContractValidationError.invalid("no usable address found for host \(host)")
         }
 
         let family = selected.pointee.ai_addr.pointee.sa_family
@@ -331,21 +338,5 @@ public struct ClientWebTransportControlChannel: Sendable {
             let length = address.firstIndex(of: 0) ?? address.count
             return String(decoding: address[..<length].map { UInt8(bitPattern: $0) }, as: UTF8.self)
         }
-    }
-
-    private static func datagramSocketType() -> Int32 {
-        #if canImport(Glibc)
-        Int32(SOCK_DGRAM.rawValue)
-        #else
-        Int32(SOCK_DGRAM)
-        #endif
-    }
-
-    private static func udpProtocol() -> Int32 {
-        #if canImport(Glibc)
-        Int32(IPPROTO_UDP)
-        #else
-        Int32(IPPROTO_UDP)
-        #endif
     }
 }

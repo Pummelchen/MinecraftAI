@@ -32,17 +32,17 @@ let package = Package(
     dependencies: [
         .package(path: "../MCPummelchenModShared"),
         .package(path: "../../Client App/MCPummelchenModClient"),
-        .package(path: "../Vendor/Quiver")
+        .package(path: "../Vendor/PummelchenTransport")
     ],
     targets: [
         .target(
             name: "MCPummelchenModServerCore",
             dependencies: [
                 .product(name: "MCPummelchenModShared", package: "MCPummelchenModShared"),
-                .product(name: "HTTP3", package: "Quiver"),
-                .product(name: "QUIC", package: "Quiver"),
-                .product(name: "QUICCore", package: "Quiver"),
-                .product(name: "QUICCrypto", package: "Quiver")
+                .product(name: "PummelchenHTTP3", package: "PummelchenTransport"),
+                .product(name: "PummelchenQuic", package: "PummelchenTransport"),
+                .product(name: "PummelchenQuicCore", package: "PummelchenTransport"),
+                .product(name: "PummelchenQuicCrypto", package: "PummelchenTransport")
             ]
         ),
         .executableTarget(

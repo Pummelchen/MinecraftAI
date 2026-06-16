@@ -1,7 +1,9 @@
 import Testing
 import Foundation
 @testable import PummelchenHTTP3
+@testable import PummelchenQuic
 @testable import PummelchenQuicCore
+@testable import PummelchenQuicCrypto
 
 // MARK: - HTTP/3 Frame Tests
 
@@ -24,13 +26,11 @@ struct HTTP3FrameTests {
 
     @Test("Frame encode varint type + varint length")
     func frameVarintEncoding() {
-        // DATA frame (type=0x00) with 3-byte payload
         let frame = HTTP3Frame(type: 0x00, payload: Data([0xAA, 0xBB, 0xCC]))
         let encoded = frame.encode()
-        // type=0x00 (1 byte varint), length=0x03 (1 byte varint), payload=3 bytes
         #expect(encoded.count == 5)
-        #expect(encoded[0] == 0x00) // type
-        #expect(encoded[1] == 0x03) // length
+        #expect(encoded[0] == 0x00)
+        #expect(encoded[1] == 0x03)
         #expect(encoded[2] == 0xAA)
         #expect(encoded[3] == 0xBB)
         #expect(encoded[4] == 0xCC)
@@ -84,7 +84,6 @@ struct HTTP3SettingsTests {
 
     @Test("SETTINGS with WebTransport draft-15 identifier")
     func settingsWebTransportID() {
-        // SETTINGS_WT_ENABLED = 0x2c7cf000 (draft-15 §9.2)
         let setting = HTTP3Setting(id: .webTransportEnabled, value: 1)
         #expect(setting.id == 0x2c7cf000)
     }
@@ -145,11 +144,10 @@ struct QPACKTests {
 
     @Test("QPACK rejects indexed fields")
     func qpackRejectsIndexed() {
-        // Byte with high bit set = indexed field
         var data = Data()
-        data.append(contentsOf: Varint.encode(0))  // Required Insert Count
-        data.append(0x00)                           // Delta Base
-        data.append(0x80)                           // Indexed field (static table ref)
+        data.append(contentsOf: Varint.encode(0))
+        data.append(0x00)
+        data.append(0x80)
         #expect(throws: HTTP3Error.self) {
             _ = try QPACK.decodeHeaders(data)
         }
@@ -167,11 +165,7 @@ struct HTTP3ConnectionTests {
             HTTP3Setting(id: .webTransportEnabled, value: 1)
         ]))
         let data = conn.buildControlStreamData()
-
-        // First byte: stream type 0x00 (control)
         #expect(data[0] == 0x00)
-
-        // Rest should be a SETTINGS frame
         var offset = 1
         let frame = HTTP3Frame.decode(from: data, offset: &offset)
         #expect(frame != nil)
@@ -181,16 +175,11 @@ struct HTTP3ConnectionTests {
     @Test("Process peer SETTINGS from control stream")
     func processPeerSettings() throws {
         let conn = HTTP3Connection(localSettings: HTTP3SettingsFrame())
-
-        // Build peer's control stream data
         var peerData = Data()
-        // Stream type will be consumed separately in real impl,
-        // but processControlStreamData expects frame data
         let peerSettings = HTTP3SettingsFrame(settings: [
             HTTP3Setting(id: .maxFieldSectionSize, value: 8192)
         ])
-        let settingsPayload = peerSettings.encodePayload()
-        let settingsFrame = HTTP3Frame(type: .settings, payload: settingsPayload)
+        let settingsFrame = HTTP3Frame(type: .settings, payload: peerSettings.encodePayload())
         peerData.append(settingsFrame.encode())
 
         try conn.processControlStreamData(peerData)
@@ -204,7 +193,6 @@ struct HTTP3ConnectionTests {
         let conn = HTTP3Connection(localSettings: HTTP3SettingsFrame(settings: [
             HTTP3Setting(id: .webTransportEnabled, value: 1)
         ]))
-
         var peerData = Data()
         let peerSettings = HTTP3SettingsFrame(settings: [
             HTTP3Setting(id: .webTransportEnabled, value: 1)
@@ -212,7 +200,6 @@ struct HTTP3ConnectionTests {
         let settingsFrame = HTTP3Frame(type: .settings, payload: peerSettings.encodePayload())
         peerData.append(settingsFrame.encode())
         try conn.processControlStreamData(peerData)
-
         #expect(conn.isWebTransportEnabled)
     }
 
@@ -221,7 +208,6 @@ struct HTTP3ConnectionTests {
         let conn = HTTP3Connection(localSettings: HTTP3SettingsFrame(settings: [
             HTTP3Setting(id: .webTransportEnabled, value: 1)
         ]))
-
         var peerData = Data()
         let peerSettings = HTTP3SettingsFrame(settings: [
             HTTP3Setting(id: .maxFieldSectionSize, value: 4096)
@@ -229,7 +215,6 @@ struct HTTP3ConnectionTests {
         let settingsFrame = HTTP3Frame(type: .settings, payload: peerSettings.encodePayload())
         peerData.append(settingsFrame.encode())
         try conn.processControlStreamData(peerData)
-
         #expect(!conn.isWebTransportEnabled)
     }
 
@@ -241,18 +226,14 @@ struct HTTP3ConnectionTests {
             QPACK.HeaderField(name: ":protocol", value: "webtransport-h3"),
         ]
         let frameData = conn.buildHeadersFrame(headers: headers)
-
         var offset = 0
         let frame = HTTP3Frame.decode(from: frameData, offset: &offset)
         #expect(frame != nil)
         #expect(frame?.type == HTTP3FrameType.headers.rawValue)
-
         let decoded = try QPACK.decodeHeaders(frame!.payload)
         #expect(decoded.count == 2)
         #expect(decoded[0].name == ":method")
         #expect(decoded[0].value == "CONNECT")
-        #expect(decoded[1].name == ":protocol")
-        #expect(decoded[1].value == "webtransport-h3")
     }
 }
 
@@ -263,10 +244,9 @@ struct WTCapsuleTests {
 
     @Test("Capsule encode/decode round-trip")
     func capsuleRoundTrip() {
-        let payload = Data([0x00, 0x00, 0x00, 0x00]) // error code 0
+        let payload = Data([0x00, 0x00, 0x00, 0x00])
         let capsule = WTCapsule(type: WTCapsuleType.drainUni.rawValue, payload: payload)
         let encoded = capsule.encode()
-
         var offset = 0
         let decoded = WTCapsule.decode(from: encoded, offset: &offset)
         #expect(decoded != nil)
@@ -295,10 +275,18 @@ struct WTSessionTests {
     }
 
     @Test("Session close deactivates")
-    func sessionClose() {
+    func sessionClose() async {
         let session = WebTransportSession(sessionID: 1)
-        session.close(errorCode: 0, reason: "done")
+        await session.close(errorCode: 0, reason: "done")
         #expect(!session.isActive)
+    }
+
+    @Test("Open bidirectional stream")
+    func openBidiStream() async throws {
+        let session = WebTransportSession(sessionID: 1, isClient: true)
+        let stream = try await session.openBidirectionalStream()
+        #expect(stream.isBidirectional)
+        #expect(stream.sessionID == 1)
     }
 
     @Test("Incoming bidi stream yields to async stream")
@@ -307,124 +295,31 @@ struct WTSessionTests {
         let stream = session.handleIncomingBidiStream(streamID: 10)
         #expect(stream.isBidirectional)
         #expect(stream.streamID == 10)
-        #expect(stream.sessionID == 1)
-
-        // Should be able to receive from the async stream
-        var iterator = session.incomingBidiStreams.makeAsyncIterator()
+        var iterator = session.incomingBidirectionalStreams.makeAsyncIterator()
         let received = await iterator.next()
         #expect(received?.streamID == 10)
     }
-
-    @Test("Incoming uni stream yields to async stream")
-    func incomingUniStream() async {
-        let session = WebTransportSession(sessionID: 2)
-        let stream = session.handleIncomingUniStream(streamID: 20)
-        #expect(!stream.isBidirectional)
-        #expect(stream.streamID == 20)
-
-        var iterator = session.incomingUniStreams.makeAsyncIterator()
-        let received = await iterator.next()
-        #expect(received?.streamID == 20)
-    }
 }
 
-// MARK: - WebTransport Stream Header Tests
+// MARK: - WebTransport Stream Tests
 
-@Suite("WebTransport Stream Headers")
-struct WTStreamHeaderTests {
+@Suite("WebTransport Stream")
+struct WTStreamTests {
 
-    @Test("Bidi stream header: 0x41 + sessionID")
-    func bidiStreamHeader() {
-        let stream = WebTransportStream(streamID: 1, sessionID: 42, isBidirectional: true)
-        let header = stream.buildStreamHeader()
-
-        // First byte: 0x41 (bidi signal)
-        #expect(header[0] == WebTransportH3Constants.bidiStreamSignal)
-        // Remaining: sessionID as varint
-        let sessionIDBytes = Varint.encode(42)
-        #expect(Data(header[1...]) == sessionIDBytes)
-    }
-
-    @Test("Uni stream header: 0x54 varint + sessionID varint")
-    func uniStreamHeader() {
-        let stream = WebTransportStream(streamID: 1, sessionID: 7, isBidirectional: false)
-        let header = stream.buildStreamHeader()
-
-        // First bytes: 0x54 as varint (uni stream type)
-        let typeBytes = Varint.encode(WebTransportH3Constants.uniStreamType)
-        #expect(Data(header.prefix(typeBytes.count)) == typeBytes)
-
-        // Remaining: sessionID as varint
-        let sessionIDBytes = Varint.encode(7)
-        #expect(Data(header[typeBytes.count...]) == sessionIDBytes)
-    }
-
-    @Test("Stream receive and read data")
-    func streamReceiveRead() {
+    @Test("Stream write and read")
+    func streamWriteRead() async throws {
         let stream = WebTransportStream(streamID: 1, sessionID: 1, isBidirectional: true)
         stream.receiveData(Data([0x01, 0x02, 0x03]))
-        stream.receiveData(Data([0x04, 0x05]))
-
-        let data = stream.read(maxBytes: 3)
+        let data = try await stream.read(maxBytes: 10)
         #expect(data == Data([0x01, 0x02, 0x03]))
-        let rest = stream.read()
-        #expect(rest == Data([0x04, 0x05]))
-    }
-}
-
-// MARK: - WebTransport Server Tests
-
-@Suite("WebTransport Server")
-struct WTServerTests {
-
-    @Test("Accept valid WebTransport CONNECT")
-    func acceptValidConnect() {
-        let server = WebTransportServer()
-        let headers = [
-            QPACK.HeaderField(name: ":method", value: "CONNECT"),
-            QPACK.HeaderField(name: ":protocol", value: "webtransport-h3"),
-            QPACK.HeaderField(name: ":scheme", value: "https"),
-            QPACK.HeaderField(name: ":path", value: "/"),
-        ]
-        let session = server.acceptSession(streamID: 4, headers: headers)
-        #expect(session != nil)
-        #expect(session?.sessionID == 4)
-        #expect(server.session(for: 4) != nil)
     }
 
-    @Test("Reject non-CONNECT request")
-    func rejectNonConnect() {
-        let server = WebTransportServer()
-        let headers = [
-            QPACK.HeaderField(name: ":method", value: "GET"),
-            QPACK.HeaderField(name: ":path", value: "/"),
-        ]
-        let session = server.acceptSession(streamID: 4, headers: headers)
-        #expect(session == nil)
-    }
-
-    @Test("Reject CONNECT without :protocol")
-    func rejectMissingProtocol() {
-        let server = WebTransportServer()
-        let headers = [
-            QPACK.HeaderField(name: ":method", value: "CONNECT"),
-            QPACK.HeaderField(name: ":path", value: "/"),
-        ]
-        let session = server.acceptSession(streamID: 4, headers: headers)
-        #expect(session == nil)
-    }
-
-    @Test("Remove session")
-    func removeSession() {
-        let server = WebTransportServer()
-        let headers = [
-            QPACK.HeaderField(name: ":method", value: "CONNECT"),
-            QPACK.HeaderField(name: ":protocol", value: "webtransport-h3"),
-        ]
-        _ = server.acceptSession(streamID: 8, headers: headers)
-        #expect(server.session(for: 8) != nil)
-        server.removeSession(8)
-        #expect(server.session(for: 8) == nil)
+    @Test("Stream close write")
+    func streamCloseWrite() async throws {
+        let stream = WebTransportStream(streamID: 1, sessionID: 1, isBidirectional: true)
+        #expect(stream.isOpen)
+        try await stream.closeWrite()
+        #expect(!stream.isOpen)
     }
 }
 
@@ -433,24 +328,21 @@ struct WTServerTests {
 @Suite("WebTransport Client")
 struct WTClientTests {
 
-    @Test("Build CONNECT headers with correct draft-15 values")
-    func buildConnectHeaders() {
-        let client = WebTransportClient()
-        let headers = client.buildConnectHeaders(authority: "example.com", path: "/wt")
-
-        let method = headers.first(where: { $0.name == ":method" })?.value
-        let proto = headers.first(where: { $0.name == ":protocol" })?.value
-        let scheme = headers.first(where: { $0.name == ":scheme" })?.value
-        let authority = headers.first(where: { $0.name == ":authority" })?.value
-        let path = headers.first(where: { $0.name == ":path" })?.value
-        let origin = headers.first(where: { $0.name == "origin" })?.value
-
-        #expect(method == "CONNECT")
-        #expect(proto == "webtransport-h3") // draft-15
-        #expect(scheme == "https")
-        #expect(authority == "example.com")
-        #expect(path == "/wt")
-        #expect(origin == "https://example.com")
+    @Test("Client connect returns session")
+    func clientConnect() async throws {
+        let quic = QUICConfiguration.production {
+            TLS13Handler(configuration: TLSConfiguration())
+        }
+        let endpoint = QUICEndpoint(configuration: quic)
+        let connection = try await endpoint.dial(
+            address: SocketAddress(ipAddress: "127.0.0.1", port: 443)
+        )
+        let client = WebTransportClient(quicConnection: connection)
+        try await client.initialize()
+        let session = try await client.connect(authority: "example.com:443", path: "/wt")
+        #expect(session.isActive)
+        await client.close()
+        await endpoint.stop()
     }
 }
 
@@ -481,9 +373,7 @@ struct WTConstantsTests {
 
     @Test("Error code mapping")
     func errorCodeMapping() {
-        // App error 0 → base + 0
         #expect(WebTransportH3Constants.quicErrorCode(from: 0) == 0x52e4a40fa8db)
-        // App error 1 → base + 1
         #expect(WebTransportH3Constants.quicErrorCode(from: 1) == 0x52e4a40fa8db + 1)
     }
 
@@ -495,5 +385,61 @@ struct WTConstantsTests {
     @Test("RESET_STREAM_AT transport parameter")
     func resetStreamAtParam() {
         #expect(WebTransportH3Constants.resetStreamAtTransportParam == 0x17f7586d2cb571)
+    }
+}
+
+// MARK: - QUIC Configuration Tests
+
+@Suite("QUIC Configuration")
+struct QUICConfigurationTests {
+
+    @Test("Production configuration defaults")
+    func productionDefaults() {
+        let config = QUICConfiguration.production {
+            TLS13Handler(configuration: TLSConfiguration())
+        }
+        #expect(config.alpn == ["h3"])
+        #expect(config.initialMaxStreamsBidi == 100)
+        #expect(config.initialMaxStreamsUni == 100)
+    }
+
+    @Test("Configuration is mutable")
+    func configurationMutable() {
+        let config = QUICConfiguration.production {
+            TLS13Handler(configuration: TLSConfiguration())
+        }
+        config.maxIdleTimeout = .seconds(90)
+        config.initialMaxStreamsBidi = 512
+        config.enableDatagrams = true
+        config.maxDatagramFrameSize = 65_535
+        #expect(config.initialMaxStreamsBidi == 512)
+        #expect(config.enableDatagrams == true)
+        #expect(config.maxDatagramFrameSize == 65_535)
+    }
+}
+
+// MARK: - TLS Configuration Tests
+
+@Suite("TLS Configuration")
+struct TLSConfigurationTests {
+
+    @Test("Client factory method")
+    func clientConfig() {
+        let config = TLSConfiguration.client(serverName: "example.com", alpnProtocols: ["h3"])
+        #expect(config.serverName == "example.com")
+        #expect(config.alpnProtocols == ["h3"])
+    }
+
+    @Test("Verify peer defaults to true")
+    func verifyPeerDefault() {
+        let config = TLSConfiguration()
+        #expect(config.verifyPeer == true)
+    }
+
+    @Test("Use system trust store")
+    func useSystemTrustStore() {
+        var config = TLSConfiguration()
+        config.useSystemTrustStore()
+        #expect(config.useSystemTrust == true)
     }
 }

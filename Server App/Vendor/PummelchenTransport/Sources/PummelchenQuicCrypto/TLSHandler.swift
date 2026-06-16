@@ -28,8 +28,29 @@ public struct TLSConfiguration: Sendable {
     /// Local QUIC transport parameters (encoded)
     public var transportParameters: Data
 
-    /// Whether to verify peer certificates
-    public var verifyPeerCertificate: Bool
+    /// Whether to verify peer certificates (Quiver-compatible name)
+    public var verifyPeer: Bool
+
+    /// Alias for verifyPeer
+    public var verifyPeerCertificate: Bool {
+        get { verifyPeer }
+        set { verifyPeer = newValue }
+    }
+
+    /// Whether to allow self-signed certificates
+    public var allowSelfSigned: Bool = false
+
+    /// Expected peer public key (for pinning)
+    public var expectedPeerPublicKey: Data?
+
+    /// Whether to use system trust store for verification
+    public var useSystemTrust: Bool = false
+
+    /// Certificate file path (server mode, for lazy loading)
+    public var certificatePath: String?
+
+    /// Private key file path (server mode, for lazy loading)
+    public var privateKeyPath: String?
 
     public init(
         serverName: String? = nil,
@@ -44,9 +65,49 @@ public struct TLSConfiguration: Sendable {
         self.certificateChain = certificateChain
         self.signingPrivateKey = signingPrivateKey
         self.transportParameters = transportParameters
-        self.verifyPeerCertificate = verifyPeerCertificate
+        self.verifyPeer = verifyPeerCertificate
+    }
+
+    /// Create a server TLS configuration from certificate and key file paths.
+    public static func server(
+        certificatePath: String,
+        privateKeyPath: String,
+        alpnProtocols: [String] = ["h3"]
+    ) throws -> TLSConfiguration {
+        var config = TLSConfiguration(alpnProtocols: alpnProtocols)
+        config.certificatePath = certificatePath
+        config.privateKeyPath = privateKeyPath
+        // Load certificates eagerly
+        config.certificateChain = try PEMLoader.loadCertificates(fromPath: certificatePath)
+        let signingKey = try PEMLoader.loadPrivateKey(fromPath: privateKeyPath)
+        config.signingPrivateKey = Self.extractRawKey(signingKey)
+        return config
+    }
+
+    /// Create a client TLS configuration.
+    public static func client(
+        serverName: String,
+        alpnProtocols: [String] = ["h3"]
+    ) -> TLSConfiguration {
+        TLSConfiguration(serverName: serverName, alpnProtocols: alpnProtocols)
+    }
+
+    /// Use the system trust store for certificate verification.
+    public mutating func useSystemTrustStore() {
+        useSystemTrust = true
+    }
+
+    private static func extractRawKey(_ key: SigningKey) -> Data {
+        switch key {
+        case .p256(let k): return k.rawRepresentation
+        case .p384(let k): return k.rawRepresentation
+        case .ed25519(let k): return k.rawRepresentation
+        }
     }
 }
+
+/// Type alias for Quiver compatibility: `TLS13Handler(configuration:)`
+public typealias TLS13Handler = TLSHandler
 
 // MARK: - TLS Handshake Result
 
@@ -114,6 +175,12 @@ public final class TLSHandler: @unchecked Sendable {
     public init(configuration: TLSConfiguration, isClient: Bool) {
         self.configuration = configuration
         self.isClient = isClient
+    }
+
+    /// Quiver-compatible: auto-detects client/server from config.
+    public convenience init(configuration: TLSConfiguration) {
+        // If certificateChain is populated, assume server mode
+        self.init(configuration: configuration, isClient: configuration.certificateChain.isEmpty)
     }
 
     // MARK: - Public API

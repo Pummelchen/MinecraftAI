@@ -9,18 +9,20 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
     @Published var snapshot: ClientStatusSnapshot?
     @Published var isRefreshing = false
     @Published var isSyncing = false
-    @Published var rowsRepairing = Set<String>()
     @Published var syncMessage: String?
     @Published var controlMessage: String?
+    let appVersion: String
 
     private var configuration: ClientStatusConfiguration
     private var controlTask: Task<Void, Never>?
     private var minecraftCloseRetryTask: Task<Void, Never>?
     private var startupSyncAttempted = false
+    private let retryTracker = DefaultsRetryTracker()
 
     init(configuration: ClientStatusConfiguration) {
         self.configuration = configuration
         self.serverURL = configuration.serverURL.absoluteString
+        self.appVersion = Self.appVersion()
     }
 
     deinit {
@@ -34,7 +36,7 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
         let config = configuration
         Task {
             let service = ClientStatusService(configuration: config)
-            let next = await service.checkAndRecord()
+            let next = await service.checkAndRecord(retryTracker: retryTracker)
             await MainActor.run {
                 self.snapshot = next
                 self.isRefreshing = false
@@ -90,32 +92,6 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
                     self.isSyncing = false
                     self.refresh()
                 }
-            }
-        }
-    }
-
-    func repair(rowID: String) {
-        guard !rowsRepairing.contains(rowID) else {
-            return
-        }
-        guard let snapshot else {
-            syncMessage = "No status snapshot is available."
-            return
-        }
-        guard snapshot.defaultsHealth.contains(where: { $0.id == rowID && $0.status.isActionable }) else {
-            syncMessage = "Selected row is not actionable."
-            return
-        }
-
-        rowsRepairing.insert(rowID)
-        let config = configuration
-        Task {
-            let repaired = await ClientStatusService(configuration: config).checkAndRecord(rowIDsToRepair: [rowID])
-            await MainActor.run {
-                self.snapshot = repaired
-                self.rowsRepairing.remove(rowID)
-                self.syncMessage = repaired.errorMessage == nil ? "Row fix completed: \(rowID)" : repaired.errorMessage
-                self.refresh()
             }
         }
     }
@@ -200,16 +176,30 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
             }
         }
     }
+
+    private static func appVersion() -> String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+            ?? "dev"
+    }
 }
 
 struct PummelchenStatusView: View {
     @ObservedObject var model: ClientStatusModel
 
+    private var clientIPText: String { model.snapshot?.clientIP ?? "unknown" }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("MCPummelchenModClient")
+                    HStack(spacing: 6) {
+                        Text("MCPummelchenModClient \(model.appVersion)")
+                        Text("Client IP: \(clientIPText)")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                         .font(.title.bold())
                     Text("Read-only sync status")
                         .foregroundStyle(.secondary)
@@ -329,51 +319,61 @@ struct PummelchenStatusView: View {
 
     private func defaultsTable(_ rows: [ClientDefaultHealthRow]) -> some View {
         Table(rows) {
-            TableColumn("Status") { row in
+            TableColumn("Configuration") { row in
+                Text(row.label)
+            }
+            TableColumn("Requirement") { row in
+                Text(row.desiredValue)
+                    .lineLimit(2)
+            }
+            TableColumn("Status Check") { row in
                 HStack(spacing: 8) {
                     Circle()
                         .fill(color(for: row.status))
                         .frame(width: 8, height: 8)
-                    Text(row.status.displayValue)
+                    Text(observedStatus(for: row.status))
                         .foregroundStyle(color(for: row.status))
+                        .lineLimit(2)
                 }
             }
             TableColumn("Recommended Action") { row in
-                Text(row.recommendedAction)
+                Text(actionText(for: row))
                     .lineLimit(2)
-            }
-            TableColumn("Default") { row in
-                Text(row.label)
-            }
-            TableColumn("Desired") { row in
-                Text(row.desiredValue)
-                    .lineLimit(2)
-            }
-            TableColumn("Observed") { row in
-                Text(row.observedValue)
-                    .lineLimit(2)
-            }
-            TableColumn("Source") { row in
-                Text(row.source)
-                    .foregroundStyle(.secondary)
-            }
-            TableColumn("Fix") { row in
-                Button("Fix") {
-                    model.repair(rowID: row.id)
-                }
-                .disabled(!row.status.isActionable || model.rowsRepairing.contains(row.id) || model.isSyncing || model.isRefreshing)
-                .controlSize(.small)
             }
         }
         .frame(minHeight: 230)
     }
 
+    private func actionText(for row: ClientDefaultHealthRow) -> String {
+        if row.status == .pass {
+            return "No action required"
+        }
+        if row.status == .testing {
+            return "Reading local state"
+        }
+        if row.status == .repairing {
+            return "Repairing"
+        }
+        if row.status == .fixedOK {
+            return "Auto repair succeeded"
+        }
+        if row.status == .fixedFailed {
+            return "Auto repair failed; retry or review logs"
+        }
+
+        if !row.recommendedAction.isEmpty {
+            return row.recommendedAction
+        }
+
+        if row.id.hasPrefix("config/") {
+            return "Apply managed \(row.label)"
+        }
+
+        return "Apply managed default"
+    }
+
     private func footer(_ snapshot: ClientStatusSnapshot) -> some View {
-        let clientIPText = snapshot.clientIP ?? "unknown"
         return VStack(alignment: .leading, spacing: 5) {
-            Text("Minecraft: \(snapshot.minecraftDirectory)")
-            Text("Local DuckDB: \(snapshot.localDatabase)")
-            Text("Client IP: \(clientIPText)")
             if let error = snapshot.errorMessage {
                 Text(error)
                     .foregroundStyle(.red)
@@ -446,6 +446,10 @@ struct PummelchenStatusView: View {
         }
     }
 
+    private func observedStatus(for status: ClientDefaultStatus) -> String {
+        status.displayValue
+    }
+
     private func summaryText(_ snapshot: ClientStatusSnapshot) -> String {
         switch snapshot.state {
         case .synced:
@@ -473,7 +477,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "MCPummelchenModClient"
+        window.title = "MCPummelchenModClient \(model.appVersion)"
         window.center()
         window.contentView = NSHostingView(rootView: view)
         window.makeKeyAndOrderFront(nil)
@@ -485,11 +489,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+// MARK: - Single-Instance Guard
+
+/// Uses a POSIX file lock so a second launch activates the running instance and exits.
+final class SingleInstanceLock {
+    private let lockFilePath: URL
+    private var fileDescriptor: Int32 = -1
+
+    init(name: String) {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("Pummelchen", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        self.lockFilePath = dir.appendingPathComponent("\(name).lock")
+    }
+
+    /// Returns `true` if this process acquired the lock (sole instance).
+    /// Returns `false` if another instance already holds it.
+    func acquire() -> Bool {
+        let path = lockFilePath.path
+        fileDescriptor = open(path, O_CREAT | O_WRONLY, 0o600)
+        guard fileDescriptor >= 0 else { return false }
+        let result = flock(fileDescriptor, LOCK_EX | LOCK_NB)
+        if result != 0 {
+            close(fileDescriptor)
+            fileDescriptor = -1
+            return false
+        }
+        let pidData = Data("\(ProcessInfo.processInfo.processIdentifier)\n".utf8)
+        _ = pidData.withUnsafeBytes { ptr in
+            write(fileDescriptor, ptr.baseAddress!, ptr.count)
+        }
+        return true
+    }
+
+    deinit {
+        if fileDescriptor >= 0 {
+            flock(fileDescriptor, LOCK_UN)
+            close(fileDescriptor)
+        }
+    }
+}
+
+private func activateExistingInstance() {
+    guard let bundleID = Bundle.main.bundleIdentifier else { return }
+    let existing = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+    for app in existing where app.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+        app.activate(options: [.activateAllWindows])
+        return
+    }
+}
+
 @main
 struct MCPummelchenModClientMain {
     static func main() {
         if CommandLine.arguments.contains("--once") {
             runOnce()
+            return
+        }
+
+        let instanceLock = SingleInstanceLock(name: "MCPummelchenModClient")
+        if !instanceLock.acquire() {
+            activateExistingInstance()
             return
         }
 

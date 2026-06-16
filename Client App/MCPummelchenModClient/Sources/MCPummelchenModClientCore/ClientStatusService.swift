@@ -135,15 +135,19 @@ public struct ClientStatusService: Sendable {
     public let configuration: ClientStatusConfiguration
     public let store: ClientStatusStore
     private let http: ClientHTTPClient
+    private let probeHTTP: ClientHTTPClient
 
     public init(configuration: ClientStatusConfiguration) {
         self.configuration = configuration
         self.store = ClientStatusStore(databaseURL: configuration.databaseURL)
         self.http = ClientHTTPClient(retryPolicy: configuration.retryPolicy)
+        self.probeHTTP = ClientHTTPClient(
+            retryPolicy: ClientHTTPRetryPolicy(maxAttempts: 1, requestTimeoutSeconds: 5)
+        )
     }
 
-    public func checkAndRecord(rowIDsToRepair: Set<String>? = nil) async -> ClientStatusSnapshot {
-        let snapshot = await check(rowIDsToRepair: rowIDsToRepair)
+    public func checkAndRecord(rowIDsToRepair: Set<String>? = nil, retryTracker: DefaultsRetryTracker? = nil) async -> ClientStatusSnapshot {
+        let snapshot = await check(rowIDsToRepair: rowIDsToRepair, retryTracker: retryTracker)
         do {
             try store.record(snapshot: snapshot)
         } catch {
@@ -169,19 +173,43 @@ public struct ClientStatusService: Sendable {
         return await check(rowIDsToRepair: nil)
     }
 
-    public func check(rowIDsToRepair: Set<String>? = nil) async -> ClientStatusSnapshot {
+    public func check(rowIDsToRepair: Set<String>? = nil, retryTracker: DefaultsRetryTracker? = nil) async -> ClientStatusSnapshot {
         let checkedAt = Self.isoNow()
         let localRelease = readInstalledRelease()
         let clientIP = Self.currentLocalIPAddress()
         let defaults = await defaultsForStatus()
         let inspectedDefaults = ClientDefaultsInspector.inspect(minecraftDirectory: configuration.minecraftDirectory, defaults: defaults)
+
+        let effectiveRowIDs: Set<String>?
+        if let tracker = retryTracker, rowIDsToRepair == nil {
+            var actionableIDs: [String] = []
+            for row in inspectedDefaults where row.status.isActionable {
+                if await tracker.shouldRetry(rowID: row.id) {
+                    actionableIDs.append(row.id)
+                }
+            }
+            effectiveRowIDs = Set(actionableIDs)
+        } else {
+            effectiveRowIDs = rowIDsToRepair
+        }
+
         let repaired = await ClientDefaultsRepairCoordinator(maxAttempts: 2).repairDefaults(
             defaults: defaults,
             rows: inspectedDefaults,
             minecraftDirectory: configuration.minecraftDirectory,
             pummelchenHome: configuration.pummelchenHome,
-            rowIDs: rowIDsToRepair
+            rowIDs: effectiveRowIDs
         )
+
+        if let tracker = retryTracker {
+            for attempt in repaired.attempts {
+                if attempt.statusAfter == .fixedFailed {
+                    await tracker.recordFailure(rowID: attempt.rowID)
+                } else if attempt.statusAfter == .fixedOK {
+                    await tracker.recordSuccess(rowID: attempt.rowID)
+                }
+            }
+        }
 
         if !repaired.failedAttempts.isEmpty {
             await reportDefaultsRepairDiagnostics(failedAttempts: repaired.failedAttempts, clientIP: clientIP)
@@ -365,10 +393,10 @@ public struct ClientStatusService: Sendable {
             let probe = try await measure {
                 _ = try await fetchCurrentReleaseFromNginx()
             }
-            return endpointStatus(label: "Downloads", latencyMS: probe.latencyMS, checkedAt: checkedAt)
+            return endpointStatus(label: "Mod Download Server", latencyMS: probe.latencyMS, checkedAt: checkedAt)
         } catch {
             return EndpointConnectionStatus(
-                label: "Downloads",
+                label: "Mod Download Server",
                 state: .cannotConnect,
                 latencyMS: nil,
                 message: String(describing: error),
@@ -379,7 +407,6 @@ public struct ClientStatusService: Sendable {
 
     private func fetchCurrentReleaseFromNginx() async throws -> CurrentRelease {
         let url = configuration.serverURL.appendingPathComponent("downloads/current-release.json")
-        let probeHTTP = ClientHTTPClient(retryPolicy: ClientHTTPRetryPolicy(maxAttempts: 1, requestTimeoutSeconds: 5))
         let data: Data
         do {
             data = try await probeHTTP.data(from: url)
@@ -399,7 +426,7 @@ public struct ClientStatusService: Sendable {
             }
             guard preflightProbe.value.ready else {
                 return EndpointConnectionStatus(
-                    label: "Live Updates",
+                    label: "Live Update Server",
                     state: .cannotConnect,
                     latencyMS: preflightProbe.latencyMS,
                     message: preflightProbe.value.unsupportedReason ?? "live update connection is not ready",
@@ -408,7 +435,7 @@ public struct ClientStatusService: Sendable {
             }
             guard let token = configuration.clientAPIToken, !token.isEmpty else {
                 return EndpointConnectionStatus(
-                    label: "Live Updates",
+                    label: "Live Update Server",
                     state: .degraded,
                     latencyMS: preflightProbe.latencyMS,
                     message: "ready, client credentials unavailable",
@@ -422,10 +449,10 @@ public struct ClientStatusService: Sendable {
                     clientAPIToken: token
                 ).fetchEvents(limit: 1)
             }
-            return endpointStatus(label: "Live Updates", latencyMS: sessionProbe.latencyMS, checkedAt: checkedAt)
+            return endpointStatus(label: "Live Update Server", latencyMS: sessionProbe.latencyMS, checkedAt: checkedAt)
         } catch {
             return EndpointConnectionStatus(
-                label: "Live Updates",
+                label: "Live Update Server",
                 state: .cannotConnect,
                 latencyMS: nil,
                 message: String(describing: error),
@@ -436,7 +463,6 @@ public struct ClientStatusService: Sendable {
 
     private func fetchWebTransportPreflight() async throws -> WebTransportPreflightPayload {
         let url = configuration.serverURL.appendingPathComponent("api/v1/transport/webtransport/preflight")
-        let probeHTTP = ClientHTTPClient(retryPolicy: ClientHTTPRetryPolicy(maxAttempts: 1, requestTimeoutSeconds: 5))
         let data = try await probeHTTP.data(from: url)
         return try JSONDecoder().decode(WebTransportPreflightPayload.self, from: data)
     }

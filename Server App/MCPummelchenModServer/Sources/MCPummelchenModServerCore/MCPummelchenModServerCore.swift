@@ -1,6 +1,6 @@
 import Foundation
 import MCPummelchenModShared
-import QUICCrypto
+import PummelchenQuicCrypto
 
 public enum MCPummelchenModServerError: Error, CustomStringConvertible {
     case badRequest(String)

@@ -1,8 +1,8 @@
 import Foundation
-import HTTP3
+import PummelchenHTTP3
 import MCPummelchenModShared
-import QUIC
-import QUICCrypto
+import PummelchenQuic
+import PummelchenQuicCrypto
 
 public struct PummelchenWebTransportServiceConfig: Sendable {
     public static let defaultMaxControlPayloadBytes = 512 * 1024

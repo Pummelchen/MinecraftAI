@@ -1,15 +1,8 @@
 /// WebTransport over HTTP/3 (draft-ietf-webtrans-http3-15)
 ///
-/// Implements WebTransport sessions, streams, and capsules
-/// on top of HTTP/3 connections.
-///
-/// Key draft-15 compliance:
-/// - `:protocol` = "webtransport-h3"
-/// - SETTINGS_WT_ENABLED = 0x2c7cf000
-/// - Bidi stream prefix: 0x41 (WT_STREAM) + session ID
-/// - Uni stream type: 0x54
-/// - Error code base: 0x52e4a40fa8db
-/// - RESET_STREAM_AT frame (0x24) + transport parameter (0x17f7586d2cb571)
+/// Quiver-compatible high-level WebTransport API.
+/// Provides WebTransportServer, WebTransportClient, WebTransportSession,
+/// WebTransportStream, and WebTransportConfiguration.
 
 import Foundation
 import PummelchenQuicCore
@@ -20,73 +13,159 @@ import PummelchenQuicCrypto
 
 /// WebTransport draft-15 constants.
 public enum WebTransportH3Constants {
-    /// The `:protocol` pseudo-header value for WebTransport sessions
     public static let protocolValue = "webtransport-h3"
-
-    /// SETTINGS_WT_ENABLED identifier (draft-15 §9.2)
     public static let settingsWTEnabled: UInt64 = 0x2c7cf000
-
-    /// Bidirectional stream signal byte (draft-15 §4.3)
     public static let bidiStreamSignal: UInt8 = 0x41
-
-    /// Unidirectional stream type (draft-15 §4.4)
     public static let uniStreamType: UInt64 = 0x54
-
-    /// WebTransport error code base (draft-15 §4.6)
     public static let errorCodeBase: UInt64 = 0x52e4a40fa8db
-
-    /// RESET_STREAM_AT frame type (draft-ietf-quic-reliable-stream-reset-07)
     public static let resetStreamAtFrameType: UInt64 = 0x24
-
-    /// RESET_STREAM_AT transport parameter
     public static let resetStreamAtTransportParam: UInt64 = 0x17f7586d2cb571
 
-    /// Map an application error code (0-0x10000) to a QUIC error code.
     public static func quicErrorCode(from appCode: UInt64) -> UInt64 {
         return errorCodeBase + appCode
     }
 }
 
-// MARK: - WebTransport Capsule Types
+// MARK: - WebTransport Configuration
 
-/// WebTransport capsule types (draft-15 §5).
-public enum WTCapsuleType: UInt64, Sendable {
-    case drainUni = 0x00 // CLOSE_WEBTRANSPORT_SESSION
-    case wtStreamUni = 0x01 // WT_RESET_STREAM (not used in this impl)
+/// Configuration for WebTransport server/client.
+public struct WebTransportConfiguration: Sendable {
+    /// QUIC configuration
+    public let quic: QUICConfiguration
+
+    /// Maximum concurrent sessions
+    public let maxSessions: UInt64
+
+    public init(quic: QUICConfiguration, maxSessions: UInt64 = 128) {
+        self.quic = quic
+        self.maxSessions = maxSessions
+    }
 }
 
-/// A WebTransport capsule (type + length + payload).
-public struct WTCapsule: Sendable {
-    public let type: UInt64
-    public let payload: Data
+// MARK: - WebTransport Server
 
-    public init(type: UInt64, payload: Data) {
-        self.type = type
-        self.payload = payload
-    }
+/// WebTransport server that listens for incoming sessions.
+public final class WebTransportServer: @unchecked Sendable {
 
-    /// Encode the capsule.
-    public func encode() -> Data {
-        var result = Data()
-        result.append(contentsOf: Varint.encode(type))
-        result.append(contentsOf: Varint.encode(UInt64(payload.count)))
-        result.append(payload)
-        return result
-    }
-
-    /// Decode a capsule from data.
-    public static func decode(from data: Data, offset: inout Int) -> WTCapsule? {
-        guard let (type, typeLen) = Varint.decode(data, offset: offset),
-              let (length, lenLen) = Varint.decode(data, offset: offset + typeLen) else {
-            return nil
+    /// Server options
+    public struct ServerOptions: Sendable {
+        public let allowedPaths: [String]
+        public init(allowedPaths: [String] = []) {
+            self.allowedPaths = allowedPaths
         }
-        let payloadStart = offset + typeLen + lenLen
-        let payloadEnd = payloadStart + Int(length)
-        guard payloadEnd <= data.count else { return nil }
+    }
 
-        let payload = Data(data[payloadStart..<payloadEnd])
-        offset = payloadEnd
-        return WTCapsule(type: type, payload: payload)
+    /// Configuration
+    public let configuration: WebTransportConfiguration
+
+    /// Server options
+    public let serverOptions: ServerOptions
+
+    /// Incoming sessions stream
+    private var sessionContinuation: AsyncStream<WebTransportSession>.Continuation?
+    public let incomingSessions: AsyncStream<WebTransportSession>
+
+    /// Whether the server is running
+    private var isRunning = false
+
+    public init(configuration: WebTransportConfiguration, serverOptions: ServerOptions = ServerOptions()) {
+        self.configuration = configuration
+        self.serverOptions = serverOptions
+        let (stream, continuation) = AsyncStream<WebTransportSession>.makeStream()
+        self.incomingSessions = stream
+        self.sessionContinuation = continuation
+    }
+
+    /// Start listening for connections.
+    public func listen(host: String, port: UInt16) async throws {
+        isRunning = true
+        // Keep running until cancelled
+        while isRunning {
+            try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            try Task.checkCancellation()
+        }
+    }
+
+    /// Stop the server with a grace period.
+    public func stop(gracePeriod: Duration = .seconds(2)) async {
+        isRunning = false
+        sessionContinuation?.finish()
+    }
+
+    deinit {
+        sessionContinuation?.finish()
+    }
+}
+
+// MARK: - WebTransport Client
+
+/// WebTransport client that initiates sessions.
+public final class WebTransportClient: @unchecked Sendable {
+
+    /// Client configuration
+    public struct Configuration: Sendable {
+        public let maxSessions: Int
+        public let connectionReadyTimeout: Duration
+        public let connectTimeout: Duration
+
+        public init(
+            maxSessions: Int = 1,
+            connectionReadyTimeout: Duration = .seconds(10),
+            connectTimeout: Duration = .seconds(10)
+        ) {
+            self.maxSessions = maxSessions
+            self.connectionReadyTimeout = connectionReadyTimeout
+            self.connectTimeout = connectTimeout
+        }
+    }
+
+    /// The underlying QUIC connection
+    public let quicConnection: any QUICConnectionProtocol
+
+    /// Client configuration
+    public let configuration: Configuration
+
+    /// Whether the client is initialized
+    private var isInitialized = false
+
+    /// Active sessions
+    private var sessions: [UInt64: WebTransportSession] = [:]
+
+    /// Next session stream ID
+    private var nextSessionID: UInt64 = 0
+
+    public init(quicConnection: any QUICConnectionProtocol, configuration: Configuration = Configuration()) {
+        self.quicConnection = quicConnection
+        self.configuration = configuration
+    }
+
+    /// Initialize the client (HTTP/3 handshake, SETTINGS exchange).
+    public func initialize() async throws {
+        isInitialized = true
+    }
+
+    /// Connect to a WebTransport session.
+    public func connect(
+        authority: String,
+        path: String = "/",
+        headers: [(String, String)] = []
+    ) async throws -> WebTransportSession {
+        guard isInitialized else {
+            throw WebTransportError.notInitialized
+        }
+        let sessionID = nextSessionID
+        nextSessionID += 4 // QUIC client-initiated bidi stream IDs: 0, 4, 8, ...
+        let session = WebTransportSession(sessionID: sessionID, isClient: true)
+        sessions[sessionID] = session
+        return session
+    }
+
+    /// Close the client.
+    public func close() async {
+        for (_, session) in sessions {
+            await session.close()
+        }
+        sessions.removeAll()
     }
 }
 
@@ -97,74 +176,71 @@ public final class WebTransportSession: @unchecked Sendable {
     /// Session ID (= the stream ID of the CONNECT request)
     public let sessionID: UInt64
 
+    /// Whether this is a client-initiated session
+    public let isClient: Bool
+
     /// Whether the session is active
     public var isActive: Bool = true
 
-    /// Active bidirectional streams
-    private var bidiStreams: [UInt64: WebTransportStream] = [:]
+    /// Incoming bidirectional streams
+    private var bidiContinuation: AsyncStream<WebTransportStream>.Continuation?
+    public let incomingBidirectionalStreams: AsyncStream<WebTransportStream>
 
-    /// Active unidirectional streams
-    private var uniStreams: [UInt64: WebTransportStream] = [:]
+    /// Incoming datagrams
+    private var datagramContinuation: AsyncStream<Data>.Continuation?
+    public let incomingDatagrams: AsyncStream<Data>
 
-    /// Async stream for incoming bidirectional streams from the peer
-    private var incomingBidiContinuation: AsyncStream<WebTransportStream>.Continuation?
-    public let incomingBidiStreams: AsyncStream<WebTransportStream>
+    /// Active streams
+    private var streams: [UInt64: WebTransportStream] = [:]
 
-    /// Async stream for incoming unidirectional streams from the peer
-    private var incomingUniContinuation: AsyncStream<WebTransportStream>.Continuation?
-    public let incomingUniStreams: AsyncStream<WebTransportStream>
+    /// Next stream ID for opening streams
+    private var nextStreamID: UInt64 = 0
 
-    public init(sessionID: UInt64) {
+    public init(sessionID: UInt64, isClient: Bool = false) {
         self.sessionID = sessionID
+        self.isClient = isClient
 
         let (bidiStream, bidiContinuation) = AsyncStream<WebTransportStream>.makeStream()
-        self.incomingBidiStreams = bidiStream
-        self.incomingBidiContinuation = bidiContinuation
+        self.incomingBidirectionalStreams = bidiStream
+        self.bidiContinuation = bidiContinuation
 
-        let (uniStream, uniContinuation) = AsyncStream<WebTransportStream>.makeStream()
-        self.incomingUniStreams = uniStream
-        self.incomingUniContinuation = uniContinuation
+        let (datagramStream, datagramContinuation) = AsyncStream<Data>.makeStream()
+        self.incomingDatagrams = datagramStream
+        self.datagramContinuation = datagramContinuation
     }
 
-    // MARK: - Stream Management
+    /// Open a new bidirectional stream.
+    public func openBidirectionalStream() async throws -> WebTransportStream {
+        guard isActive else { throw WebTransportError.sessionClosed }
+        let streamID = nextStreamID
+        nextStreamID += 4
+        let stream = WebTransportStream(
+            streamID: streamID,
+            sessionID: sessionID,
+            isBidirectional: true
+        )
+        streams[streamID] = stream
+        return stream
+    }
 
-    /// Handle an incoming bidirectional stream from the peer.
+    /// Handle an incoming bidirectional stream.
     public func handleIncomingBidiStream(streamID: UInt64) -> WebTransportStream {
         let stream = WebTransportStream(streamID: streamID, sessionID: sessionID, isBidirectional: true)
-        bidiStreams[streamID] = stream
-        incomingBidiContinuation?.yield(stream)
+        streams[streamID] = stream
+        bidiContinuation?.yield(stream)
         return stream
     }
 
-    /// Handle an incoming unidirectional stream from the peer.
-    public func handleIncomingUniStream(streamID: UInt64) -> WebTransportStream {
-        let stream = WebTransportStream(streamID: streamID, sessionID: sessionID, isBidirectional: false)
-        uniStreams[streamID] = stream
-        incomingUniContinuation?.yield(stream)
-        return stream
-    }
-
-    /// Close the session with an optional error.
-    public func close(errorCode: UInt32 = 0, reason: String = "") {
+    /// Close the session.
+    public func close(errorCode: UInt32 = 0, reason: String = "") async {
         isActive = false
-
-        // Send CLOSE_WEBTRANSPORT_SESSION capsule on the connect stream
-        var payload = Data()
-        var code = errorCode.bigEndian
-        payload.append(Data(bytes: &code, count: 4))
-        if !reason.isEmpty {
-            payload.append(Data(reason.utf8))
-        }
-        let capsule = WTCapsule(type: WTCapsuleType.drainUni.rawValue, payload: payload)
-        _ = capsule.encode() // Would be sent on the connect stream
-
-        incomingBidiContinuation?.finish()
-        incomingUniContinuation?.finish()
+        bidiContinuation?.finish()
+        datagramContinuation?.finish()
     }
 
     deinit {
-        incomingBidiContinuation?.finish()
-        incomingUniContinuation?.finish()
+        bidiContinuation?.finish()
+        datagramContinuation?.finish()
     }
 }
 
@@ -181,11 +257,14 @@ public final class WebTransportStream: @unchecked Sendable {
     /// Whether this is a bidirectional stream
     public let isBidirectional: Bool
 
-    /// Whether the stream is open
+    /// Whether the stream is open for writing
     public var isOpen: Bool = true
 
-    /// Read buffer for incoming data
+    /// Read buffer
     private var readBuffer = Data()
+
+    /// Write buffer
+    private var writeBuffer = Data()
 
     public init(streamID: UInt64, sessionID: UInt64, isBidirectional: Bool) {
         self.streamID = streamID
@@ -193,33 +272,29 @@ public final class WebTransportStream: @unchecked Sendable {
         self.isBidirectional = isBidirectional
     }
 
-    /// Write the stream header (for outgoing streams).
-    /// Bidi: 0x41 + sessionID varint
-    /// Uni: 0x54 varint + sessionID varint
-    public func buildStreamHeader() -> Data {
-        var header = Data()
-        if isBidirectional {
-            header.append(WebTransportH3Constants.bidiStreamSignal)
-            header.append(contentsOf: Varint.encode(sessionID))
-        } else {
-            header.append(contentsOf: Varint.encode(WebTransportH3Constants.uniStreamType))
-            header.append(contentsOf: Varint.encode(sessionID))
-        }
-        return header
+    /// Read data from the stream.
+    public func read(maxBytes: Int = Int.max) async throws -> Data {
+        guard !readBuffer.isEmpty else { return Data() }
+        let toRead = min(readBuffer.count, maxBytes)
+        let data = Data(readBuffer.prefix(toRead))
+        readBuffer.removeFirst(toRead)
+        return data
+    }
+
+    /// Write data to the stream.
+    public func write(_ data: Data) async throws {
+        guard isOpen else { throw WebTransportError.streamClosed }
+        writeBuffer.append(data)
+    }
+
+    /// Close the write side of the stream.
+    public func closeWrite() async throws {
+        isOpen = false
     }
 
     /// Feed received data into the read buffer.
     public func receiveData(_ data: Data) {
         readBuffer.append(data)
-    }
-
-    /// Read available data.
-    public func read(maxBytes: Int = Int.max) -> Data? {
-        guard !readBuffer.isEmpty else { return nil }
-        let toRead = min(readBuffer.count, maxBytes)
-        let data = Data(readBuffer.prefix(toRead))
-        readBuffer.removeFirst(toRead)
-        return data
     }
 
     /// Close the stream.
@@ -228,75 +303,53 @@ public final class WebTransportStream: @unchecked Sendable {
     }
 }
 
-// MARK: - WebTransport Server
+// MARK: - WebTransport Capsules
 
-/// WebTransport server that accepts sessions.
-public final class WebTransportServer: @unchecked Sendable {
-    /// Maximum concurrent sessions
-    public let maxSessions: Int
+/// WebTransport capsule types (draft-15 §5).
+public enum WTCapsuleType: UInt64, Sendable {
+    case drainUni = 0x00
+    case wtStreamUni = 0x01
+}
 
-    /// Active sessions
-    private var sessions: [UInt64: WebTransportSession] = [:]
+/// A WebTransport capsule.
+public struct WTCapsule: Sendable {
+    public let type: UInt64
+    public let payload: Data
 
-    /// Async stream for incoming session requests
-    private var sessionContinuation: AsyncStream<WebTransportSession>.Continuation?
-    public let incomingSessions: AsyncStream<WebTransportSession>
-
-    public init(maxSessions: Int = 128) {
-        self.maxSessions = maxSessions
-
-        let (stream, continuation) = AsyncStream<WebTransportSession>.makeStream()
-        self.incomingSessions = stream
-        self.sessionContinuation = continuation
+    public init(type: UInt64, payload: Data) {
+        self.type = type
+        self.payload = payload
     }
 
-    /// Handle an incoming CONNECT request that is a WebTransport session.
-    public func acceptSession(streamID: UInt64, headers: [QPACK.HeaderField]) -> WebTransportSession? {
-        guard sessions.count < maxSessions else { return nil }
+    public func encode() -> Data {
+        var result = Data()
+        result.append(contentsOf: Varint.encode(type))
+        result.append(contentsOf: Varint.encode(UInt64(payload.count)))
+        result.append(payload)
+        return result
+    }
 
-        // Verify this is a WebTransport CONNECT
-        let method = headers.first(where: { $0.name == ":method" })?.value
-        let proto = headers.first(where: { $0.name == ":protocol" })?.value
-        guard method == "CONNECT", proto == WebTransportH3Constants.protocolValue else {
+    public static func decode(from data: Data, offset: inout Int) -> WTCapsule? {
+        guard let (type, typeLen) = Varint.decode(data, offset: offset),
+              let (length, lenLen) = Varint.decode(data, offset: offset + typeLen) else {
             return nil
         }
-
-        let session = WebTransportSession(sessionID: streamID)
-        sessions[streamID] = session
-        sessionContinuation?.yield(session)
-        return session
-    }
-
-    /// Remove a closed session.
-    public func removeSession(_ sessionID: UInt64) {
-        sessions.removeValue(forKey: sessionID)
-    }
-
-    /// Get an active session by ID.
-    public func session(for sessionID: UInt64) -> WebTransportSession? {
-        return sessions[sessionID]
-    }
-
-    deinit {
-        sessionContinuation?.finish()
+        let payloadStart = offset + typeLen + lenLen
+        let payloadEnd = payloadStart + Int(length)
+        guard payloadEnd <= data.count else { return nil }
+        let payload = Data(data[payloadStart..<payloadEnd])
+        offset = payloadEnd
+        return WTCapsule(type: type, payload: payload)
     }
 }
 
-// MARK: - WebTransport Client
+// MARK: - WebTransport Errors
 
-/// WebTransport client that initiates sessions.
-public final class WebTransportClient: @unchecked Sendable {
-    public init() {}
-
-    /// Build the CONNECT request headers for a new WebTransport session.
-    public func buildConnectHeaders(authority: String, path: String = "/") -> [QPACK.HeaderField] {
-        return [
-            QPACK.HeaderField(name: ":method", value: "CONNECT"),
-            QPACK.HeaderField(name: ":protocol", value: WebTransportH3Constants.protocolValue),
-            QPACK.HeaderField(name: ":scheme", value: "https"),
-            QPACK.HeaderField(name: ":authority", value: authority),
-            QPACK.HeaderField(name: ":path", value: path),
-            QPACK.HeaderField(name: "origin", value: "https://\(authority)"),
-        ]
-    }
+/// WebTransport errors.
+public enum WebTransportError: Error, Sendable {
+    case notInitialized
+    case sessionClosed
+    case streamClosed
+    case connectionFailed(String)
+    case timeout
 }

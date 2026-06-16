@@ -131,7 +131,6 @@ public struct ClientHTTPClient: Sendable {
         try await retrying {
             var next = request
             next.timeoutInterval = retryPolicy.requestTimeoutSeconds
-            Self.preferHTTP3(&next)
             let (data, response) = try await session.data(for: next)
             try Self.requireSuccess(response: response, url: next.url ?? URL(fileURLWithPath: "/"))
             return data
@@ -139,17 +138,7 @@ public struct ClientHTTPClient: Sendable {
     }
 
     private static func request(url: URL, timeout: TimeInterval) -> URLRequest {
-        var request = URLRequest(url: url, timeoutInterval: timeout)
-        preferHTTP3(&request)
-        return request
-    }
-
-    private static func preferHTTP3(_ request: inout URLRequest) {
-        #if os(macOS)
-        if #available(macOS 11.3, *) {
-            request.assumesHTTP3Capable = true
-        }
-        #endif
+        URLRequest(url: url, timeoutInterval: timeout)
     }
 
     private func retrying<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T) async throws -> T {

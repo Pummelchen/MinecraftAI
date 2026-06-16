@@ -6,6 +6,7 @@ public struct ClientControlWatcherResult: Equatable, Sendable {
     public let eventsHandled: Int
     public let syncsRun: Int
     public let lastEventID: String?
+    public let jitterSecondsApplied: Int
 }
 
 public struct ClientControlWatcher: Sendable {
@@ -13,17 +14,31 @@ public struct ClientControlWatcher: Sendable {
     public let waitSeconds: Int
     public let idleDelayNanoseconds: UInt64
     public let errorDelayNanoseconds: UInt64
+    public let syncJitterSeconds: Int
+    public let webTransportFailureThreshold: Int
+    public let webTransportProbeInterval: Int
 
     public init(
         syncConfiguration: ClientSyncConfiguration,
         waitSeconds: Int = 25,
         idleDelayNanoseconds: UInt64 = 700_000_000,
-        errorDelayNanoseconds: UInt64 = 3_000_000_000
+        errorDelayNanoseconds: UInt64 = 3_000_000_000,
+        syncJitterSeconds: Int = 30,
+        webTransportFailureThreshold: Int = 3,
+        webTransportProbeInterval: Int = 5
     ) {
         self.syncConfiguration = syncConfiguration
         self.waitSeconds = min(max(waitSeconds, 1), 30)
         self.idleDelayNanoseconds = idleDelayNanoseconds
         self.errorDelayNanoseconds = errorDelayNanoseconds
+        self.syncJitterSeconds = max(0, syncJitterSeconds)
+        self.webTransportFailureThreshold = max(1, webTransportFailureThreshold)
+        self.webTransportProbeInterval = max(1, webTransportProbeInterval)
+    }
+
+    private enum TransportMode {
+        case webTransport
+        case httpFallback(cyclesInFallback: Int)
     }
 
     public func run(
@@ -43,10 +58,19 @@ public struct ClientControlWatcher: Sendable {
         ))
         let store = ClientStatusStore(databaseURL: syncConfiguration.databaseURL)
 
+        let pooledChannel = PooledWebTransportChannel(
+            preflightProvider: { try await channel.webTransportPreflight() },
+            clientID: clientID,
+            clientAPIToken: token
+        )
+
         var cycles = 0
         var handled = 0
         var syncs = 0
+        var jitterApplied = 0
         var afterEventID = initialAfterEventID
+        var transportMode: TransportMode = .webTransport
+        var consecutiveWTFailures = 0
 
         while !Task.isCancelled {
             if let maxCycles, cycles >= maxCycles {
@@ -55,9 +79,34 @@ public struct ClientControlWatcher: Sendable {
             cycles += 1
 
             do {
-                let batch = try await channel.fetchEventsOverWebTransport(afterEventID: afterEventID)
-                if let protocolName = await channel.lastNegotiatedProtocol() {
-                    try? store.recordClientState(key: "last_control_network_protocol", value: protocolName)
+                let batch: ControlEventBatch
+
+                switch transportMode {
+                case .webTransport:
+                    batch = try await pooledChannel.fetchEvents(afterEventID: afterEventID)
+                    consecutiveWTFailures = 0
+                    try? store.recordClientState(key: "last_control_network_protocol", value: "webtransport-pooled")
+
+                case .httpFallback(var cyclesInFallback):
+                    cyclesInFallback += 1
+
+                    if cyclesInFallback.isMultiple(of: webTransportProbeInterval) {
+                        if let preflight = try? await channel.webTransportPreflight(), preflight.ready {
+                            log?("WebTransport recovered, switching back")
+                            transportMode = .webTransport
+                            consecutiveWTFailures = 0
+                            try? store.recordClientState(key: "last_control_transport", value: "webtransport")
+                            continue
+                        }
+                    }
+
+                    batch = try await channel.fetchMissedEvents(
+                        afterEventID: afterEventID,
+                        limit: 50,
+                        waitSeconds: waitSeconds
+                    )
+                    transportMode = .httpFallback(cyclesInFallback: cyclesInFallback)
+                    try? store.recordClientState(key: "last_control_transport", value: "http-fallback")
                 }
 
                 if batch.events.isEmpty {
@@ -75,17 +124,27 @@ public struct ClientControlWatcher: Sendable {
                     if Self.requiresImmediateSync(event) {
                         syncs += 1
                         try? store.recordClientState(key: "last_control_sync_trigger", value: event.eventType.rawValue)
+
+                        if event.eventType == .releaseAvailable, syncJitterSeconds > 0 {
+                            let jitter = UInt64.random(in: 0...(UInt64(syncJitterSeconds) * 1_000_000_000))
+                            jitterApplied += Int(jitter / 1_000_000_000)
+                            log?("applying \(jitter / 1_000_000_000)s jitter before sync for releaseAvailable")
+                            try await Task.sleep(nanoseconds: jitter)
+                        }
+
                         do {
                             let result = try await ClientSyncEngine(configuration: syncConfiguration).sync(force: true)
                             log?("sync finished for \(event.eventID): \(result.message)")
                             if result.selfUpdateScheduled {
-                                try await channel.acknowledge(event)
+                                try await pooledChannel.acknowledge(event)
                                 log?("client self-update scheduled; exiting watcher for relaunch")
+                                await pooledChannel.teardown()
                                 return ClientControlWatcherResult(
                                     cycles: cycles,
                                     eventsHandled: handled,
                                     syncsRun: syncs,
-                                    lastEventID: afterEventID
+                                    lastEventID: afterEventID,
+                                    jitterSecondsApplied: jitterApplied
                                 )
                             }
                         } catch {
@@ -93,19 +152,33 @@ public struct ClientControlWatcher: Sendable {
                         }
                     }
 
-                    try await channel.acknowledge(event)
+                    try await pooledChannel.acknowledge(event)
                 }
             } catch {
                 log?("control channel error: \(error)")
+
+                if case .webTransport = transportMode {
+                    consecutiveWTFailures += 1
+                    if consecutiveWTFailures >= webTransportFailureThreshold {
+                        log?("switching to HTTP long-poll fallback after \(consecutiveWTFailures) WebTransport failures")
+                        transportMode = .httpFallback(cyclesInFallback: 0)
+                        try? store.recordClientState(key: "last_control_transport", value: "http-fallback")
+                        consecutiveWTFailures = 0
+                    }
+                }
+
                 try await Task.sleep(nanoseconds: errorDelayNanoseconds)
             }
         }
+
+        await pooledChannel.teardown()
 
         return ClientControlWatcherResult(
             cycles: cycles,
             eventsHandled: handled,
             syncsRun: syncs,
-            lastEventID: afterEventID
+            lastEventID: afterEventID,
+            jitterSecondsApplied: jitterApplied
         )
     }
 

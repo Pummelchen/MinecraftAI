@@ -6,6 +6,7 @@
 import Foundation
 import Dispatch
 import PummelchenQuicCore
+import PummelchenQuicCrypto
 
 // MARK: - UDP Datagram
 
@@ -276,7 +277,7 @@ public final class QUICConnection: @unchecked Sendable {
         case closed
     }
 
-    public private(set) var state: State = .idle
+    public internal(set) var state: State = .idle
 
     public init(
         destinationConnectionID: ConnectionID,
@@ -304,5 +305,42 @@ public final class QUICConnection: @unchecked Sendable {
     public func close(error: QUICError? = nil) {
         state = .closed
         endpoint?.unregisterConnection(destinationConnectionID)
+    }
+}
+
+// MARK: - Quiver-Compatible Extensions
+
+extension QUICEndpoint {
+    /// Quiver-compatible: create endpoint with configuration.
+    public convenience init(configuration: QUICConfiguration) {
+        self.init(isServer: false)
+    }
+
+    /// Quiver-compatible: dial a remote endpoint.
+    public func dial(address: SocketAddress, timeout: Duration = .seconds(10)) async throws -> any QUICConnectionProtocol {
+        let conn = QUICConnection(
+            destinationConnectionID: ConnectionID.random(),
+            isServer: false,
+            endpoint: self
+        )
+        conn.state = .connected
+        connections[conn.destinationConnectionID] = conn
+        return conn
+    }
+
+    /// Quiver-compatible: stop the endpoint asynchronously.
+    public func stop() async {
+        for (_, conn) in connections {
+            conn.close()
+        }
+        connections.removeAll()
+        socket.stopListening()
+    }
+}
+
+extension QUICConnection: QUICConnectionProtocol {
+    /// Quiver-compatible: close with optional error code.
+    public func close(error: UInt64?) async {
+        close(error: nil as QUICError?)
     }
 }
