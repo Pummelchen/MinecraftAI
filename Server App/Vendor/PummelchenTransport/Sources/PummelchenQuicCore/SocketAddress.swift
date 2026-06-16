@@ -47,3 +47,27 @@ extension SocketAddress: CustomStringConvertible {
         "\(ipAddress):\(port)"
     }
 }
+
+// MARK: - POSIX sockaddr Conversion
+
+extension SocketAddress {
+    /// Converts to a `sockaddr_in` for use with POSIX socket APIs.
+    public func sockaddr() -> sockaddr_in {
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        addr.sin_addr.s_addr = inet_addr(ipAddress)
+        return addr
+    }
+
+    /// Creates from a `sockaddr_in`.
+    public init(from addr: sockaddr_in) {
+        let port = UInt16(bigEndian: addr.sin_port)
+        var mutableAddr = addr
+        var ipBuffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+        inet_ntop(AF_INET, &mutableAddr.sin_addr, &ipBuffer, socklen_t(INET_ADDRSTRLEN))
+        let ip = String(cString: ipBuffer)
+        self.init(ipAddress: ip, port: port)
+    }
+}

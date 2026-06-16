@@ -5,15 +5,7 @@
 
 import Foundation
 import CryptoKit
-
-// MARK: - Encryption Level
-
-/// QUIC encryption levels (packet number spaces).
-public enum EncryptionLevel: Int, Sendable, Hashable, CaseIterable {
-    case initial = 0
-    case handshake = 1
-    case application = 2
-}
+import PummelchenQuicCore
 
 // MARK: - Transcript Hash
 

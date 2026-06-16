@@ -7,6 +7,7 @@
 
 import Foundation
 import CryptoKit
+import PummelchenQuicCore
 
 // MARK: - TLS Configuration
 
