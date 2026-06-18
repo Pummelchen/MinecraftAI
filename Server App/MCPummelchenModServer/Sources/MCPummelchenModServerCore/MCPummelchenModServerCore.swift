@@ -293,7 +293,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         let supportedVersions = supportedMinecraftVersionsForInventory(current: current)
         let liveModSources = liveModSourceInventory(minecraftVersion: current.minecraftVersion ?? "")
         let versionedModSources = versionedModSourceInventory(supportedVersions: supportedVersions)
-        let currentManifestFiles = currentReleaseManifestFileNames(current: current, scope: scope)
+        let currentManifestFiles = currentReleaseManifestFileRoles(current: current, scope: scope)
         var rows = try readEmbeddedJSONRows(scriptID: scriptID).map {
             annotatedModInventoryRow(
                 $0,
@@ -315,6 +315,14 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 currentManifestFiles: currentManifestFiles
             ))
         }
+        rows.append(contentsOf: missingManifestInventoryRows(
+            existingRows: rows,
+            currentManifestFiles: currentManifestFiles,
+            current: current,
+            supportedVersions: supportedVersions,
+            liveModSources: liveModSources,
+            versionedModSources: versionedModSources
+        ))
         rows = rows.map {
             var row = $0
             row.removeValue(forKey: "_has_inventory_evidence")
@@ -379,7 +387,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         supportedVersions: [[String: Any]],
         liveModSources: [String: LiveModSourceInventory],
         versionedModSources: [String: [String: LiveModSourceInventory]],
-        currentManifestFiles: Set<String>
+        currentManifestFiles: [String: String]
     ) -> [String: Any] {
         let currentVersion = current.minecraftVersion ?? ""
         let sourceByVersion = versionedModSource(for: row, versionedModSources: versionedModSources) ?? [:]
@@ -428,7 +436,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         return annotated
     }
 
-    private func currentReleaseManifestFileNames(current: CurrentRelease, scope: String) -> Set<String> {
+    private func currentReleaseManifestFileRoles(current: CurrentRelease, scope: String) -> [String: String] {
         let manifestName = scope == "server" ? "server-files.tsv" : "client-package.tsv"
         let candidates = [
             config.projectRoot.appendingPathComponent("releases/\(current.releaseID)/manifests/\(manifestName)"),
@@ -436,29 +444,33 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         ]
         for candidate in candidates where FileManager.default.fileExists(atPath: candidate.path) {
             if let text = try? String(contentsOf: candidate, encoding: .utf8) {
-                return Self.parseManifestFileNames(text)
+                return Self.parseManifestFileRoles(text, scope: scope)
             }
         }
-        return []
+        return [:]
     }
 
-    private static func parseManifestFileNames(_ text: String) -> Set<String> {
-        var files = Set<String>()
+    private static func parseManifestFileRoles(_ text: String, scope: String) -> [String: String] {
+        var files: [String: String] = [:]
         for line in text.split(separator: "\n").dropFirst() {
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
             guard fields.count >= 2 else {
                 continue
             }
+            let role = fields[0]
+            if scope == "server", role != "server_mod" {
+                continue
+            }
             let relativePath = fields[1]
             let fileName = URL(fileURLWithPath: relativePath).lastPathComponent.lowercased()
             if !fileName.isEmpty {
-                files.insert(fileName)
+                files[fileName] = role
             }
         }
         return files
     }
 
-    private func rowMatchesCurrentManifest(_ row: [String: Any], currentManifestFiles: Set<String>) -> Bool {
+    private func rowMatchesCurrentManifest(_ row: [String: Any], currentManifestFiles: [String: String]) -> Bool {
         guard !currentManifestFiles.isEmpty else {
             return false
         }
@@ -467,13 +479,9 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             row["versionFile"] as? String
         ].compactMap { $0 }
         for candidate in candidates {
-            let pieces = candidate
-                .components(separatedBy: CharacterSet(charactersIn: ",;+"))
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            for piece in pieces {
+            for piece in Self.splitInventoryFileList(candidate) {
                 let fileName = URL(fileURLWithPath: piece).lastPathComponent.lowercased()
-                if currentManifestFiles.contains(fileName) {
+                if currentManifestFiles[fileName] != nil {
                     return true
                 }
             }
@@ -568,7 +576,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         current: CurrentRelease,
         supportedVersions: [[String: Any]],
         versionedModSources: [String: [String: LiveModSourceInventory]],
-        currentManifestFiles: Set<String>
+        currentManifestFiles: [String: String]
     ) -> [[String: Any]] {
         let existingText = existingRows.compactMap { $0["files"] as? String }.joined(separator: "\n")
         var seenFiles = Set<String>()
@@ -603,6 +611,75 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             ))
         }
         return rows
+    }
+
+    private func missingManifestInventoryRows(
+        existingRows: [[String: Any]],
+        currentManifestFiles: [String: String],
+        current: CurrentRelease,
+        supportedVersions: [[String: Any]],
+        liveModSources: [String: LiveModSourceInventory],
+        versionedModSources: [String: [String: LiveModSourceInventory]]
+    ) -> [[String: Any]] {
+        var existingFiles = Set<String>()
+        for row in existingRows {
+            for candidate in [row["files"] as? String, row["versionFile"] as? String].compactMap({ $0 }) {
+                Self.splitInventoryFileList(candidate)
+                    .forEach { existingFiles.insert(URL(fileURLWithPath: $0).lastPathComponent.lowercased()) }
+            }
+        }
+
+        return currentManifestFiles
+            .filter { !existingFiles.contains($0.key) }
+            .sorted { $0.key.localizedCaseInsensitiveCompare($1.key) == .orderedAscending }
+            .map { fileName, role in
+                let displayName = Self.displayNameFromManifestFile(fileName)
+                let row: [String: Any] = [
+                    "name": displayName,
+                    "type": Self.typeLabel(forManifestRole: role),
+                    "files": fileName,
+                    "versionFile": fileName,
+                    "sourceUrl": "",
+                    "sourceHost": "release manifest",
+                    "details": "\(displayName) is shipped by the active release manifest. No source URL is recorded in DuckDB yet.",
+                    "search": "\(displayName) \(fileName) \(role)"
+                ]
+                return annotatedModInventoryRow(
+                    row,
+                    current: current,
+                    supportedVersions: supportedVersions,
+                    liveModSources: liveModSources,
+                    versionedModSources: versionedModSources,
+                    currentManifestFiles: currentManifestFiles
+                )
+            }
+    }
+
+    private static func typeLabel(forManifestRole role: String) -> String {
+        switch role {
+        case "server_mod": return "Server Mod"
+        case "client_mods": return "Client Mod"
+        case "client_resourcepacks": return "Resource Pack"
+        case "client_shaderpacks": return "Shader Pack"
+        case "client_tools": return "Configuration"
+        default: return "Release Manifest"
+        }
+    }
+
+    private static func displayNameFromManifestFile(_ fileName: String) -> String {
+        fileName
+            .replacingOccurrences(of: #"\.(jar|zip|json|toml|properties|txt|sh)$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"[-_]+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func splitInventoryFileList(_ value: String) -> [String] {
+        value
+            .replacingOccurrences(of: " + ", with: ",")
+            .replacingOccurrences(of: ";", with: ",")
+            .components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     private func liveModSource(for row: [String: Any], liveModSources: [String: LiveModSourceInventory]) -> LiveModSourceInventory? {
