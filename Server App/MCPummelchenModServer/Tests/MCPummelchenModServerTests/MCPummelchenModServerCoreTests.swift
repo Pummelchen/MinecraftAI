@@ -750,7 +750,8 @@ struct MCPummelchenModServerCoreTests {
             databaseURL: root.appendingPathComponent("add-mod.duckdb"),
             sourceURL: "https://www.curseforge.com/minecraft/mc-mods/pummelchen-example",
             localArtifact: artifact,
-            releaseID: "release_20260614_V99_add_mod_dry_run"
+            releaseID: "release_20260614_V99_add_mod_dry_run",
+            dryRun: true
         )).run()
 
         #expect(result.dryRun)

@@ -39,6 +39,10 @@ enum ServerCommandError: Error, CustomStringConvertible {
     }
 }
 
+private func shellQuoted(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+}
+
 struct Arguments {
     let command: String
     let options: [String: String]
@@ -454,6 +458,9 @@ private func addModPipeline(args: Arguments, projectRoot: URL) throws -> ModAddP
     let publicDownloads = URL(fileURLWithPath: try args.require("--public-downloads"), isDirectory: true).standardizedFileURL
     let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
     let localArtifact = args.options["--local-artifact"].map { URL(fileURLWithPath: $0).standardizedFileURL }
+    let releaseID = try args.require("--release-id")
+    let defaultServerTestCommand = defaultAddModServerTestCommand(projectRoot: projectRoot)
+    let defaultBuildDMGCommand = defaultAddModBuildDMGCommand(projectRoot: projectRoot, releaseID: releaseID)
     return ModAddPipeline(config: ModAddPipelineConfig(
         projectRoot: projectRoot,
         serverDir: serverDir,
@@ -462,18 +469,32 @@ private func addModPipeline(args: Arguments, projectRoot: URL) throws -> ModAddP
         databaseURL: duckDB,
         sourceURL: try args.require("--url"),
         localArtifact: localArtifact,
-        releaseID: try args.require("--release-id"),
+        releaseID: releaseID,
         minecraftVersion: args.options["--minecraft-version"] ?? "26.1.2",
         loader: args.options["--loader"] ?? "neoforge",
         loaderVersion: args.options["--loader-version"] ?? "26.1.2.76",
         installScope: args.options["--install-scope"] ?? "auto",
         activate: args.options["--activate"] == "true",
-        dryRun: args.options["--dry-run"] != "false",
-        buildDMGCommand: args.options["--build-dmg-command"],
-        serverTestCommand: args.options["--server-test-command"],
+        dryRun: optionBool(args.options["--dry-run"]),
+        buildDMGCommand: args.options["--build-dmg-command"] ?? defaultBuildDMGCommand,
+        serverTestCommand: args.options["--server-test-command"]
+        ?? defaultServerTestCommand,
         restartCommand: args.options["--restart-command"],
         healthCommand: args.options["--health-command"]
     ))
+}
+
+private func defaultAddModServerTestCommand(projectRoot: URL) -> String {
+    let serverPackage = shellQuoted(projectRoot.appendingPathComponent("Server App/MCPummelchenModServer").path)
+    let root = shellQuoted(projectRoot.path)
+    return "swift run --package-path \(serverPackage) -c release MCPummelchenModServer smoke --project-root \(root)"
+}
+
+private func defaultAddModBuildDMGCommand(projectRoot: URL, releaseID: String) -> String {
+    let clientToolsPath = shellQuoted(projectRoot.appendingPathComponent("Client App/MCPummelchenModClient/Tools").path)
+    let releaseIDValue = shellQuoted(releaseID)
+    let serverPackage = shellQuoted(projectRoot.appendingPathComponent("Server App/MCPummelchenModServer").path)
+    return "cd \(clientToolsPath) && PUMMELCHEN_RELEASE_ID=\(releaseIDValue) PUMMELCHEN_SERVER_PACKAGE_DIR=\(serverPackage) PUMMELCHEN_REQUIRE_HEADLESS_SOAK=true PUMMELCHEN_CLIENT_API_TOKEN=\"${PUMMELCHEN_CLIENT_API_TOKEN}\" PUMMELCHEN_REQUIRE_CLIENT_TOKEN=true ./build-dmg.sh"
 }
 
 private func modUpdateScanner(args: Arguments, projectRoot: URL) throws -> ModUpdateScanner {
@@ -592,9 +613,15 @@ private func serverKey(minecraftVersion: String) -> String {
     "minecraft_\(minecraftVersion.replacingOccurrences(of: ".", with: "_"))"
 }
 
-private func optionBool(_ value: String?) -> Bool {
-    guard let value else { return false }
-    return ["1", "true", "yes", "y"].contains(value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+private func optionBool(_ value: String?, defaultValue: Bool = false) -> Bool {
+    guard let value else { return defaultValue }
+    if ["1", "true", "yes", "y"].contains(value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+        return true
+    }
+    if ["0", "false", "no", "n", "off"].contains(value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+        return false
+    }
+    return defaultValue
 }
 
 private func parseCSVRows(_ csv: String) -> [[String]] {
