@@ -1,0 +1,21 @@
+[Unit]
+Description=MCPummelchen daily Minecraft mod update scan
+After=network-online.target MCPummelchenModServer.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/pummelchen-swift/runtime
+EnvironmentFile=/etc/pummelchen-swift/server.env
+ExecStart=/usr/bin/flock -n /run/MCPummelchenModUpdateScan.lock /opt/pummelchen-swift/bin/MCPummelchenModServer mod-update-scan --project-root /opt/pummelchen-swift/runtime --duckdb /opt/pummelchen-swift/runtime/data/pummelchen.duckdb --all-supported true --seed-from-tested-updates true --max-urls-per-window 5 --window-seconds 10
+StandardOutput=journal
+StandardError=journal
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/pummelchen-swift/runtime /run

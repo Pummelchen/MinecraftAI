@@ -1,0 +1,12 @@
+[Unit]
+Description=Run MCPummelchen mod update scan daily at 12:00 UTC
+
+[Timer]
+OnCalendar=*-*-* 12:00:00
+AccuracySec=1min
+Persistent=true
+RandomizedDelaySec=0
+Unit=MCPummelchenModUpdateScan.service
+
+[Install]
+WantedBy=timers.target
