@@ -19,25 +19,23 @@ public struct ClientControlChannelConfiguration: Sendable {
 public struct ClientControlChannel: Sendable {
     public let configuration: ClientControlChannelConfiguration
     private let http: ClientHTTPClient
+    private let encoder: JSONEncoder
+    private let decoder: JSONDecoder
 
     public init(configuration: ClientControlChannelConfiguration) {
         self.configuration = configuration
         self.http = ClientHTTPClient(retryPolicy: ClientHTTPRetryPolicy(maxAttempts: 3, requestTimeoutSeconds: 40))
+        self.encoder = JSONEncoder()
+        self.decoder = JSONDecoder()
     }
 
     public func controlInfo() async throws -> ControlChannelInfo {
-        let url = configuration.serverURL.appendingPathComponent("h3/v1/control")
-        let data = try await http.data(from: url)
-        return try JSONDecoder().decode(ControlChannelInfo.self, from: data)
+        let url = configuration.serverURL.appendingPathComponent("api/v1/control/info")
+        let data = try await http.data(from: url, headers: authHeaders())
+        return try decoder.decode(ControlChannelInfo.self, from: data)
     }
 
-    public func webTransportPreflight() async throws -> WebTransportPreflightPayload {
-        let url = configuration.serverURL.appendingPathComponent("api/v1/transport/webtransport/preflight")
-        let data = try await http.data(from: url)
-        return try JSONDecoder().decode(WebTransportPreflightPayload.self, from: data)
-    }
-
-    public func fetchMissedEvents(afterEventID: String? = nil, limit: Int = 50, waitSeconds: Int = 0) async throws -> ControlEventBatch {
+    public func fetchEvents(afterEventID: String? = nil, limit: Int = 50, waitSeconds: Int = 0) async throws -> ControlEventBatch {
         var components = URLComponents(url: configuration.serverURL.appendingPathComponent("api/v1/control/events"), resolvingAgainstBaseURL: false)!
         var query = [
             URLQueryItem(name: "client_id", value: configuration.clientID),
@@ -52,38 +50,66 @@ public struct ClientControlChannel: Sendable {
         components.queryItems = query
         var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
-        request.setValue("Bearer \(configuration.clientAPIToken)", forHTTPHeaderField: "Authorization")
-        request.setValue(configuration.clientID, forHTTPHeaderField: "X-Pummelchen-Client-ID")
+        addAuthHeaders(to: &request)
         let data = try await http.send(request)
-        return try JSONDecoder().decode(ControlEventBatch.self, from: data)
+        return try decoder.decode(ControlEventBatch.self, from: data)
     }
 
     public func acknowledge(_ event: ControlEvent) async throws {
-        let preflight = try await webTransportPreflight()
-        guard preflight.ready else {
-            throw ContractValidationError.invalid(preflight.unsupportedReason ?? "WebTransport preflight is not ready")
-        }
-        try await ClientWebTransportControlChannel(
-            preflight: preflight,
-            clientID: configuration.clientID,
-            clientAPIToken: configuration.clientAPIToken
-        ).acknowledge(event)
+        let payload = ControlEventAck(clientID: configuration.clientID, eventID: event.eventID, receivedAt: Self.isoNow())
+        _ = try await post(payload, to: "api/v1/control/acks", as: ClientWriteAck.self)
+    }
+
+    @discardableResult
+    public func register(_ payload: ClientRegistrationRequest) async throws -> ClientWriteAck {
+        try await post(payload, to: "api/v1/clients/register", as: ClientWriteAck.self)
+    }
+
+    @discardableResult
+    public func reportStatus(_ payload: ClientStatusReport) async throws -> ClientWriteAck {
+        try await post(payload, to: "api/v1/clients/sync-runs", as: ClientWriteAck.self)
+    }
+
+    @discardableResult
+    public func uploadInventory(_ payload: ClientInventoryUpload) async throws -> ClientWriteAck {
+        try await post(payload, to: "api/v1/clients/inventory", as: ClientWriteAck.self)
+    }
+
+    @discardableResult
+    public func uploadDiagnostics(_ payload: ClientDiagnosticsUpload) async throws -> ClientWriteAck {
+        try await post(payload, to: "api/v1/clients/diagnostics", as: ClientWriteAck.self)
+    }
+
+    @discardableResult
+    public func uploadDefaultsEvents(_ payload: ClientDefaultsEventUpload) async throws -> ClientWriteAck {
+        try await post(payload, to: "api/v1/clients/defaults-events", as: ClientWriteAck.self)
     }
 
     public func lastNegotiatedProtocol() async -> String? {
         await http.lastNegotiatedProtocol()
     }
 
-    public func fetchEventsOverWebTransport(afterEventID: String? = nil) async throws -> ControlEventBatch {
-        let preflight = try await webTransportPreflight()
-        guard preflight.ready else {
-            throw ContractValidationError.invalid(preflight.unsupportedReason ?? "WebTransport preflight is not ready")
+    private func post<Payload: Encodable, Response: Decodable>(_ payload: Payload, to path: String, as type: Response.Type) async throws -> Response {
+        var request = URLRequest(url: configuration.serverURL.appendingPathComponent(path))
+        request.httpMethod = "POST"
+        request.httpBody = try encoder.encode(payload)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        addAuthHeaders(to: &request)
+        let data = try await http.send(request)
+        return try decoder.decode(Response.self, from: data)
+    }
+
+    private func authHeaders() -> [String: String] {
+        [
+            "Authorization": "Bearer \(configuration.clientAPIToken)",
+            "X-Pummelchen-Client-ID": configuration.clientID
+        ]
+    }
+
+    private func addAuthHeaders(to request: inout URLRequest) {
+        for (key, value) in authHeaders() {
+            request.setValue(value, forHTTPHeaderField: key)
         }
-        return try await ClientWebTransportControlChannel(
-            preflight: preflight,
-            clientID: configuration.clientID,
-            clientAPIToken: configuration.clientAPIToken
-        ).fetchEvents(afterEventID: afterEventID)
     }
 
     private static func isoNow() -> String {

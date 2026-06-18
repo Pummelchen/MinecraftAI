@@ -163,8 +163,8 @@ public struct ClientStatusStore: Sendable {
         statements.append(upsertState("sync_state", snapshot.state.rawValue, now: now))
         statements.append(upsertState("last_check", snapshot.checkedAt, now: now))
         statements.append(upsertState("minecraft_directory", snapshot.minecraftDirectory, now: now))
-        statements.append(endpointStatement(snapshot.nginx))
-        statements.append(endpointStatement(snapshot.webTransport))
+        statements.append(endpointStatement(snapshot.downloadServer))
+        statements.append(endpointStatement(snapshot.updateServer))
         if let serverRelease = snapshot.serverReleaseID {
             statements.append(upsertState("server_release_id", serverRelease, now: now))
             statements.append("""

@@ -26,20 +26,18 @@ Allowed during early private test builds:
 
 ## Transport And Request Authentication
 
-Client/server API and near-realtime control traffic must target WebTransport over HTTP/3/QUIC once the live preflight endpoint proves the Swift session engine is ready. Authenticated client writes and control traffic do not silently fall back to HTTPS. Write/report requests must authenticate with:
+Client/server API and near-realtime control traffic use nginx-served HTTPS endpoints. Write/report requests and live update polling must authenticate with:
 
 ```http
 Authorization: Bearer <client_secret>
 X-Pummelchen-Client-ID: <client_id>
 ```
 
-Client read-only release downloads remain public static files served by nginx.
-
-HTTPS API endpoints may exist for operator tooling and website data, but the production macOS client treats WebTransport failure as a degraded/cannot-connect state instead of masking it through HTTPS polling.
+Client read-only release downloads remain public static files served by nginx. The same nginx HTTPS edge also proxies authenticated `/api/v1/control/*` and `/api/v1/clients/*` requests to the Swift server app.
 
 ## Control Events
 
-The Swift server publishes WebTransport readiness through `/api/v1/transport/webtransport/preflight`. The client uses `ClientWebTransportControlChannel` for current release metadata, event delivery, acknowledgements, sync run reports, inventory uploads, diagnostics uploads, defaults reports, and status/heartbeat messages whenever the endpoint is ready.
+The Swift server publishes control metadata through `/api/v1/control/info`. The client uses `ClientControlChannel` over HTTPS for event delivery, acknowledgements, sync run reports, inventory uploads, diagnostics uploads, defaults reports, and status/heartbeat messages.
 
 Events that require an immediate client sync:
 
@@ -54,7 +52,7 @@ Informational events that do not trigger downloads by themselves:
 - `server_restart_notice`
 - `health_update`
 
-When a sync event is received, the client fetches the current release metadata, verifies the manifest, downloads only missing or corrupt files, reports the result to the server over WebTransport, and acknowledges the event.
+When a sync event is received, the client fetches the current release metadata, verifies the manifest, downloads only missing or corrupt files, reports the result to the server over HTTPS, and acknowledges the event.
 
 ## Rotation And Revocation
 
@@ -68,4 +66,4 @@ When a sync event is received, the client fetches the current release metadata, 
 - No direct access from clients to the server-side DuckDB database.
 - No unauthenticated client write APIs.
 - No shared global client token for production.
-- No large file downloads over the bidirectional QUIC control channel.
+- No large file downloads through the authenticated control API.

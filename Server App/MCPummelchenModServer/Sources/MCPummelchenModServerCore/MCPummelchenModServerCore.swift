@@ -1,6 +1,5 @@
 import Foundation
 import MCPummelchenModShared
-import PummelchenQuicCrypto
 
 public enum MCPummelchenModServerError: Error, CustomStringConvertible {
     case badRequest(String)
@@ -72,12 +71,6 @@ public struct MCPummelchenModServerConfig: Sendable {
     public let maxWritePayloadBytes: Int
     public let transportTarget: String
     public let transportFallback: String
-    public let webTransportPublicHost: String
-    public let webTransportPort: Int
-    public let webTransportPath: String
-    public let webTransportCertificatePath: String?
-    public let webTransportSessionEngineActive: Bool
-    public let webTransportRuntimeState: WebTransportRuntimeState?
 
     public init(
         projectRoot: URL,
@@ -86,14 +79,8 @@ public struct MCPummelchenModServerConfig: Sendable {
         duckDBURL: URL? = nil,
         clientAPIToken: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_CLIENT_API_TOKEN"],
         maxWritePayloadBytes: Int = 256 * 1024,
-        transportTarget: String = ProcessInfo.processInfo.environment["PUMMELCHEN_TRANSPORT_TARGET"] ?? "webtransport_h3_dedicated_udp",
-        transportFallback: String = "none",
-        webTransportPublicHost: String = ProcessInfo.processInfo.environment["PUMMELCHEN_WEBTRANSPORT_PUBLIC_HOST"] ?? "pummelchen.91.99.176.243.nip.io",
-        webTransportPort: Int = Int(ProcessInfo.processInfo.environment["PUMMELCHEN_WEBTRANSPORT_PORT"] ?? "443") ?? 443,
-        webTransportPath: String = ProcessInfo.processInfo.environment["PUMMELCHEN_WEBTRANSPORT_PATH"] ?? "/webtransport/v1/control",
-        webTransportCertificatePath: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_WEBTRANSPORT_CERTIFICATE"],
-        webTransportSessionEngineActive: Bool = false,
-        webTransportRuntimeState: WebTransportRuntimeState? = nil
+        transportTarget: String = ProcessInfo.processInfo.environment["PUMMELCHEN_TRANSPORT_TARGET"] ?? "nginx_https_api",
+        transportFallback: String = "none"
     ) {
         self.projectRoot = projectRoot
         self.bindHost = bindHost
@@ -103,12 +90,6 @@ public struct MCPummelchenModServerConfig: Sendable {
         self.maxWritePayloadBytes = maxWritePayloadBytes
         self.transportTarget = transportTarget
         self.transportFallback = transportFallback
-        self.webTransportPublicHost = webTransportPublicHost
-        self.webTransportPort = webTransportPort
-        self.webTransportPath = webTransportPath.hasPrefix("/") ? webTransportPath : "/\(webTransportPath)"
-        self.webTransportCertificatePath = webTransportCertificatePath
-        self.webTransportSessionEngineActive = webTransportSessionEngineActive
-        self.webTransportRuntimeState = webTransportRuntimeState
     }
 }
 
@@ -175,9 +156,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 return try siteJSON(named: "update-activity.json")
             case ("GET", "/api/v1/site/neoforge-version"):
                 return try siteJSON(named: "neoforge-version.json")
-            case ("GET", "/api/v1/transport/webtransport/preflight"):
-                return try webTransportPreflight()
-            case ("GET", "/h3/v1/control"):
+            case ("GET", "/api/v1/control/info"):
                 return try controlInfo()
             case ("POST", "/api/v1/control/events"):
                 try requireAuthorized(request)
@@ -410,8 +389,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
 
     private func controlInfo() throws -> HTTPResponse {
         let payload = ControlChannelInfo(
-            endpoint: "/h3/v1/control",
-            transportTarget: "webtransport_h3_dedicated_udp_control",
+            endpoint: "/api/v1/control/events",
+            transportTarget: "nginx_https_long_poll",
             bidirectional: true,
             fallbackEndpoint: "",
             maxPayloadBytes: ControlEventStore.maxControlPayloadBytes,
@@ -419,79 +398,6 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             supportedEvents: ControlEventType.allCases.map(\.rawValue)
         )
         return .json(try encoder.encode(payload), headers: ["X-Pummelchen-Downloads-Allowed": "false"])
-    }
-
-    private func webTransportPreflight() throws -> HTTPResponse {
-        let runtimeActive = config.webTransportRuntimeState?.active ?? config.webTransportSessionEngineActive
-        let preflight = WebTransportH3Preflight(
-            serverHTTP3Settings: runtimeActive ? [
-                WebTransportH3Draft15.Setting.wtEnabled: 1,
-                WebTransportH3Draft15.Setting.enableConnectProtocol: 1,
-                WebTransportH3Draft15.Setting.h3Datagram: 1
-            ] : [:],
-            maxDatagramFrameSize: runtimeActive ? 65_535 : nil,
-            resetStreamAtEnabled: runtimeActive,
-            sessionEngineActive: runtimeActive,
-            dedicatedUDPPort: config.webTransportPort,
-            behindNginx: false
-        )
-        let endpoint = config.webTransportPath
-        let sessionURL = "https://\(config.webTransportPublicHost):\(config.webTransportPort)\(endpoint)"
-        let payload = WebTransportPreflightPayload(
-            apiVersion: "v1",
-            serverTime: Self.isoNow(),
-            draft: "draft-ietf-webtrans-http3-15",
-            endpoint: endpoint,
-            sessionURL: sessionURL,
-            publicHost: config.webTransportPublicHost,
-            publicPort: config.webTransportPort,
-            ready: preflight.unsupportedReason() == nil,
-            unsupportedReason: config.webTransportRuntimeState?.lastError ?? preflight.unsupportedReason(),
-            upgradeToken: WebTransportH3Draft15.upgradeToken,
-            requiredHTTP3Settings: [
-                "SETTINGS_ENABLE_CONNECT_PROTOCOL": WebTransportH3Draft15.Setting.enableConnectProtocol,
-                "SETTINGS_H3_DATAGRAM": WebTransportH3Draft15.Setting.h3Datagram,
-                "SETTINGS_WT_ENABLED": WebTransportH3Draft15.Setting.wtEnabled
-            ],
-            requiresQUICDatagrams: true,
-            requiresResetStreamAt: true,
-            usesNginx: false,
-            nginxRole: "not_in_webtransport_path",
-            serverPublicKeyX963Base64: serverPublicKeyX963Base64()
-        )
-        return .json(try encoder.encode(payload), headers: [
-            "Cache-Control": "no-store, max-age=0",
-            "X-Pummelchen-WebTransport-Ready": payload.ready ? "true" : "false"
-        ])
-    }
-
-    private func serverPublicKeyX963Base64() -> String? {
-        #if canImport(Security)
-        guard let certificatePath = config.webTransportCertificatePath else {
-            return nil
-        }
-        do {
-            guard let certificate = try PEMLoader.loadCertificates(fromPath: certificatePath).first else {
-                return nil
-            }
-            let parsed = try X509Certificate.parse(from: certificate)
-            let publicKey = try parsed.extractPublicKey()
-            let publicKeyBytes: Data
-            switch publicKey {
-            case .p256(let key):
-                publicKeyBytes = Data(key.x963Representation)
-            case .p384(let key):
-                publicKeyBytes = Data(key.x963Representation)
-            case .ed25519(let key):
-                publicKeyBytes = Data(key.rawRepresentation)
-            }
-            return publicKeyBytes.base64EncodedString()
-        } catch {
-            return nil
-        }
-        #else
-        return nil
-        #endif
     }
 
     private func createControlEvent(_ request: HTTPRequest) throws -> HTTPResponse {

@@ -9,7 +9,7 @@ This directory contains the nginx-facing files for the live Pummelchen server we
 
 The live HTTPS virtual host serves the website and proxies `/api/` plus `/h3/` to the Swift server app on `127.0.0.1:8787`; static release downloads remain nginx-served files under `/downloads/`.
 
-WebTransport is not proxied through nginx. The Swift server app owns UDP port `443` directly and advertises the dedicated endpoint through `/api/v1/transport/webtransport/preflight`.
+nginx is the public HTTPS edge for the website, release downloads, status APIs, and the authenticated client control API. The Swift server app listens locally on `127.0.0.1:8787`; nginx proxies `/api/` traffic to it.
 
 The global nginx tuning raises worker connection capacity, enables static-file descriptor caching, keeps sendfile/tcp_nopush enabled for large client downloads, and compresses text/json/js/css/svg assets. Large release artifacts remain uncompressed on the fly because ZIP, DMG, MRPACK, and JAR files are already compressed.
 

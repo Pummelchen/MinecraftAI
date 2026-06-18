@@ -52,7 +52,7 @@ struct MCPummelchenModServerCoreTests {
         #expect(object?["api_version"] as? String == "v1")
         #expect(object?["mode"] as? String == "read_only")
         #expect(object?["current_release_id"] as? String == "release_20260612_V6_modernarch-refresh")
-        #expect(object?["transport_target"] as? String == "webtransport_h3_dedicated_udp")
+        #expect(object?["transport_target"] as? String == "nginx_https_api")
     }
 
     @Test("Minecraft autostart config is explicit and environment driven")
@@ -798,8 +798,8 @@ struct MCPummelchenModServerCoreTests {
         #expect(try duckDBScalar(database: database, sql: "SELECT COALESCE(installed_file, '') FROM core.mod_sources;") == "")
     }
 
-    @Test("phase 8 control events use safe payloads and WebTransport preflight")
-    func phase8ControlEventsUseWebTransportAndRejectDownloads() async throws {
+    @Test("phase 8 control events use safe payloads over nginx HTTPS")
+    func phase8ControlEventsUseNginxHTTPSAndRejectDownloads() async throws {
         try requireDuckDB()
         let fixture = try makeProjectFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -809,47 +809,16 @@ struct MCPummelchenModServerCoreTests {
         let headers = authHeaders(token: "phase8-token", clientID: clientID)
         let encoder = JSONEncoder()
 
-        let infoResponse = api.response(for: HTTPRequest(method: "GET", path: "/h3/v1/control"))
+        let infoResponse = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/control/info"))
         let info = try JSONDecoder().decode(ControlChannelInfo.self, from: infoResponse.body)
-        #expect(info.transportTarget == "webtransport_h3_dedicated_udp_control")
+        #expect(info.transportTarget == "nginx_https_long_poll")
+        #expect(info.endpoint == "/api/v1/control/events")
         #expect(info.bidirectional)
         #expect(!info.downloadsAllowed)
         #expect(info.fallbackEndpoint.isEmpty)
         #expect(info.supportedEvents.contains("release_available"))
         #expect(info.supportedEvents.contains("sync_required"))
         #expect(info.supportedEvents.contains("defaults_changed"))
-
-        let preflightResponse = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/transport/webtransport/preflight"))
-        let preflight = try JSONDecoder().decode(WebTransportPreflightPayload.self, from: preflightResponse.body)
-        #expect(preflight.draft == "draft-ietf-webtrans-http3-15")
-        #expect(preflight.upgradeToken == "webtransport-h3")
-        #expect(!preflight.ready)
-        #expect(preflight.endpoint == "/webtransport/v1/control")
-        #expect(preflight.sessionURL == "https://pummelchen.91.99.176.243.nip.io:443/webtransport/v1/control")
-        #expect(preflight.publicPort == 443)
-        #expect(!preflight.usesNginx)
-        #expect(preflight.nginxRole == "not_in_webtransport_path")
-        #expect(preflight.unsupportedReason?.contains("session engine is not active") == true)
-        #expect(preflight.requiredHTTP3Settings["SETTINGS_WT_ENABLED"] == WebTransportH3Draft15.Setting.wtEnabled)
-        #expect(preflight.requiresQUICDatagrams)
-        #expect(preflight.requiresResetStreamAt)
-
-        let readyAPI = MCPummelchenModServerAPI(
-            config: MCPummelchenModServerConfig(
-                projectRoot: fixture.root,
-                duckDBURL: fixture.root.appendingPathComponent("data/test-phase8-webtransport-ready.duckdb"),
-                clientAPIToken: "phase8-token",
-                webTransportPublicHost: "pummelchen.91.99.176.243.nip.io",
-                webTransportPort: 443,
-                webTransportSessionEngineActive: true
-            )
-        )
-        let readyPreflightResponse = readyAPI.response(for: HTTPRequest(method: "GET", path: "/api/v1/transport/webtransport/preflight"))
-        let readyPreflight = try JSONDecoder().decode(WebTransportPreflightPayload.self, from: readyPreflightResponse.body)
-        #expect(readyPreflight.ready)
-        #expect(readyPreflight.unsupportedReason == nil)
-        #expect(PummelchenWebTransportServiceConfig.defaultMaxControlPayloadBytes >= 512 * 1024)
-        #expect(PummelchenWebTransportServiceConfig.defaultMaxControlPayloadBytes > ControlEventStore.maxControlPayloadBytes)
 
         let eventRequest = ControlEventCreateRequest(
             eventType: .releaseAvailable,
@@ -931,8 +900,8 @@ struct MCPummelchenModServerCoreTests {
         )).statusCode == 400)
     }
 
-    @Test("phase 8 compatibility event API can deliver update events quickly")
-    func phase8CompatibilityEventAPIDeliversUpdateEventsQuickly() async throws {
+    @Test("phase 8 compatibility event API can deliver update events fast")
+    func phase8CompatibilityEventAPIDeliversUpdateEventsFast() async throws {
         try requireDuckDB()
         let fixture = try makeProjectFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -953,7 +922,7 @@ struct MCPummelchenModServerCoreTests {
 
         let started = Date()
         let waiting = Task {
-            try await client.fetchMissedEvents(limit: 10, waitSeconds: 5)
+            try await client.fetchEvents(limit: 10, waitSeconds: 5)
         }
         try await Task.sleep(nanoseconds: 250_000_000)
         let create = api.response(for: HTTPRequest(
@@ -980,8 +949,8 @@ struct MCPummelchenModServerCoreTests {
         #expect(elapsed < 5.0)
     }
 
-    @Test("phase 8 client refuses control polling when WebTransport is not ready")
-    func phase8ClientRequiresReadyWebTransport() async throws {
+    @Test("phase 8 client fetches and acknowledges control events over nginx HTTPS")
+    func phase8ClientUsesNginxHTTPSControlChannel() async throws {
         try requireDuckDB()
         let fixture = try makeProjectFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -1014,12 +983,15 @@ struct MCPummelchenModServerCoreTests {
             clientID: clientID,
             clientAPIToken: "phase8-token"
         ))
-        do {
-            _ = try await client.fetchEventsOverWebTransport()
-            Issue.record("client control channel should require a ready WebTransport preflight")
-        } catch {
-            #expect(String(describing: error).contains("WebTransport"))
-        }
+        let batch = try await client.fetchEvents(limit: 10)
+        #expect(batch.events.count == 1)
+        #expect(batch.events.first?.eventType == .serverRestartNotice)
+        #expect(batch.transport == "authenticated_https_operator_poll")
+
+        let event = try #require(batch.events.first)
+        try await client.acknowledge(event)
+        let afterAck = try await client.fetchEvents(limit: 10)
+        #expect(afterAck.events.isEmpty)
     }
 
     @Test("phase 9 safe world reset dry run records plan without deleting active world")

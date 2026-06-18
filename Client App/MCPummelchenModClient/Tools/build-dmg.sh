@@ -25,16 +25,16 @@ require_client_token_resource() {
     fi
 }
 
-run_webtransport_live_test() {
-    if [[ "${PUMMELCHEN_SKIP_WEBTRANSPORT_LIVE_TEST:-false}" == "true" ]]; then
-        echo "Skipping WebTransport live test because PUMMELCHEN_SKIP_WEBTRANSPORT_LIVE_TEST=true"
+run_nginx_control_live_test() {
+    if [[ "${PUMMELCHEN_SKIP_NGINX_CONTROL_LIVE_TEST:-false}" == "true" ]]; then
+        echo "Skipping nginx control live test because PUMMELCHEN_SKIP_NGINX_CONTROL_LIVE_TEST=true"
         return
     fi
     require_client_token_resource
 
-    local client_id="dmg-webtransport-$(date -u +%Y%m%d%H%M%S)-$$"
+    local client_id="dmg-nginx-control-$(date -u +%Y%m%d%H%M%S)-$$"
     local token_header=(-H "Authorization: Bearer $CLIENT_API_TOKEN" -H "X-Pummelchen-Client-ID: $client_id")
-    local before_json="$BUILD_DIR/webtransport-live-before.json"
+    local before_json="$BUILD_DIR/nginx-control-live-before.json"
     local after_event_id=""
     curl -sk --max-time 15 "${token_header[@]}" \
         "$SERVER_URL/api/v1/control/events?client_id=$client_id&limit=200" > "$before_json"
@@ -48,14 +48,14 @@ print(json.dumps({
     "target_client_id": os.environ["CLIENT_ID"],
     "release_id": None,
     "priority": "normal",
-    "title": "DMG WebTransport validation",
+    "title": "DMG nginx control validation",
     "message": "Temporary DMG validation event.",
-    "payload": {"probe": "dmg_webtransport_validation"}
+    "payload": {"probe": "dmg_nginx_control_validation"}
 }))
 PY
 )"
 
-    local create_body="$BUILD_DIR/webtransport-live-event.json"
+    local create_body="$BUILD_DIR/nginx-control-live-event.json"
     local create_status
     create_status="$(curl -sk --max-time 15 -o "$create_body" -w '%{http_code}' \
         -H "Authorization: Bearer $CLIENT_API_TOKEN" \
@@ -63,11 +63,11 @@ PY
         -d "$event_json" \
         "$SERVER_URL/api/v1/control/events")"
     if [[ "$create_status" != "201" ]]; then
-        echo "DMG validation failed: could not create WebTransport probe event (HTTP $create_status)" >&2
+        echo "DMG validation failed: could not create nginx control probe event (HTTP $create_status)" >&2
         exit 1
     fi
 
-    local work="$BUILD_DIR/webtransport-live-test"
+    local work="$BUILD_DIR/nginx-control-live-test"
     rm -rf "$work"
     mkdir -p "$work"
     local watch_args=(
@@ -86,7 +86,7 @@ PY
     if [[ -n "$after_event_id" ]]; then
         watch_args+=(--after-event-id "$after_event_id")
     fi
-    "$MACOS_DIR/pummelchen-client-sync" "${watch_args[@]}" > "$BUILD_DIR/webtransport-live-test.log" &
+    "$MACOS_DIR/pummelchen-client-sync" "${watch_args[@]}" > "$BUILD_DIR/nginx-control-live-test.log" &
     local watch_pid=$!
     local elapsed=0
     while kill -0 "$watch_pid" 2>/dev/null && [[ "$elapsed" -lt 45 ]]; do
@@ -96,17 +96,17 @@ PY
     if kill -0 "$watch_pid" 2>/dev/null; then
         kill "$watch_pid" 2>/dev/null || true
         wait "$watch_pid" 2>/dev/null || true
-        echo "DMG validation failed: WebTransport probe timed out" >&2
+        echo "DMG validation failed: nginx control probe timed out" >&2
         exit 1
     fi
     wait "$watch_pid"
 
-    if ! grep -q "Events handled: 1" "$BUILD_DIR/webtransport-live-test.log"; then
-        echo "DMG validation failed: WebTransport probe event was not fetched" >&2
+    if ! grep -q "Events handled: 1" "$BUILD_DIR/nginx-control-live-test.log"; then
+        echo "DMG validation failed: nginx control probe event was not fetched" >&2
         exit 1
     fi
-    if ! grep -q "Syncs run: 0" "$BUILD_DIR/webtransport-live-test.log"; then
-        echo "DMG validation failed: passive WebTransport probe unexpectedly triggered sync" >&2
+    if ! grep -q "Syncs run: 0" "$BUILD_DIR/nginx-control-live-test.log"; then
+        echo "DMG validation failed: passive nginx control probe unexpectedly triggered sync" >&2
         exit 1
     fi
 
@@ -121,11 +121,11 @@ PY
         "$pending_url" \
         | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("events", [])))')"
     if [[ "$pending" != "0" ]]; then
-        echo "DMG validation failed: WebTransport probe ack did not clear pending event queue" >&2
+        echo "DMG validation failed: nginx control probe ack did not clear pending event queue" >&2
         exit 1
     fi
 
-    echo "DMG WebTransport live test passed: session accepted, event fetched, event acknowledged, pending_events=0"
+    echo "DMG nginx control live test passed: event fetched, event acknowledged, pending_events=0"
 }
 
 cd "$ROOT_DIR"
@@ -221,8 +221,8 @@ codesign --force --sign - "$MACOS_DIR/pummelchen-client-sync"
 codesign --force --sign - "$MACOS_DIR/MCPummelchenModClient"
 codesign --force --deep --sign - "$APP_DIR"
 codesign --verify --deep --strict --verbose=2 "$APP_DIR"
-if [[ -n "${PUMMELCHEN_RELEASE_ID:-}" || "${PUMMELCHEN_REQUIRE_WEBTRANSPORT_LIVE_TEST:-false}" == "true" ]]; then
-    run_webtransport_live_test
+if [[ -n "${PUMMELCHEN_RELEASE_ID:-}" || "${PUMMELCHEN_REQUIRE_NGINX_CONTROL_LIVE_TEST:-false}" == "true" ]]; then
+    run_nginx_control_live_test
 fi
 
 hdiutil create \

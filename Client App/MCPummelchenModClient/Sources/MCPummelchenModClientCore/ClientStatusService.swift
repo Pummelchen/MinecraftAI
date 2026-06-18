@@ -49,8 +49,8 @@ public struct EndpointConnectionStatus: Codable, Equatable, Sendable {
 public struct ClientStatusSnapshot: Codable, Equatable, Sendable {
     public let state: ClientSyncState
     public let serverURL: String
-    public let nginx: EndpointConnectionStatus
-    public let webTransport: EndpointConnectionStatus
+    public let downloadServer: EndpointConnectionStatus
+    public let updateServer: EndpointConnectionStatus
     public let serverReleaseID: String?
     public let localReleaseID: String?
     public let checkedAt: String
@@ -67,8 +67,8 @@ public struct ClientStatusSnapshot: Codable, Equatable, Sendable {
     public init(
         state: ClientSyncState,
         serverURL: String,
-        nginx: EndpointConnectionStatus,
-        webTransport: EndpointConnectionStatus,
+        downloadServer: EndpointConnectionStatus,
+        updateServer: EndpointConnectionStatus,
         serverReleaseID: String?,
         localReleaseID: String?,
         checkedAt: String,
@@ -80,8 +80,8 @@ public struct ClientStatusSnapshot: Codable, Equatable, Sendable {
     ) {
         self.state = state
         self.serverURL = serverURL
-        self.nginx = nginx
-        self.webTransport = webTransport
+        self.downloadServer = downloadServer
+        self.updateServer = updateServer
         self.serverReleaseID = serverReleaseID
         self.localReleaseID = localReleaseID
         self.checkedAt = checkedAt
@@ -154,8 +154,8 @@ public struct ClientStatusService: Sendable {
             return ClientStatusSnapshot(
                 state: snapshot.state == .offline ? .offline : .repairNeeded,
                 serverURL: snapshot.serverURL,
-                nginx: snapshot.nginx,
-                webTransport: snapshot.webTransport,
+                downloadServer: snapshot.downloadServer,
+                updateServer: snapshot.updateServer,
                 serverReleaseID: snapshot.serverReleaseID,
                 localReleaseID: snapshot.localReleaseID,
                 checkedAt: snapshot.checkedAt,
@@ -216,11 +216,11 @@ public struct ClientStatusService: Sendable {
         }
 
         let defaultsHealth = repaired.rows
-        let nginxTask = Task {
-            await nginxStatus(checkedAt: checkedAt)
+        let downloadServerTask = Task {
+            await downloadServerStatus(checkedAt: checkedAt)
         }
-        let webTransportTask = Task {
-            await webTransportStatus(checkedAt: checkedAt)
+        let updateServerTask = Task {
+            await updateServerStatus(checkedAt: checkedAt)
         }
 
         do {
@@ -250,8 +250,8 @@ public struct ClientStatusService: Sendable {
             return ClientStatusSnapshot(
                 state: state,
                 serverURL: configuration.serverURL.absoluteString,
-                nginx: await nginxTask.value,
-                webTransport: await webTransportTask.value,
+                downloadServer: await downloadServerTask.value,
+                updateServer: await updateServerTask.value,
                 serverReleaseID: serverRelease.releaseID,
                 localReleaseID: localRelease,
                 checkedAt: checkedAt,
@@ -265,8 +265,8 @@ public struct ClientStatusService: Sendable {
             return ClientStatusSnapshot(
                 state: .offline,
                 serverURL: configuration.serverURL.absoluteString,
-                nginx: await nginxTask.value,
-                webTransport: await webTransportTask.value,
+                downloadServer: await downloadServerTask.value,
+                updateServer: await updateServerTask.value,
                 serverReleaseID: nil,
                 localReleaseID: localRelease,
                 checkedAt: checkedAt,
@@ -288,15 +288,12 @@ public struct ClientStatusService: Sendable {
         }
 
         do {
-            let preflight = try await fetchWebTransportPreflight()
-            guard preflight.ready else {
-                return
-            }
-            let channel = ClientWebTransportControlChannel(
-                preflight: preflight,
-                clientID: Self.validClientID(configuration.clientID),
+            let clientID = Self.validClientID(configuration.clientID ?? Host.current().localizedName)
+            let channel = ClientControlChannel(configuration: ClientControlChannelConfiguration(
+                serverURL: configuration.serverURL,
+                clientID: clientID,
                 clientAPIToken: token
-            )
+            ))
 
             let logFiles = collectDiagnosticLogFiles()
             let snippet = collectDiagnosticLogSnippet(logFiles: logFiles)
@@ -305,7 +302,7 @@ public struct ClientStatusService: Sendable {
             }.joined(separator: "; ")
 
             let payload = ClientDiagnosticsUpload(
-                clientID: Self.validClientID(configuration.clientID),
+                clientID: clientID,
                 reportedAt: Self.isoNow(),
                 level: "error",
                 summary: "client defaults repair failed",
@@ -393,7 +390,7 @@ public struct ClientStatusService: Sendable {
         return try await fetchCurrentReleaseFromNginx()
     }
 
-    private func nginxStatus(checkedAt: String) async -> EndpointConnectionStatus {
+    private func downloadServerStatus(checkedAt: String) async -> EndpointConnectionStatus {
         do {
             let probe = try await measure {
                 _ = try await fetchCurrentReleaseFromNginx()
@@ -424,37 +421,27 @@ public struct ClientStatusService: Sendable {
         return release
     }
 
-    private func webTransportStatus(checkedAt: String) async -> EndpointConnectionStatus {
+    private func updateServerStatus(checkedAt: String) async -> EndpointConnectionStatus {
+        guard let token = configuration.clientAPIToken, !token.isEmpty else {
+            return EndpointConnectionStatus(
+                label: "Live Update Server",
+                state: .degraded,
+                latencyMS: nil,
+                message: "client credentials unavailable",
+                checkedAt: checkedAt
+            )
+        }
+
         do {
-            let preflightProbe = try await measure {
-                try await fetchWebTransportPreflight()
+            let channel = ClientControlChannel(configuration: ClientControlChannelConfiguration(
+                serverURL: configuration.serverURL,
+                clientID: Self.validClientID(configuration.clientID ?? Host.current().localizedName),
+                clientAPIToken: token
+            ))
+            let probe = try await measure {
+                _ = try await channel.fetchEvents(limit: 1, waitSeconds: 0)
             }
-            guard preflightProbe.value.ready else {
-                return EndpointConnectionStatus(
-                    label: "Live Update Server",
-                    state: .cannotConnect,
-                    latencyMS: preflightProbe.latencyMS,
-                    message: preflightProbe.value.unsupportedReason ?? "live update connection is not ready",
-                    checkedAt: checkedAt
-                )
-            }
-            guard let token = configuration.clientAPIToken, !token.isEmpty else {
-                return EndpointConnectionStatus(
-                    label: "Live Update Server",
-                    state: .degraded,
-                    latencyMS: preflightProbe.latencyMS,
-                    message: "ready, client credentials unavailable",
-                    checkedAt: checkedAt
-                )
-            }
-            let sessionProbe = try await measure {
-                _ = try await ClientWebTransportControlChannel(
-                    preflight: preflightProbe.value,
-                    clientID: Self.validClientID(configuration.clientID),
-                    clientAPIToken: token
-                ).fetchEvents(limit: 1)
-            }
-            return endpointStatus(label: "Live Update Server", latencyMS: sessionProbe.latencyMS, checkedAt: checkedAt)
+            return endpointStatus(label: "Live Update Server", latencyMS: probe.latencyMS, checkedAt: checkedAt)
         } catch {
             return EndpointConnectionStatus(
                 label: "Live Update Server",
@@ -464,12 +451,6 @@ public struct ClientStatusService: Sendable {
                 checkedAt: checkedAt
             )
         }
-    }
-
-    private func fetchWebTransportPreflight() async throws -> WebTransportPreflightPayload {
-        let url = configuration.serverURL.appendingPathComponent("api/v1/transport/webtransport/preflight")
-        let data = try await probeHTTP.data(from: url)
-        return try JSONDecoder().decode(WebTransportPreflightPayload.self, from: data)
     }
 
     private func endpointStatus(label: String, latencyMS: Int, checkedAt: String) -> EndpointConnectionStatus {

@@ -250,14 +250,6 @@ public struct ClientSyncEngine: Sendable {
     }
 
     private func fetchCurrentRelease() async throws -> CurrentRelease {
-        if let token = configuration.clientAPIToken, !token.isEmpty {
-            let clientID = Self.validClientID(configuration.clientID ?? Host.current().localizedName)
-            do {
-                return try await requireWebTransportChannel(token: token, clientID: clientID).currentRelease()
-            } catch {
-                try? store.recordClientState(key: "last_webtransport_release_error", value: String(describing: error))
-            }
-        }
         return try await fetchCurrentReleaseFromDownloads()
     }
 
@@ -510,17 +502,15 @@ public struct ClientSyncEngine: Sendable {
             minecraftVersion: result.minecraftVersion,
             loaderVersion: result.loaderVersion
         )
-        let webTransport: ClientWebTransportControlChannel
+        let channel = ClientControlChannel(configuration: ClientControlChannelConfiguration(
+            serverURL: configuration.serverURL,
+            clientID: clientID,
+            clientAPIToken: token
+        ))
         do {
-            webTransport = try await requireWebTransportChannel(token: token, clientID: clientID)
+            _ = try await channel.reportStatus(payload)
         } catch {
-            try? store.recordClientState(key: "last_webtransport_report_error", value: String(describing: error))
-            return
-        }
-        do {
-            _ = try await webTransport.reportStatus(payload, action: "sync_run_report")
-        } catch {
-            try? store.recordClientState(key: "last_webtransport_report_error", value: String(describing: error))
+            try? store.recordClientState(key: "last_https_report_error", value: String(describing: error))
         }
 
         let inventoryUpload = ClientInventoryUpload(
@@ -541,9 +531,9 @@ public struct ClientSyncEngine: Sendable {
             }
         )
         do {
-            _ = try await webTransport.uploadInventory(inventoryUpload)
+            _ = try await channel.uploadInventory(inventoryUpload)
         } catch {
-            try? store.recordClientState(key: "last_webtransport_inventory_error", value: String(describing: error))
+            try? store.recordClientState(key: "last_https_inventory_error", value: String(describing: error))
         }
 
         let defaultsUpload = ClientDefaultsEventUpload(
@@ -560,27 +550,10 @@ public struct ClientSyncEngine: Sendable {
             }
         )
         do {
-            _ = try await webTransport.uploadDefaultsEvents(defaultsUpload)
+            _ = try await channel.uploadDefaultsEvents(defaultsUpload)
         } catch {
-            try? store.recordClientState(key: "last_webtransport_defaults_error", value: String(describing: error))
+            try? store.recordClientState(key: "last_https_defaults_error", value: String(describing: error))
         }
-    }
-
-    private func requireWebTransportChannel(token: String, clientID: String) async throws -> ClientWebTransportControlChannel {
-        let channel = ClientControlChannel(configuration: ClientControlChannelConfiguration(
-            serverURL: configuration.serverURL,
-            clientID: clientID,
-            clientAPIToken: token
-        ))
-        let preflight = try await channel.webTransportPreflight()
-        guard preflight.ready else {
-            throw ContractValidationError.invalid(preflight.unsupportedReason ?? "WebTransport preflight is not ready")
-        }
-        return ClientWebTransportControlChannel(
-            preflight: preflight,
-            clientID: clientID,
-            clientAPIToken: token
-        )
     }
 
     public static func minecraftIsRunning() -> Bool {

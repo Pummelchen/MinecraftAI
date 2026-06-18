@@ -171,8 +171,8 @@ struct ClientStatusTests {
         let snapshot = ClientStatusSnapshot(
             state: .synced,
             serverURL: "https://pummelchen.91.99.176.243.nip.io",
-            nginx: EndpointConnectionStatus(label: "Downloads", state: .connected, latencyMS: 42, message: "connected", checkedAt: "2026-06-13T10:00:00+00:00"),
-            webTransport: EndpointConnectionStatus(label: "Live Updates", state: .connected, latencyMS: 55, message: "connected", checkedAt: "2026-06-13T10:00:00+00:00"),
+            downloadServer: EndpointConnectionStatus(label: "Mod Download Server", state: .connected, latencyMS: 42, message: "connected", checkedAt: "2026-06-13T10:00:00+00:00"),
+            updateServer: EndpointConnectionStatus(label: "Live Update Server", state: .connected, latencyMS: 55, message: "connected", checkedAt: "2026-06-13T10:00:00+00:00"),
             serverReleaseID: "release_20260613_V99_client_duckdb",
             localReleaseID: "release_20260613_V99_client_duckdb",
             checkedAt: "2026-06-13T10:00:00+00:00",

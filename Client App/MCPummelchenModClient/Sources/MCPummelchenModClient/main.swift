@@ -257,8 +257,8 @@ struct PummelchenStatusView: View {
 
     private func connectionIndicators(_ snapshot: ClientStatusSnapshot) -> some View {
         HStack(spacing: 12) {
-            endpointIndicator(snapshot.nginx)
-            endpointIndicator(snapshot.webTransport)
+            endpointIndicator(snapshot.downloadServer)
+            endpointIndicator(snapshot.updateServer)
             Spacer()
         }
     }
@@ -569,8 +569,8 @@ struct MCPummelchenModClientMain {
             print("server_release=\(snapshot.serverReleaseID ?? "offline")")
             print("client_release=\(snapshot.localReleaseID ?? "not_installed")")
             print("defaults_ok=\(snapshot.defaultsOK)")
-            print("nginx=\(snapshot.nginx.state.rawValue) latency_ms=\(snapshot.nginx.latencyMS.map(String.init) ?? "n/a")")
-            print("webtransport=\(snapshot.webTransport.state.rawValue) latency_ms=\(snapshot.webTransport.latencyMS.map(String.init) ?? "n/a")")
+            print("download_server=\(snapshot.downloadServer.state.rawValue) latency_ms=\(snapshot.downloadServer.latencyMS.map(String.init) ?? "n/a")")
+            print("update_server=\(snapshot.updateServer.state.rawValue) latency_ms=\(snapshot.updateServer.latencyMS.map(String.init) ?? "n/a")")
             if let error = snapshot.errorMessage {
                 print("error=\(error)")
             }

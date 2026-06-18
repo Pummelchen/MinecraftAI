@@ -31,18 +31,13 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../MCPummelchenModShared"),
-        .package(path: "../../Client App/MCPummelchenModClient"),
-        .package(path: "../Vendor/PummelchenTransport")
+        .package(path: "../../Client App/MCPummelchenModClient")
     ],
     targets: [
         .target(
             name: "MCPummelchenModServerCore",
             dependencies: [
-                .product(name: "MCPummelchenModShared", package: "MCPummelchenModShared"),
-                .product(name: "PummelchenHTTP3", package: "PummelchenTransport"),
-                .product(name: "PummelchenQuic", package: "PummelchenTransport"),
-                .product(name: "PummelchenQuicCore", package: "PummelchenTransport"),
-                .product(name: "PummelchenQuicCrypto", package: "PummelchenTransport")
+                .product(name: "MCPummelchenModShared", package: "MCPummelchenModShared")
             ]
         ),
         .executableTarget(
