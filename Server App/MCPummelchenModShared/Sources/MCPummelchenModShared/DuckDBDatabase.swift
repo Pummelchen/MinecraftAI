@@ -30,8 +30,12 @@ public struct DuckDBDatabase: Sendable {
         var lastError = ""
         for attempt in 1...Self.maxAttempts {
             do {
-                return try Self.withProcessLock {
-                    try run(sql, includeHeader: includeHeader)
+                if readOnly {
+                    return try run(sql, includeHeader: includeHeader)
+                } else {
+                    return try Self.withProcessLock {
+                        try run(sql, includeHeader: includeHeader)
+                    }
                 }
             } catch {
                 lastError = String(describing: error)

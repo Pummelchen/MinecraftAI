@@ -811,7 +811,7 @@ struct MCPummelchenModServerCoreTests {
 
         let infoResponse = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/control/info"))
         let info = try JSONDecoder().decode(ControlChannelInfo.self, from: infoResponse.body)
-        #expect(info.transportTarget == "nginx_https_long_poll")
+        #expect(info.transportTarget == "nginx_https_poll")
         #expect(info.endpoint == "/api/v1/control/events")
         #expect(info.bidirectional)
         #expect(!info.downloadsAllowed)
@@ -881,7 +881,7 @@ struct MCPummelchenModServerCoreTests {
         ))
         let empty = try JSONDecoder().decode(ControlEventBatch.self, from: afterAck.body)
         #expect(empty.events.isEmpty)
-        #expect(empty.transport == "authenticated_https_operator_long_poll")
+        #expect(empty.transport == "authenticated_https_operator_poll")
 
         let downloadPayload = ControlEventCreateRequest(
             eventType: .clientSyncRequested,
@@ -920,11 +920,6 @@ struct MCPummelchenModServerCoreTests {
             clientAPIToken: "phase8-token"
         ))
 
-        let started = Date()
-        let waiting = Task {
-            try await client.fetchEvents(limit: 10, waitSeconds: 5)
-        }
-        try await Task.sleep(nanoseconds: 250_000_000)
         let create = api.response(for: HTTPRequest(
             method: "POST",
             path: "/api/v1/control/events",
@@ -941,12 +936,13 @@ struct MCPummelchenModServerCoreTests {
         ))
         #expect(create.statusCode == 201)
 
-        let batch = try await waiting.value
+        let started = Date()
+        let batch = try await client.fetchEvents(limit: 10, waitSeconds: 5)
         let elapsed = Date().timeIntervalSince(started)
         #expect(batch.events.count == 1)
         #expect(batch.events.first?.eventType == .syncRequired)
-        #expect(batch.transport == "authenticated_https_operator_long_poll")
-        #expect(elapsed < 5.0)
+        #expect(batch.transport == "authenticated_https_operator_poll")
+        #expect(elapsed < 1.0)
     }
 
     @Test("phase 8 client fetches and acknowledges control events over nginx HTTPS")

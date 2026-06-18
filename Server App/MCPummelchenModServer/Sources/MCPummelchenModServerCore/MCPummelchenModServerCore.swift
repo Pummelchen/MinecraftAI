@@ -390,7 +390,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     private func controlInfo() throws -> HTTPResponse {
         let payload = ControlChannelInfo(
             endpoint: "/api/v1/control/events",
-            transportTarget: "nginx_https_long_poll",
+            transportTarget: "nginx_https_poll",
             bidirectional: true,
             fallbackEndpoint: "",
             maxPayloadBytes: ControlEventStore.maxControlPayloadBytes,
@@ -411,27 +411,15 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         let clientID = params["client_id"] ?? request.headers["x-pummelchen-client-id"] ?? ""
         try validateClientID(clientID, header: request.headers["x-pummelchen-client-id"])
         let limit = params["limit"].flatMap(Int.init) ?? 50
-        let waitSeconds = min(max(params["wait_seconds"].flatMap(Int.init) ?? 0, 0), 30)
-        var events = try controlStore.pendingEvents(
+        let events = try controlStore.pendingEvents(
             clientID: clientID,
             afterEventID: params["after_event_id"],
             limit: limit
         )
-        if events.isEmpty && waitSeconds > 0 {
-            let deadline = Date().addingTimeInterval(TimeInterval(waitSeconds))
-            while events.isEmpty && Date() < deadline {
-                Thread.sleep(forTimeInterval: 0.5)
-                events = try controlStore.pendingEvents(
-                    clientID: clientID,
-                    afterEventID: params["after_event_id"],
-                    limit: limit
-                )
-            }
-        }
         let batch = ControlEventBatch(
             events: events,
             nextAfterEventID: events.last?.eventID ?? params["after_event_id"],
-            transport: waitSeconds > 0 ? "authenticated_https_operator_long_poll" : "authenticated_https_operator_poll",
+            transport: "authenticated_https_operator_poll",
             fallback: "none"
         )
         return .json(try encoder.encode(batch), headers: ["X-Pummelchen-Downloads-Allowed": "false"])

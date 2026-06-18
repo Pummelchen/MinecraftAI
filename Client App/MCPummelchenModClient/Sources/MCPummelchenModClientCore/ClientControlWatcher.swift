@@ -18,13 +18,13 @@ public struct ClientControlWatcher: Sendable {
 
     public init(
         syncConfiguration: ClientSyncConfiguration,
-        waitSeconds: Int = 25,
-        idleDelayNanoseconds: UInt64 = 700_000_000,
-        errorDelayNanoseconds: UInt64 = 3_000_000_000,
+        waitSeconds: Int = 0,
+        idleDelayNanoseconds: UInt64 = 5_000_000_000,
+        errorDelayNanoseconds: UInt64 = 5_000_000_000,
         syncJitterSeconds: Int = 30
     ) {
         self.syncConfiguration = syncConfiguration
-        self.waitSeconds = min(max(waitSeconds, 1), 30)
+        self.waitSeconds = min(max(waitSeconds, 0), 30)
         self.idleDelayNanoseconds = idleDelayNanoseconds
         self.errorDelayNanoseconds = errorDelayNanoseconds
         self.syncJitterSeconds = max(0, syncJitterSeconds)

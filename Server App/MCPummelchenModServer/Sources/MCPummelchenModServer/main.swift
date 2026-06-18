@@ -72,10 +72,14 @@ struct Arguments {
     }
 }
 
-final class LocalHTTPServer {
+final class LocalHTTPServer: @unchecked Sendable {
+    private static let listenBacklog: Int32 = 512
+    private static let maxConcurrentClients = 256
+
     private let api: MCPummelchenModServerAPI
     private let host: String
     private let port: Int
+    private let concurrencyLimit = DispatchSemaphore(value: LocalHTTPServer.maxConcurrentClients)
 
     init(api: MCPummelchenModServerAPI, host: String, port: Int) {
         self.api = api
@@ -106,7 +110,7 @@ final class LocalHTTPServer {
             close(fd)
             throw ServerCommandError.socket("bind failed on \(host):\(port)")
         }
-        guard listen(fd, 64) == 0 else {
+        guard listen(fd, Self.listenBacklog) == 0 else {
             close(fd)
             throw ServerCommandError.socket("listen failed on \(host):\(port)")
         }
@@ -118,8 +122,14 @@ final class LocalHTTPServer {
             if client < 0 {
                 continue
             }
-            handle(client: client)
-            close(client)
+            concurrencyLimit.wait()
+            Thread.detachNewThread { [self] in
+                defer {
+                    close(client)
+                    concurrencyLimit.signal()
+                }
+                handle(client: client)
+            }
         }
     }
 

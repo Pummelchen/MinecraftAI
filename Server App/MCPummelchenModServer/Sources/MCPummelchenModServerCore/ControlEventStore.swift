@@ -1,8 +1,26 @@
 import Foundation
 import MCPummelchenModShared
 
+private final class ControlEventInitializationCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var initializedDatabases: Set<String> = []
+
+    func contains(_ path: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return initializedDatabases.contains(path)
+    }
+
+    func insert(_ path: String) {
+        lock.lock()
+        initializedDatabases.insert(path)
+        lock.unlock()
+    }
+}
+
 public struct ControlEventStore: Sendable {
     public static let maxControlPayloadBytes = 16 * 1024
+    private static let initializationCache = ControlEventInitializationCache()
 
     public let databaseURL: URL
 
@@ -88,6 +106,11 @@ public struct ControlEventStore: Sendable {
     }
 
     public func initialize() throws {
+        let key = databaseURL.standardizedFileURL.path
+        if Self.initializationCache.contains(key) {
+            return
+        }
+
         try FileManager.default.createDirectory(at: databaseURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try execute("""
         CREATE SCHEMA IF NOT EXISTS control;
@@ -109,6 +132,8 @@ public struct ControlEventStore: Sendable {
           PRIMARY KEY(client_id, event_id)
         );
         """)
+
+        Self.initializationCache.insert(key)
     }
 
     private func validate(_ request: ControlEventCreateRequest) throws {
@@ -197,7 +222,7 @@ public struct ControlEventStore: Sendable {
     }
 
     private func queryCSV(_ sql: String) throws -> String {
-        try DuckDBDatabase(databaseURL: databaseURL).queryCSV(sql)
+        try DuckDBDatabase(databaseURL: databaseURL, readOnly: true).queryCSV(sql)
     }
 
     private static func sqlLiteral(_ value: String?) -> String {
