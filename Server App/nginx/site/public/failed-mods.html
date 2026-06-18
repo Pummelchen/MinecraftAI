@@ -127,7 +127,7 @@
     <div id="failedModsGrid" class="sheet-grid" aria-label="Failed mods data grid"></div>
     <div class="table-shell">
       <table id="failedModsTable">
-        <thead><tr><th>Timestamp</th><th>Mod</th><th>Failure Reason</th><th>Problem Details</th></tr></thead>
+        <thead><tr><th>Timestamp</th><th>MC Version</th><th>Mod</th><th>Failure Reason</th><th>Problem Details</th></tr></thead>
         <tbody>
           <tr><td class="timestamp-cell">2026-06-12 00:00:00</td><td class="mod-cell"><a href="https://www.curseforge.com/minecraft/mc-mods/giraffemob" target="_blank" rel="noreferrer">GiraffeMob</a></td><td class="reason-cell">Rejected: incompatible jar metadata</td><td class="details-cell">No additional details recorded.</td></tr>
         <tr><td class="timestamp-cell">2026-06-10 11:46:22</td><td class="mod-cell"><a href="https://www.curseforge.com/minecraft/mc-mods/armor-durability-hud-display" target="_blank" rel="noreferrer">Armor Durability HUD Display</a></td><td class="reason-cell">Rejected: isolated acceptance error</td><td class="details-cell">Lab status: exit_1 | Errors: 15 | Test: 20260610_new_mods_request_002_armor-durability-hud-display_isolated | Log: archived server validation path | Selected CurseForge stable file 8225212 (armor_hud-neoforge-1.2.0+mc26.1.2.jar) for NeoForge 26.1.x. Rejected before live install by isolated acceptance lab 20260610_new_mods_request_002_armor-durability-hud-display_isolated: Traceback (most recent call last): |   File &quot;archived validation lab&quot;, line 2062, in &lt;module&gt; |     raise SystemExit(main())</td></tr>
@@ -164,17 +164,24 @@
     <footer>Pummelchen Server — mod tracker failure report</footer>
   </div>
   <script>
+    const failedModsState = {};
     function updateFailedModsCount(visible, total) {
       const count = document.getElementById('failedModsCount');
       if (!count) return;
       count.textContent = visible === total ? `${total} failed mods` : `${visible} of ${total} failed mods`;
     }
-    function wireFailedModsGrid() {
+    function escapeHTML(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+    function failedRowsFromStaticTable() {
       const table = document.getElementById('failedModsTable');
-      if (!table || !table.tBodies.length) return;
-      const gridTarget = document.getElementById('failedModsGrid');
-      const input = document.getElementById('failedModsSearch');
-      const rows = Array.from(table.tBodies[0].rows).map(row => {
+      if (!table || !table.tBodies.length) return [];
+      return Array.from(table.tBodies[0].rows).map(row => {
         const link = row.cells[1] ? row.cells[1].querySelector('a') : null;
         return {
           timestamp: row.cells[0] ? row.cells[0].textContent.trim() : '',
@@ -182,63 +189,138 @@
           modUrl: link ? link.getAttribute('href') || '' : '',
           reason: row.cells[2] ? row.cells[2].textContent.trim() : '',
           details: row.cells[3] ? row.cells[3].textContent.trim() : '',
+          latestStatus: 'not_checked',
+          latestVersion: '',
+          lastChecked: '',
+          lastCheckDetails: 'waiting for the next daily mod update scan',
           search: row.textContent.toLowerCase(),
         };
       });
-      if (gridTarget && window.Tabulator) {
-        table.closest('.table-shell')?.classList.add('enhanced-fallback');
-        const grid = new Tabulator(gridTarget, {
-          data: rows,
-          layout: 'fitColumns',
-          height: rows.length > 12 ? '560px' : undefined,
-          placeholder: 'No failed mods',
-          initialSort: [{ column: 'timestamp', dir: 'desc' }],
-          pagination: rows.length > 25 ? 'local' : false,
-          paginationSize: 25,
-          paginationSizeSelector: [25, 50, 100],
-          columnDefaults: {
-            headerSort: true,
-            resizable: true,
-            tooltip: true,
-          },
-          columns: [
-            { title: 'Timestamp', field: 'timestamp', width: 155, frozen: true },
-            { title: 'Mod', field: 'mod', minWidth: 220, formatter: cell => {
-              const data = cell.getRow().getData();
-              if (!data.modUrl) return data.mod;
-              return `<a href="${data.modUrl}" target="_blank" rel="noopener noreferrer">${data.mod}</a>`;
-            } },
-            { title: 'Failure Reason', field: 'reason', minWidth: 260 },
-            { title: 'Problem Details', field: 'details', minWidth: 520 },
-          ],
-        });
-        function applyFilter() {
-          const query = input ? input.value.trim().toLowerCase() : '';
-          if (!query) grid.clearFilter(true);
-          else grid.setFilter(data => String(data.search || '').includes(query));
-        }
-        grid.on('dataFiltered', (filters, activeRows) => {
-          updateFailedModsCount(Array.isArray(activeRows) ? activeRows.length : rows.length, rows.length);
-        });
-        grid.on('tableBuilt', () => updateFailedModsCount(rows.length, rows.length));
-        if (input) input.addEventListener('input', applyFilter);
-        updateFailedModsCount(rows.length, rows.length);
+    }
+    function normalizeFailedRows(rows) {
+      return rows.map(row => {
+        const normalized = {
+          timestamp: row.failed_at_display || row.failed_at || row.timestamp || '',
+          mod: row.title || row.mod || '',
+          modUrl: row.source_url || row.modUrl || '',
+          reason: row.failure_reason || row.reason || '',
+          details: row.details || '',
+          latestStatus: row.latest_status || row.latestStatus || 'not_checked',
+          latestVersion: row.latest_version || row.latestVersion || '',
+          lastChecked: row.last_checked_at_display || row.last_checked_at || row.lastChecked || '',
+          lastCheckDetails: row.last_check_details || row.lastCheckDetails || '',
+          minecraftVersion: row.minecraft_version || row.minecraftVersion || '',
+        };
+        normalized.search = [
+          normalized.timestamp,
+          normalized.mod,
+          normalized.modUrl,
+          normalized.reason,
+          normalized.details,
+          normalized.latestStatus,
+          normalized.latestVersion,
+          normalized.lastChecked,
+          normalized.lastCheckDetails,
+          normalized.minecraftVersion,
+          row.loader_version,
+          row.search,
+        ].filter(Boolean).join(' ').toLowerCase();
+        return normalized;
+      });
+    }
+    function applyFailedModsFilter() {
+      const input = document.getElementById('failedModsSearch');
+      const query = input ? input.value.trim().toLowerCase() : '';
+      const grid = failedModsState.grid;
+      const rows = failedModsState.rows || [];
+      if (grid) {
+        if (!query) grid.clearFilter(true);
+        else grid.setFilter(data => String(data.search || '').includes(query));
+        const visible = query ? grid.getRows(true).length : rows.length;
+        updateFailedModsCount(visible, rows.length);
         return;
       }
-      if (input) {
-        input.addEventListener('input', () => {
-          const query = input.value.trim().toLowerCase();
-          Array.from(table.tBodies[0].rows).forEach(row => {
-            const hit = !query || row.textContent.toLowerCase().includes(query);
-            row.style.display = hit ? '' : 'none';
+      const table = document.getElementById('failedModsTable');
+      if (!table || !table.tBodies.length) return;
+      Array.from(table.tBodies[0].rows).forEach(row => {
+        const hit = !query || row.textContent.toLowerCase().includes(query);
+        row.style.display = hit ? '' : 'none';
+      });
+      const visible = Array.from(table.tBodies[0].rows).filter(row => row.style.display !== 'none').length;
+      updateFailedModsCount(visible, rows.length);
+    }
+    function applyFailedModsRows(rows) {
+      const normalized = normalizeFailedRows(rows);
+      failedModsState.rows = normalized;
+      const table = document.getElementById('failedModsTable');
+      const gridTarget = document.getElementById('failedModsGrid');
+      if (gridTarget && window.Tabulator) {
+        table.closest('.table-shell')?.classList.add('enhanced-fallback');
+        if (failedModsState.grid) {
+          failedModsState.grid.replaceData(normalized).then(applyFailedModsFilter);
+        } else {
+          failedModsState.grid = new Tabulator(gridTarget, {
+            data: normalized,
+            layout: 'fitColumns',
+            height: normalized.length > 12 ? '560px' : undefined,
+            placeholder: 'No failed mods',
+            initialSort: [{ column: 'timestamp', dir: 'desc' }],
+            pagination: normalized.length > 25 ? 'local' : false,
+            paginationSize: 25,
+            paginationSizeSelector: [25, 50, 100],
+            columnDefaults: {
+              headerSort: true,
+              resizable: true,
+              tooltip: true,
+            },
+            columns: [
+              { title: 'Timestamp', field: 'timestamp', width: 155, frozen: true },
+              { title: 'MC Version', field: 'minecraftVersion', minWidth: 125 },
+              { title: 'Mod', field: 'mod', minWidth: 220, formatter: cell => {
+                const data = cell.getRow().getData();
+                if (!data.modUrl) return escapeHTML(data.mod);
+                return `<a href="${escapeHTML(data.modUrl)}" target="_blank" rel="noopener noreferrer">${escapeHTML(data.mod)}</a>`;
+              } },
+              { title: 'Latest Status', field: 'latestStatus', minWidth: 150 },
+              { title: 'Latest Version', field: 'latestVersion', minWidth: 150 },
+              { title: 'Last Checked', field: 'lastChecked', minWidth: 180 },
+              { title: 'Failure Reason', field: 'reason', minWidth: 260 },
+              { title: 'Problem Details', field: 'details', minWidth: 420 },
+              { title: 'Check Details', field: 'lastCheckDetails', minWidth: 360 },
+            ],
           });
-          const visible = Array.from(table.tBodies[0].rows).filter(row => row.style.display !== 'none').length;
-          updateFailedModsCount(visible, rows.length);
-        });
+          failedModsState.grid.on('dataFiltered', (filters, activeRows) => {
+            updateFailedModsCount(Array.isArray(activeRows) ? activeRows.length : normalized.length, normalized.length);
+          });
+          failedModsState.grid.on('tableBuilt', applyFailedModsFilter);
+        }
+        applyFailedModsFilter();
+        return;
       }
-      updateFailedModsCount(rows.length, rows.length);
+      updateFailedModsCount(normalized.length, normalized.length);
+    }
+    function wireFailedModsGrid() {
+      const input = document.getElementById('failedModsSearch');
+      applyFailedModsRows(failedRowsFromStaticTable());
+      if (input) input.addEventListener('input', applyFailedModsFilter);
+    }
+    async function refreshFailedMods() {
+      try {
+        const response = await fetch('/api/v1/site/failed-mods', { cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        if (Array.isArray(payload.rows)) {
+          applyFailedModsRows(payload.rows);
+        }
+      } catch {
+        if (!failedModsState.rows || !failedModsState.rows.length) {
+          applyFailedModsRows(failedRowsFromStaticTable());
+        }
+      }
     }
     wireFailedModsGrid();
+    refreshFailedMods();
+    window.setInterval(refreshFailedMods, 15000);
   </script>
 </body>
 </html>

@@ -161,6 +161,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 return try siteModInventory(scope: "server")
             case ("GET", "/api/v1/site/mod-inventory/client"):
                 return try siteModInventory(scope: "client")
+            case ("GET", "/api/v1/site/failed-mods"):
+                return try siteFailedMods()
             case ("GET", "/api/v1/site/tested-updates"):
                 return try siteTestedUpdates()
             case ("GET", "/api/v1/site/update-activity"):
@@ -346,6 +348,84 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         return .json(data, headers: [
             "Cache-Control": "no-store, max-age=0",
             "X-Pummelchen-Stats-Source": "swift-server-site-inventory"
+        ])
+    }
+
+    private func siteFailedMods() throws -> HTTPResponse {
+        let csv = try? DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+        SELECT
+          COALESCE(CAST(failed_at AS VARCHAR), '') AS failed_at,
+          title,
+          COALESCE(source_url, '') AS source_url,
+          COALESCE(filename, '') AS filename,
+          COALESCE(installed_version, '') AS installed_version,
+          failure_reason,
+          COALESCE(details, '') AS details,
+          COALESCE(latest_status, 'not_checked') AS latest_status,
+          COALESCE(latest_version, '') AS latest_version,
+          COALESCE(latest_url, '') AS latest_url,
+          COALESCE(last_check_details, '') AS last_check_details,
+          COALESCE(CAST(last_checked_at AS VARCHAR), '') AS last_checked_at,
+          COALESCE(minecraft_version, '') AS minecraft_version,
+          COALESCE(loader_version, '') AS loader_version,
+          active_status
+        FROM core.failed_mod_update_status
+        WHERE active_status = 'failed'
+        ORDER BY failed_at DESC NULLS LAST, title ASC;
+        """)
+        let dbRows = csv.map(Self.parseCSV) ?? []
+        var rows = dbRows.map { row -> [String: Any] in
+            let failedAtRaw = row["failed_at"] ?? ""
+            let lastCheckedRaw = row["last_checked_at"] ?? ""
+            let failedAt = failedAtRaw.isEmpty ? "" : Self.isoTimestamp(fromDuckDB: failedAtRaw)
+            let lastCheckedAt = lastCheckedRaw.isEmpty ? "" : Self.isoTimestamp(fromDuckDB: lastCheckedRaw)
+            let search = [
+                row["title"],
+                row["source_url"],
+                row["filename"],
+                row["installed_version"],
+                row["failure_reason"],
+                row["details"],
+                row["latest_status"],
+                row["latest_version"],
+                row["last_check_details"],
+                row["minecraft_version"],
+                row["loader_version"]
+            ].compactMap { $0 }.joined(separator: " ")
+            return [
+                "failed_at": failedAt,
+                "failed_at_display": Self.displayTimestamp(fromISO: failedAt),
+                "title": row["title"] ?? "",
+                "source_url": row["source_url"] ?? "",
+                "filename": row["filename"] ?? "",
+                "version": row["installed_version"] ?? "",
+                "failure_reason": row["failure_reason"] ?? "",
+                "details": row["details"] ?? "",
+                "latest_status": row["latest_status"] ?? "not_checked",
+                "latest_version": row["latest_version"] ?? "",
+                "latest_url": row["latest_url"] ?? "",
+                "last_check_details": row["last_check_details"] ?? "",
+                "last_checked_at": lastCheckedAt,
+                "last_checked_at_display": Self.displayTimestamp(fromISO: lastCheckedAt),
+                "minecraft_version": row["minecraft_version"] ?? "",
+                "loader_version": row["loader_version"] ?? "",
+                "search": search.lowercased()
+            ]
+        }
+        if rows.isEmpty {
+            rows = try staticFailedModRows()
+        }
+        let payload: [String: Any] = [
+            "api_version": "v1",
+            "generated_at": Self.isoNow(),
+            "generated_by": "MCPummelchenModServer-duckdb-failed-mods",
+            "total_entries": rows.count,
+            "rows": rows
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        return .json(data, headers: [
+            "Cache-Control": "no-store, max-age=0",
+            "X-Pummelchen-Stats-Source": "swift-server-duckdb"
         ])
     }
 
@@ -758,6 +838,56 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         return rows
     }
 
+    private func staticFailedModRows() throws -> [[String: Any]] {
+        let failedModsURL = config.projectRoot.appendingPathComponent("site/public/failed-mods.html")
+        let html = try String(contentsOf: try safeProjectFile(failedModsURL), encoding: .utf8)
+        let pattern = #"<tr>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*</tr>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) else {
+            return []
+        }
+        let nsRange = NSRange(html.startIndex..<html.endIndex, in: html)
+        return regex.matches(in: html, range: nsRange).compactMap { match in
+            guard match.numberOfRanges >= 5,
+                  let timestampRange = Range(match.range(at: 1), in: html),
+                  let modRange = Range(match.range(at: 2), in: html),
+                  let reasonRange = Range(match.range(at: 3), in: html),
+                  let detailsRange = Range(match.range(at: 4), in: html) else {
+                return nil
+            }
+            let modHTML = String(html[modRange])
+            let title = Self.htmlText(modHTML)
+            guard !title.isEmpty else { return nil }
+            let sourceURL = Self.firstMatch(pattern: #"href="([^"]+)""#, in: modHTML)?.replacingOccurrences(of: "&amp;", with: "&") ?? ""
+            let details = Self.htmlText(String(html[detailsRange]))
+            let failedAt = Self.isoTimestamp(fromDuckDB: Self.htmlText(String(html[timestampRange])))
+            let search = [
+                title,
+                sourceURL,
+                Self.htmlText(String(html[reasonRange])),
+                details
+            ].joined(separator: " ")
+            return [
+                "failed_at": failedAt,
+                "failed_at_display": Self.displayTimestamp(fromISO: failedAt),
+                "title": title,
+                "source_url": sourceURL,
+                "filename": "",
+                "version": "",
+                "failure_reason": Self.htmlText(String(html[reasonRange])),
+                "details": details,
+                "latest_status": "not_checked",
+                "latest_version": "",
+                "latest_url": "",
+                "last_check_details": "waiting for the next daily mod update scan",
+                "last_checked_at": "",
+                "last_checked_at_display": "",
+                "minecraft_version": "",
+                "loader_version": "",
+                "search": search.lowercased()
+            ]
+        }
+    }
+
     private func minecraftServerVersions() throws -> HTTPResponse {
         let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
         SELECT
@@ -1082,6 +1212,28 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         value
             .replacingOccurrences(of: "T", with: " ")
             .replacingOccurrences(of: "Z", with: " UTC")
+    }
+
+    private static func firstMatch(pattern: String, in value: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators]),
+              let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..<value.endIndex, in: value)),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: value) else {
+            return nil
+        }
+        return String(value[range])
+    }
+
+    private static func htmlText(_ html: String) -> String {
+        html
+            .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#x27;", with: "'")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func parseCSV(_ csv: String) -> [[String: String]] {

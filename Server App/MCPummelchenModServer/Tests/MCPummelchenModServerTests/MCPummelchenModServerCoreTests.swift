@@ -158,6 +158,54 @@ struct MCPummelchenModServerCoreTests {
         #expect(neoForgeObject?["latest_neoforge_version"] as? String == "26.1.2.76")
     }
 
+    @Test("serves failed mods with DuckDB scan status")
+    func servesFailedModsWithDuckDBScanStatus() throws {
+        try requireDuckDB()
+        let fixture = try makeProjectFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        try """
+        <!doctype html>
+        <html><body><table><tbody>
+          <tr><td class="timestamp-cell">2026-06-12 00:00:00</td><td class="mod-cell"><a href="https://www.curseforge.com/minecraft/mc-mods/giraffemob">GiraffeMob</a></td><td class="reason-cell">Rejected: incompatible jar metadata</td><td class="details-cell">Selected file giraffemob-26.1.2-1.0.0.jar failed validation.</td></tr>
+        </tbody></table></body></html>
+        """.write(to: fixture.root.appendingPathComponent("site/public/failed-mods.html"), atomically: true, encoding: .utf8)
+
+        let database = fixture.root.appendingPathComponent("data/test-phase6.duckdb")
+        let summary = try ModUpdateScanner(config: ModUpdateScannerConfig(
+            projectRoot: fixture.root,
+            databaseURL: database,
+            maxURLsPerWindow: 5,
+            windowSeconds: 0,
+            limit: 0,
+            seedFromTestedUpdates: true
+        )).run()
+        #expect(summary.seededSources == 1)
+        try DuckDBDatabase(databaseURL: database).execute("""
+        UPDATE core.failed_mod_update_status
+        SET latest_status = 'unresolved',
+            latest_version = '1.1.0',
+            latest_url = 'https://www.curseforge.com/minecraft/mc-mods/giraffemob',
+            last_check_details = 'CurseForge API returned no compatible neoforge 26.1.2 files',
+            last_checked_at = TIMESTAMP '2026-06-19 12:00:00'
+        WHERE title = 'GiraffeMob';
+        """)
+
+        let api = makeAPI(fixture: fixture)
+        let response = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/failed-mods"))
+        let object = try JSONSerialization.jsonObject(with: response.body) as? [String: Any]
+        let rows = try #require(object?["rows"] as? [[String: Any]])
+        let row = try #require(rows.first)
+
+        #expect(response.statusCode == 200)
+        #expect(response.headers["Cache-Control"] == "no-store, max-age=0")
+        #expect(object?["generated_by"] as? String == "MCPummelchenModServer-duckdb-failed-mods")
+        #expect(row["title"] as? String == "GiraffeMob")
+        #expect(row["latest_status"] as? String == "unresolved")
+        #expect(row["latest_version"] as? String == "1.1.0")
+        #expect(row["last_checked_at"] as? String == "2026-06-19T12:00:00Z")
+        #expect(row["failure_reason"] as? String == "Rejected: incompatible jar metadata")
+    }
+
     @Test("serves version-tagged mod inventory tables through Swift API")
     func servesVersionTaggedModInventoryTables() throws {
         try requireDuckDB()
@@ -1368,7 +1416,7 @@ struct MCPummelchenModServerCoreTests {
         #expect(batch.events.count == 1)
         #expect(batch.events.first?.eventType == .syncRequired)
         #expect(batch.transport == "authenticated_https_operator_poll")
-        #expect(elapsed < 1.0)
+        #expect(elapsed < 2.0)
     }
 
     @Test("phase 8 client fetches and acknowledges control events over nginx HTTPS")

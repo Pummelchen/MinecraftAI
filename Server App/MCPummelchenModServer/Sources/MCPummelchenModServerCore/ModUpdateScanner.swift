@@ -93,7 +93,7 @@ public struct ModUpdateScanner: Sendable {
 
     public func run() throws -> ModUpdateScanSummary {
         try initializeDatabase()
-        let seeded = config.seedFromTestedUpdates ? try seedSourcesFromTestedUpdates() : 0
+        let seeded = config.seedFromTestedUpdates ? try seedSourcesFromProjectData() : 0
         let scanID = "scan_\(Self.compactTimestamp())_\(UUID().uuidString.prefix(8))"
         let startedAt = Self.duckTimestamp(Date())
         if !config.dryRun {
@@ -159,6 +159,15 @@ public struct ModUpdateScanner: Sendable {
 
     public func check(source: ModSourceRecord) -> ModUpdateCheckResult {
         do {
+            if source.provider == "manifest" || source.sourceURL.hasPrefix("manifest://") {
+                return ModUpdateCheckResult(
+                    source: source,
+                    status: "missing_source_url",
+                    latestVersion: nil,
+                    latestURL: nil,
+                    details: "current release manifest entry has no Modrinth or CurseForge source URL in DuckDB"
+                )
+            }
             guard let url = URL(string: source.sourceURL), let host = url.host?.lowercased() else {
                 throw ModUpdateScannerError.invalidSourceURL(source.sourceURL)
             }
@@ -277,7 +286,47 @@ public struct ModUpdateScanner: Sendable {
         ALTER TABLE core.mod_update_scan_results ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR DEFAULT '26.1.2';
         ALTER TABLE core.mod_update_scan_results ADD COLUMN IF NOT EXISTS loader VARCHAR DEFAULT 'neoforge';
         ALTER TABLE core.mod_update_scan_results ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
+        CREATE TABLE IF NOT EXISTS core.failed_mod_update_status (
+          failed_mod_id VARCHAR PRIMARY KEY,
+          title VARCHAR NOT NULL,
+          source_url VARCHAR,
+          filename VARCHAR,
+          installed_version VARCHAR,
+          failure_reason VARCHAR NOT NULL,
+          details VARCHAR,
+          failed_at TIMESTAMP,
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader VARCHAR DEFAULT 'neoforge',
+          loader_version VARCHAR,
+          latest_status VARCHAR,
+          latest_version VARCHAR,
+          latest_url VARCHAR,
+          last_check_details VARCHAR,
+          last_checked_at TIMESTAMP,
+          active_status VARCHAR NOT NULL DEFAULT 'failed',
+          updated_at TIMESTAMP NOT NULL DEFAULT now()
+        );
+        ALTER TABLE core.failed_mod_update_status ADD COLUMN IF NOT EXISTS filename VARCHAR;
+        ALTER TABLE core.failed_mod_update_status ADD COLUMN IF NOT EXISTS installed_version VARCHAR;
+        ALTER TABLE core.failed_mod_update_status ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR DEFAULT '26.1.2';
+        ALTER TABLE core.failed_mod_update_status ADD COLUMN IF NOT EXISTS loader VARCHAR DEFAULT 'neoforge';
+        ALTER TABLE core.failed_mod_update_status ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
+        ALTER TABLE core.failed_mod_update_status ADD COLUMN IF NOT EXISTS latest_status VARCHAR;
+        ALTER TABLE core.failed_mod_update_status ADD COLUMN IF NOT EXISTS latest_version VARCHAR;
+        ALTER TABLE core.failed_mod_update_status ADD COLUMN IF NOT EXISTS latest_url VARCHAR;
+        ALTER TABLE core.failed_mod_update_status ADD COLUMN IF NOT EXISTS last_check_details VARCHAR;
+        ALTER TABLE core.failed_mod_update_status ADD COLUMN IF NOT EXISTS last_checked_at TIMESTAMP;
+        ALTER TABLE core.failed_mod_update_status ADD COLUMN IF NOT EXISTS active_status VARCHAR DEFAULT 'failed';
         """)
+    }
+
+    private func seedSourcesFromProjectData() throws -> Int {
+        var seeded = 0
+        seeded += try seedSourcesFromTestedUpdates()
+        seeded += try seedSourcesFromSiteInventory()
+        seeded += try seedSourcesFromReleaseManifests()
+        seeded += try seedFailedModsFromStaticPage()
+        return seeded
     }
 
     private func seedSourcesFromTestedUpdates() throws -> Int {
@@ -296,6 +345,7 @@ public struct ModUpdateScanner: Sendable {
         }
         let updates = object["updates"] as? [[String: Any]] ?? object["rows"] as? [[String: Any]] ?? []
         var seededSourceIDs = Set<String>()
+        var sources: [ModSourceRecord] = []
         for row in updates {
             guard let sourceURL = row["source_url"] as? String,
                   sourceURL.hasPrefix("http://") || sourceURL.hasPrefix("https://") else {
@@ -318,20 +368,161 @@ public struct ModUpdateScanner: Sendable {
                     provider: Self.provider(for: sourceURL),
                     sourceURL: sourceURL
                 )
-                try upsert(source: source)
+                sources.append(source)
                 seededSourceIDs.insert(source.sourceID)
             }
         }
+        try upsert(sources: sources)
         return seededSourceIDs.count
+    }
+
+    private func seedSourcesFromSiteInventory() throws -> Int {
+        let indexCandidates = [
+            config.projectRoot.appendingPathComponent("site/public/index.html"),
+            config.projectRoot.appendingPathComponent("Server App/nginx/site/public/index.html")
+        ]
+        guard let indexURL = indexCandidates.first(where: { fileManager.fileExists(atPath: $0.path) }) else {
+            return 0
+        }
+        let html = try String(contentsOf: indexURL, encoding: .utf8)
+        var seededSourceIDs = Set<String>()
+        var sources: [ModSourceRecord] = []
+        for scriptID in ["serverModsData", "clientModsData"] {
+            for row in Self.embeddedJSONRows(scriptID: scriptID, html: html) {
+                guard let sourceURL = row["sourceUrl"] as? String,
+                      sourceURL.hasPrefix("http://") || sourceURL.hasPrefix("https://") else {
+                    continue
+                }
+                let displayName = ((row["name"] as? String) ?? "Unknown Mod").trimmingCharacters(in: .whitespacesAndNewlines)
+                let files = Self.splitFileList((row["files"] as? String) ?? (row["versionFile"] as? String) ?? "")
+                let fileList = files.count == 1 ? files.map(Optional.some) : [nil]
+                for installedFile in fileList {
+                    let modKey = Self.modKey(displayName: displayName, installedFile: installedFile, sourceURL: sourceURL)
+                    let source = ModSourceRecord(
+                        sourceID: Self.versionedSourceID(Self.stableID("\(modKey)|\(sourceURL)|\(installedFile ?? "")"), minecraftVersion: config.minecraftVersion),
+                        modKey: modKey,
+                        displayName: displayName,
+                        installedFile: installedFile,
+                        installedVersion: installedFile.flatMap(Self.versionFromFilename),
+                        provider: Self.provider(for: sourceURL),
+                        sourceURL: sourceURL
+                    )
+                    sources.append(source)
+                    seededSourceIDs.insert(source.sourceID)
+                }
+            }
+        }
+        try upsert(sources: sources)
+        return seededSourceIDs.count
+    }
+
+    private func seedSourcesFromReleaseManifests() throws -> Int {
+        guard let releaseID = try currentReleaseID() else {
+            return 0
+        }
+        var existingFiles = try existingInstalledFiles()
+        var sources: [ModSourceRecord] = []
+        var seeded = 0
+        for manifestName in ["server-files.tsv", "client-package.tsv"] {
+            guard let manifestURL = releaseManifestURL(releaseID: releaseID, manifestName: manifestName),
+                  let text = try? String(contentsOf: manifestURL, encoding: .utf8) else {
+                continue
+            }
+            for entry in Self.releaseManifestEntries(text) {
+                guard Self.scannableManifestRoles.contains(entry.role),
+                      !existingFiles.contains(entry.fileName.lowercased()) else {
+                    continue
+                }
+                let displayName = Self.displayNameFromManifestFile(entry.fileName)
+                let sourceURL = "manifest://\(releaseID)/\(entry.role)/\(entry.fileName)"
+                let source = ModSourceRecord(
+                    sourceID: Self.versionedSourceID(Self.stableID("\(entry.role)|\(entry.fileName)|\(releaseID)"), minecraftVersion: config.minecraftVersion),
+                    modKey: Self.modKey(displayName: displayName, installedFile: entry.fileName, sourceURL: sourceURL),
+                    displayName: displayName,
+                    installedFile: entry.fileName,
+                    installedVersion: Self.versionFromFilename(entry.fileName),
+                    provider: "manifest",
+                    sourceURL: sourceURL
+                )
+                sources.append(source)
+                existingFiles.insert(entry.fileName.lowercased())
+                seeded += 1
+            }
+        }
+        try upsert(sources: sources)
+        return seeded
+    }
+
+    private func seedFailedModsFromStaticPage() throws -> Int {
+        let candidates = [
+            config.projectRoot.appendingPathComponent("site/public/failed-mods.html"),
+            config.projectRoot.appendingPathComponent("Server App/nginx/site/public/failed-mods.html")
+        ]
+        guard let page = candidates.first(where: { fileManager.fileExists(atPath: $0.path) }),
+              let html = try? String(contentsOf: page, encoding: .utf8) else {
+            return 0
+        }
+        let rows = Self.failedModRows(fromHTML: html)
+        var statements: [String] = ["BEGIN TRANSACTION;"]
+        for row in rows {
+            let failedModID = Self.versionedSourceID(row.id, minecraftVersion: config.minecraftVersion)
+            let failedAtSQL = row.failedAt.isEmpty ? "NULL" : "TIMESTAMP \(Self.sqlLiteral(Self.duckTimestamp(fromDisplay: row.failedAt)))"
+            statements.append("DELETE FROM core.failed_mod_update_status WHERE failed_mod_id = \(Self.sqlLiteral(row.id));")
+            statements.append("""
+            INSERT OR REPLACE INTO core.failed_mod_update_status(
+              failed_mod_id, title, source_url, filename, installed_version,
+              failure_reason, details, failed_at, minecraft_version, loader,
+              loader_version, active_status, updated_at
+            )
+            VALUES (
+              \(Self.sqlLiteral(failedModID)),
+              \(Self.sqlLiteral(row.title)),
+              \(Self.sqlLiteral(row.sourceURL)),
+              \(Self.sqlLiteral(row.filename)),
+              \(Self.sqlLiteral(row.version)),
+              \(Self.sqlLiteral(row.failureReason)),
+              \(Self.sqlLiteral(row.details)),
+              \(failedAtSQL),
+              \(Self.sqlLiteral(config.minecraftVersion)),
+              \(Self.sqlLiteral(config.loader)),
+              \(Self.sqlLiteral(config.loaderVersion)),
+              'failed',
+              now()
+            );
+            """)
+        }
+        statements.append("COMMIT;")
+        if !rows.isEmpty {
+            try execute(statements.joined(separator: "\n"))
+        }
+        return rows.count
     }
 
     private func loadSources(limit: Int?) throws -> [ModSourceRecord] {
         let limitClause = limit.map { " LIMIT \(max(0, $0))" } ?? ""
         let csv = try query("""
-        SELECT source_id, mod_key, display_name, COALESCE(installed_file, ''), COALESCE(installed_version, ''), provider, source_url
+        SELECT source_id, mod_key, display_name, COALESCE(installed_file, ''), COALESCE(installed_version, ''), provider, source_url, priority
         FROM core.mod_sources
         WHERE active = true
           AND COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
+        UNION ALL
+        SELECT
+          'failed_' || failed_mod_id AS source_id,
+          regexp_replace(lower(title), '[^a-z0-9]+', '-', 'g') AS mod_key,
+          title AS display_name,
+          COALESCE(filename, '') AS installed_file,
+          COALESCE(installed_version, '') AS installed_version,
+          CASE
+            WHEN lower(COALESCE(source_url, '')) LIKE '%modrinth.com%' THEN 'modrinth'
+            WHEN lower(COALESCE(source_url, '')) LIKE '%curseforge.com%' THEN 'curseforge'
+            ELSE 'web'
+          END AS provider,
+          COALESCE(source_url, '') AS source_url,
+          500 AS priority
+        FROM core.failed_mod_update_status
+        WHERE active_status = 'failed'
+          AND COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
+          AND (COALESCE(source_url, '') LIKE 'http://%' OR COALESCE(source_url, '') LIKE 'https://%')
         ORDER BY priority ASC, display_name ASC, source_url ASC
         \(limitClause);
         """)
@@ -455,30 +646,36 @@ public struct ModUpdateScanner: Sendable {
             ?? mods.first?["id"] as? Int
     }
 
-    private func upsert(source: ModSourceRecord) throws {
-        try execute("""
-        DELETE FROM core.mod_sources WHERE source_id = \(Self.sqlLiteral(source.sourceID));
-        INSERT INTO core.mod_sources(
-          source_id, mod_key, display_name, installed_file, installed_version,
-          provider, source_url, priority, active, updated_at,
-          minecraft_version, loader, loader_version
-        )
-        VALUES (
-          \(Self.sqlLiteral(source.sourceID)),
-          \(Self.sqlLiteral(source.modKey)),
-          \(Self.sqlLiteral(source.displayName)),
-          \(Self.sqlLiteral(source.installedFile)),
-          \(Self.sqlLiteral(source.installedVersion)),
-          \(Self.sqlLiteral(source.provider)),
-          \(Self.sqlLiteral(source.sourceURL)),
-          100,
-          true,
-          now(),
-          \(Self.sqlLiteral(config.minecraftVersion)),
-          \(Self.sqlLiteral(config.loader)),
-          \(Self.sqlLiteral(config.loaderVersion))
-        );
-        """)
+    private func upsert(sources: [ModSourceRecord]) throws {
+        guard !sources.isEmpty else { return }
+        var statements: [String] = ["BEGIN TRANSACTION;"]
+        for source in sources {
+            statements.append("""
+            DELETE FROM core.mod_sources WHERE source_id = \(Self.sqlLiteral(source.sourceID));
+            INSERT INTO core.mod_sources(
+              source_id, mod_key, display_name, installed_file, installed_version,
+              provider, source_url, priority, active, updated_at,
+              minecraft_version, loader, loader_version
+            )
+            VALUES (
+              \(Self.sqlLiteral(source.sourceID)),
+              \(Self.sqlLiteral(source.modKey)),
+              \(Self.sqlLiteral(source.displayName)),
+              \(Self.sqlLiteral(source.installedFile)),
+              \(Self.sqlLiteral(source.installedVersion)),
+              \(Self.sqlLiteral(source.provider)),
+              \(Self.sqlLiteral(source.sourceURL)),
+              100,
+              true,
+              now(),
+              \(Self.sqlLiteral(config.minecraftVersion)),
+              \(Self.sqlLiteral(config.loader)),
+              \(Self.sqlLiteral(config.loaderVersion))
+            );
+            """)
+        }
+        statements.append("COMMIT;")
+        try execute(statements.joined(separator: "\n"))
     }
 
     private func persist(result: ModUpdateCheckResult, scanID: String) throws {
@@ -506,6 +703,20 @@ public struct ModUpdateScanner: Sendable {
           \(Self.sqlLiteral(config.loaderVersion))
         );
         """)
+        if result.source.sourceID.hasPrefix("failed_") {
+            try execute("""
+            UPDATE core.failed_mod_update_status
+            SET latest_status = \(Self.sqlLiteral(result.status)),
+                latest_version = \(Self.sqlLiteral(result.latestVersion)),
+                latest_url = \(Self.sqlLiteral(result.latestURL)),
+                last_check_details = \(Self.sqlLiteral(result.details)),
+                last_checked_at = TIMESTAMP '\(Self.duckTimestamp(Date()))',
+                loader = \(Self.sqlLiteral(config.loader)),
+                loader_version = \(Self.sqlLiteral(config.loaderVersion)),
+                updated_at = now()
+            WHERE failed_mod_id = \(Self.sqlLiteral(String(result.source.sourceID.dropFirst("failed_".count))));
+            """)
+        }
     }
 
     private func publishUpdateActivity(scanID: String, checked: Int, candidates: Int, unresolved: Int, seeded: Int) throws {
@@ -569,6 +780,52 @@ public struct ModUpdateScanner: Sendable {
 
     private func query(_ sql: String) throws -> String {
         try database.queryCSV(sql)
+    }
+
+    private func existingInstalledFiles() throws -> Set<String> {
+        let csv = try query("""
+        SELECT DISTINCT lower(COALESCE(installed_file, '')) AS installed_file
+        FROM core.mod_sources
+        WHERE active = true
+          AND COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
+          AND COALESCE(installed_file, '') <> '';
+        """)
+        return Set(csvRows(csv).compactMap { row in
+            guard let value = row.first, !value.isEmpty else { return nil }
+            return value
+        })
+    }
+
+    private func currentReleaseID() throws -> String? {
+        let serverKey = "minecraft_\(config.minecraftVersion.replacingOccurrences(of: ".", with: "_"))"
+        let candidates = [
+            config.projectRoot.appendingPathComponent("site/public/downloads/current-release-\(config.minecraftVersion).json"),
+            config.projectRoot.appendingPathComponent("site/public/downloads/current-release-\(serverKey).json"),
+            config.projectRoot.appendingPathComponent("site/public/downloads/current-release.json"),
+            config.projectRoot.appendingPathComponent("downloads/current-release.json")
+        ]
+        for currentURL in candidates where fileManager.fileExists(atPath: currentURL.path) {
+            let data = try Data(contentsOf: currentURL)
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+            let releaseMinecraftVersion = (object["minecraft_version"] as? String) ?? (object["minecraftVersion"] as? String)
+            let isVersionScoped = currentURL.lastPathComponent != "current-release.json"
+            guard isVersionScoped || releaseMinecraftVersion == nil || releaseMinecraftVersion == config.minecraftVersion else {
+                continue
+            }
+            if let releaseID = object["release_id"] as? String ?? object["releaseID"] as? String {
+                return releaseID
+            }
+        }
+        return nil
+    }
+
+    private func releaseManifestURL(releaseID: String, manifestName: String) -> URL? {
+        [
+            config.projectRoot.appendingPathComponent("releases/\(releaseID)/manifests/\(manifestName)"),
+            config.projectRoot.appendingPathComponent("site/public/downloads/releases/\(releaseID)/manifests/\(manifestName)")
+        ].first(where: { fileManager.fileExists(atPath: $0.path) })
     }
 
     private static func classify(installedVersion: String?, latestVersion: String?) -> String {
@@ -639,6 +896,113 @@ public struct ModUpdateScanner: Sendable {
             .split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && ($0.hasSuffix(".jar") || $0.hasSuffix(".zip")) }
+    }
+
+    private static func splitFileList(_ value: String) -> [String] {
+        value
+            .replacingOccurrences(of: " + ", with: ",")
+            .replacingOccurrences(of: ";", with: ",")
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && ($0.hasSuffix(".jar") || $0.hasSuffix(".zip")) }
+    }
+
+    private static var scannableManifestRoles: Set<String> {
+        ["server_mod", "client_mods", "client_resourcepacks", "client_shaderpacks", "client_tools"]
+    }
+
+    private static func embeddedJSONRows(scriptID: String, html: String) -> [[String: Any]] {
+        let marker = "<script type=\"application/json\" id=\"\(scriptID)\">"
+        guard let start = html.range(of: marker) else { return [] }
+        let afterStart = html[start.upperBound...]
+        guard let end = afterStart.range(of: "</script>") else { return [] }
+        let jsonText = String(afterStart[..<end.lowerBound])
+        guard let data = jsonText.data(using: .utf8),
+              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return []
+        }
+        return rows
+    }
+
+    private static func releaseManifestEntries(_ text: String) -> [(role: String, fileName: String)] {
+        text.split(separator: "\n").dropFirst().compactMap { line in
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard fields.count >= 2 else { return nil }
+            let fileName = URL(fileURLWithPath: fields[1]).lastPathComponent
+            return fileName.isEmpty ? nil : (fields[0], fileName)
+        }
+    }
+
+    private static func displayNameFromManifestFile(_ fileName: String) -> String {
+        fileName
+            .replacingOccurrences(of: #"\.(jar|zip|json|toml|properties|txt|sh)$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"[-_]+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private struct FailedModSeedRow {
+        let id: String
+        let failedAt: String
+        let title: String
+        let sourceURL: String?
+        let filename: String?
+        let version: String?
+        let failureReason: String
+        let details: String
+    }
+
+    private static func failedModRows(fromHTML html: String) -> [FailedModSeedRow] {
+        let pattern = #"<tr>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*</tr>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) else {
+            return []
+        }
+        let nsRange = NSRange(html.startIndex..<html.endIndex, in: html)
+        return regex.matches(in: html, range: nsRange).compactMap { match in
+            guard match.numberOfRanges >= 5,
+                  let timestampRange = Range(match.range(at: 1), in: html),
+                  let modRange = Range(match.range(at: 2), in: html),
+                  let reasonRange = Range(match.range(at: 3), in: html),
+                  let detailsRange = Range(match.range(at: 4), in: html) else {
+                return nil
+            }
+            let modHTML = String(html[modRange])
+            let title = htmlText(modHTML)
+            guard !title.isEmpty else { return nil }
+            let sourceURL = firstMatch(pattern: #"href="([^"]+)""#, in: modHTML)?.replacingOccurrences(of: "&amp;", with: "&")
+            let details = htmlText(String(html[detailsRange]))
+            let filename = firstMatch(pattern: #"([A-Za-z0-9._+\-()\[\] ]+\.(?:jar|zip))"#, in: details)
+            let version = filename.flatMap(versionFromFilename)
+            let id = stableID("\(title)|\(sourceURL ?? "")|\(String(html[timestampRange]))")
+            return FailedModSeedRow(
+                id: id,
+                failedAt: htmlText(String(html[timestampRange])),
+                title: title,
+                sourceURL: sourceURL,
+                filename: filename,
+                version: version,
+                failureReason: htmlText(String(html[reasonRange])),
+                details: details
+            )
+        }
+    }
+
+    private static func htmlText(_ html: String) -> String {
+        html
+            .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#x27;", with: "'")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func duckTimestamp(fromDisplay value: String) -> String {
+        if value.range(of: #"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"#, options: .regularExpression) != nil {
+            return value
+        }
+        return "1970-01-01 00:00:00"
     }
 
     private static func modKey(displayName: String, installedFile: String?, sourceURL: String) -> String {
