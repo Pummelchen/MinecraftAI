@@ -158,6 +158,34 @@ struct MCPummelchenModServerCoreTests {
         #expect(neoForgeObject?["latest_neoforge_version"] as? String == "26.1.2.76")
     }
 
+    @Test("serves version-tagged mod inventory tables through Swift API")
+    func servesVersionTaggedModInventoryTables() throws {
+        let fixture = try makeProjectFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let api = makeAPI(fixture: fixture)
+        let serverMods = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/mod-inventory/server"))
+        let clientMods = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/mod-inventory/client"))
+
+        #expect(serverMods.statusCode == 200)
+        #expect(clientMods.statusCode == 200)
+        #expect(serverMods.headers["Cache-Control"] == "no-store, max-age=0")
+        #expect(clientMods.headers["X-Pummelchen-Stats-Source"] == "swift-server-site-inventory")
+
+        let serverObject = try JSONSerialization.jsonObject(with: serverMods.body) as? [String: Any]
+        let clientObject = try JSONSerialization.jsonObject(with: clientMods.body) as? [String: Any]
+        let serverRows = try #require(serverObject?["rows"] as? [[String: Any]])
+        let clientRows = try #require(clientObject?["rows"] as? [[String: Any]])
+
+        #expect(serverObject?["minecraft_version"] as? String == "26.1.2")
+        #expect(serverObject?["server_key"] as? String == "minecraft_26_1_2")
+        #expect(serverObject?["release_id"] as? String == "release_20260612_V6_modernarch-refresh")
+        #expect(serverObject?["scope"] as? String == "server")
+        #expect(serverRows.first?["name"] as? String == "Fixture Server Mod")
+        #expect(clientObject?["scope"] as? String == "client")
+        #expect(clientRows.first?["name"] as? String == "Fixture Client Mod")
+    }
+
     @Test("serves supported Minecraft server versions from DuckDB")
     func servesSupportedMinecraftServerVersionsFromDuckDB() throws {
         try requireDuckDB()
@@ -1307,6 +1335,15 @@ struct MCPummelchenModServerCoreTests {
           "update_available": true
         }
         """.write(to: root.appendingPathComponent("site/public/neoforge-version.json"), atomically: true, encoding: .utf8)
+        try """
+        <!doctype html>
+        <html>
+        <body>
+          <script type="application/json" id="serverModsData">[{"name":"Fixture Server Mod","type":"Gameplay","files":"server.jar","sourceHost":"fixture.local","details":"Server fixture"}]</script>
+          <script type="application/json" id="clientModsData">[{"name":"Fixture Client Mod","type":"Client Visuals","files":"client.jar","sourceHost":"fixture.local","details":"Client fixture"}]</script>
+        </body>
+        </html>
+        """.write(to: root.appendingPathComponent("site/public/index.html"), atomically: true, encoding: .utf8)
         return (root, current, manifest)
     }
 

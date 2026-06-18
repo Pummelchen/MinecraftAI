@@ -150,6 +150,10 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 return try siteLiveStats()
             case ("GET", "/api/v1/minecraft/server-versions"):
                 return try minecraftServerVersions()
+            case ("GET", "/api/v1/site/mod-inventory/server"):
+                return try siteModInventory(scope: "server")
+            case ("GET", "/api/v1/site/mod-inventory/client"):
+                return try siteModInventory(scope: "client")
             case ("GET", "/api/v1/site/tested-updates"):
                 return try siteTestedUpdates()
             case ("GET", "/api/v1/site/update-activity"):
@@ -265,6 +269,58 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             "Cache-Control": "no-store, max-age=0",
             "X-Pummelchen-Stats-Source": "swift-server"
         ])
+    }
+
+    private func siteModInventory(scope: String) throws -> HTTPResponse {
+        let scriptID: String
+        switch scope {
+        case "server":
+            scriptID = "serverModsData"
+        case "client":
+            scriptID = "clientModsData"
+        default:
+            throw MCPummelchenModServerError.badRequest("invalid mod inventory scope")
+        }
+
+        let current = try CurrentReleaseValidator.decode(readCurrentReleaseData())
+        let rows = try readEmbeddedJSONRows(scriptID: scriptID)
+        let payload: [String: Any] = [
+            "api_version": "v1",
+            "generated_at": Self.isoNow(),
+            "generated_by": "MCPummelchenModServer-site-inventory",
+            "scope": scope,
+            "release_id": current.releaseID,
+            "server_key": current.serverKey,
+            "minecraft_version": current.minecraftVersion ?? "",
+            "loader_version": current.loaderVersion ?? "",
+            "status": "live",
+            "total_entries": rows.count,
+            "rows": rows
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        return .json(data, headers: [
+            "Cache-Control": "no-store, max-age=0",
+            "X-Pummelchen-Stats-Source": "swift-server-site-inventory"
+        ])
+    }
+
+    private func readEmbeddedJSONRows(scriptID: String) throws -> [[String: Any]] {
+        let indexURL = config.projectRoot.appendingPathComponent("site/public/index.html")
+        let html = try String(contentsOf: try safeProjectFile(indexURL), encoding: .utf8)
+        let marker = "<script type=\"application/json\" id=\"\(scriptID)\">"
+        guard let start = html.range(of: marker) else {
+            throw MCPummelchenModServerError.notFound("site mod inventory \(scriptID)")
+        }
+        let afterStart = html[start.upperBound...]
+        guard let end = afterStart.range(of: "</script>") else {
+            throw MCPummelchenModServerError.notFound("site mod inventory \(scriptID) end")
+        }
+        let jsonText = String(afterStart[..<end.lowerBound])
+        let data = Data(jsonText.utf8)
+        guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            throw MCPummelchenModServerError.badRequest("site mod inventory \(scriptID) is not a JSON row array")
+        }
+        return rows
     }
 
     private func minecraftServerVersions() throws -> HTTPResponse {
