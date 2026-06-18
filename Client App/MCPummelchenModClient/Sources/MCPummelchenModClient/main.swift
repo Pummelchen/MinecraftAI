@@ -15,6 +15,7 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
 
     private var configuration: ClientStatusConfiguration
     private var controlTask: Task<Void, Never>?
+    private var endpointLatencyTask: Task<Void, Never>?
     private var minecraftCloseRetryTask: Task<Void, Never>?
     private var startupSyncAttempted = false
     private let retryTracker = DefaultsRetryTracker()
@@ -27,6 +28,7 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
 
     deinit {
         controlTask?.cancel()
+        endpointLatencyTask?.cancel()
         minecraftCloseRetryTask?.cancel()
     }
 
@@ -59,7 +61,38 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
             clientAPIToken: configuration.clientAPIToken
         )
         startControlWatcher()
+        startEndpointLatencyRefresh()
         refresh()
+    }
+
+    func startEndpointLatencyRefresh() {
+        endpointLatencyTask?.cancel()
+        let model = self
+        endpointLatencyTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                await model.refreshEndpointLatencies()
+            }
+        }
+    }
+
+    private func refreshEndpointLatencies() async {
+        let config = configuration
+        let service = ClientStatusService(configuration: config)
+        let endpoints = await service.endpointStatuses()
+        if Task.isCancelled {
+            return
+        }
+        await MainActor.run {
+            guard let current = self.snapshot else {
+                return
+            }
+            self.snapshot = current.updatingEndpoints(
+                downloadServer: endpoints.downloadServer,
+                updateServer: endpoints.updateServer,
+                checkedAt: endpoints.checkedAt
+            )
+        }
     }
 
     func syncNow() {
@@ -252,6 +285,7 @@ struct PummelchenStatusView: View {
         .onAppear {
             model.refresh()
             model.startControlWatcher()
+            model.startEndpointLatencyRefresh()
         }
     }
 

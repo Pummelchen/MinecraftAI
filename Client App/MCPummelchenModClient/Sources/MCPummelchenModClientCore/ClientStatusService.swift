@@ -91,6 +91,27 @@ public struct ClientStatusSnapshot: Codable, Equatable, Sendable {
         self.defaultsHealth = defaultsHealth
         self.errorMessage = errorMessage
     }
+
+    public func updatingEndpoints(
+        downloadServer: EndpointConnectionStatus,
+        updateServer: EndpointConnectionStatus,
+        checkedAt: String
+    ) -> ClientStatusSnapshot {
+        ClientStatusSnapshot(
+            state: state,
+            serverURL: serverURL,
+            downloadServer: downloadServer,
+            updateServer: updateServer,
+            serverReleaseID: serverReleaseID,
+            localReleaseID: localReleaseID,
+            checkedAt: checkedAt,
+            minecraftDirectory: minecraftDirectory,
+            localDatabase: localDatabase,
+            clientIP: clientIP,
+            defaultsHealth: defaultsHealth,
+            errorMessage: errorMessage
+        )
+    }
 }
 
 public struct ClientStatusConfiguration: Sendable {
@@ -171,6 +192,13 @@ public struct ClientStatusService: Sendable {
 
     public func check() async -> ClientStatusSnapshot {
         return await check(rowIDsToRepair: nil)
+    }
+
+    public func endpointStatuses() async -> (downloadServer: EndpointConnectionStatus, updateServer: EndpointConnectionStatus, checkedAt: String) {
+        let checkedAt = Self.isoNow()
+        async let download = downloadServerStatus(checkedAt: checkedAt)
+        async let update = updateServerStatus(checkedAt: checkedAt)
+        return await (download, update, checkedAt)
     }
 
     public func check(rowIDsToRepair: Set<String>? = nil, retryTracker: DefaultsRetryTracker? = nil) async -> ClientStatusSnapshot {
@@ -433,13 +461,8 @@ public struct ClientStatusService: Sendable {
         }
 
         do {
-            let channel = ClientControlChannel(configuration: ClientControlChannelConfiguration(
-                serverURL: configuration.serverURL,
-                clientID: Self.validClientID(configuration.clientID ?? Host.current().localizedName),
-                clientAPIToken: token
-            ))
             let probe = try await measure {
-                _ = try await channel.fetchEvents(limit: 1, waitSeconds: 0)
+                _ = try await fetchControlEventsProbe(token: token)
             }
             return endpointStatus(label: "Live Update Server", latencyMS: probe.latencyMS, checkedAt: checkedAt)
         } catch {
@@ -451,6 +474,20 @@ public struct ClientStatusService: Sendable {
                 checkedAt: checkedAt
             )
         }
+    }
+
+    private func fetchControlEventsProbe(token: String) async throws -> ControlEventBatch {
+        var components = URLComponents(url: configuration.serverURL.appendingPathComponent("api/v1/control/events"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "client_id", value: Self.validClientID(configuration.clientID ?? Host.current().localizedName)),
+            URLQueryItem(name: "limit", value: "1")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(Self.validClientID(configuration.clientID ?? Host.current().localizedName), forHTTPHeaderField: "X-Pummelchen-Client-ID")
+        let data = try await probeHTTP.send(request)
+        return try JSONDecoder().decode(ControlEventBatch.self, from: data)
     }
 
     private func endpointStatus(label: String, latencyMS: Int, checkedAt: String) -> EndpointConnectionStatus {
