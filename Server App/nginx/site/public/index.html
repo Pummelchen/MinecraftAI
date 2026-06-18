@@ -979,7 +979,6 @@
           return `<a href="${escapeHTML(data.sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHTML(data.name)}</a>`;
         } },
         { title: 'Type', field: 'type', minWidth: 190 },
-        { title: 'Scope', field: 'scope', width: 95 },
         { title: 'Files', field: 'files', minWidth: 320 },
         { title: 'Source', field: 'sourceHost', minWidth: 140, formatter: cell => {
           const data = cell.getRow().getData();
@@ -993,7 +992,6 @@
       return [
         row.name,
         row.type,
-        row.scope,
         row.files,
         row.versionFile,
         row.sourceHost,
