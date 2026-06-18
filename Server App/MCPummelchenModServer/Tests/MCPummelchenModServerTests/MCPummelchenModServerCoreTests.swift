@@ -461,8 +461,10 @@ struct MCPummelchenModServerCoreTests {
         try "server mod".write(to: serverDir.appendingPathComponent("mods/example-server.jar"), atomically: true, encoding: .utf8)
         try "datapack".write(to: serverDir.appendingPathComponent("server-datapacks/pummelchen-welcome.zip"), atomically: true, encoding: .utf8)
 
-        try writeArtifact(name: SwiftReleasePipeline.clientZipName, content: "zip", serverDir: serverDir)
-        try writeArtifact(name: SwiftReleasePipeline.mrpackName, content: "mrpack", serverDir: serverDir)
+        let liveClientZipName = SwiftReleasePipeline.clientZipName(minecraftVersion: "26.1.2")
+        let liveMrpackName = SwiftReleasePipeline.mrpackName(minecraftVersion: "26.1.2")
+        try writeArtifact(name: liveClientZipName, content: "zip", serverDir: serverDir)
+        try writeArtifact(name: liveMrpackName, content: "mrpack", serverDir: serverDir)
         let dmgSHA = try writeArtifact(name: SwiftReleasePipeline.dmgName, content: "dmg", serverDir: serverDir)
 
         let releaseID = "release_20260613_V77_swift_phase7_test"
@@ -491,7 +493,7 @@ struct MCPummelchenModServerCoreTests {
         #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/\(SwiftReleasePipeline.dmgName).sha256").path))
         #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/\(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName)").path))
         #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(SwiftReleasePipeline.dmgName).path)) == "releases/\(releaseID)/\(SwiftReleasePipeline.dmgName)")
-        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(SwiftReleasePipeline.clientZipName).path)) == "releases/\(releaseID)/\(SwiftReleasePipeline.clientZipName)")
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(liveClientZipName).path)) == "releases/\(releaseID)/\(liveClientZipName)")
         #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName).path)) == "releases/\(releaseID)/\(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName)")
         #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/data/tested-updates.json").path))
         let testedUpdates = try String(contentsOf: publicDownloads.appendingPathComponent("releases/\(releaseID)/data/tested-updates.json"), encoding: .utf8)
@@ -548,8 +550,8 @@ struct MCPummelchenModServerCoreTests {
         try FileManager.default.createDirectory(at: clientPackage.appendingPathComponent("mods"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: serverDir, withIntermediateDirectories: true)
         try "client mod".write(to: clientPackage.appendingPathComponent("mods/example-client.jar"), atomically: true, encoding: .utf8)
-        try writeArtifact(name: SwiftReleasePipeline.clientZipName, content: "zip", serverDir: serverDir)
-        try writeArtifact(name: SwiftReleasePipeline.mrpackName, content: "mrpack", serverDir: serverDir)
+        try writeArtifact(name: SwiftReleasePipeline.clientZipName(minecraftVersion: "26.1.2"), content: "zip", serverDir: serverDir)
+        try writeArtifact(name: SwiftReleasePipeline.mrpackName(minecraftVersion: "26.1.2"), content: "mrpack", serverDir: serverDir)
         try writeArtifact(name: SwiftReleasePipeline.dmgName, content: "dmg", serverDir: serverDir)
 
         let pipeline = SwiftReleasePipeline(config: SwiftReleasePipelineConfig(
@@ -570,6 +572,59 @@ struct MCPummelchenModServerCoreTests {
         }
     }
 
+    @Test("phase 7 staging releases use version scoped pack artifacts")
+    func phase7StagingReleaseUsesVersionScopedPackArtifacts() throws {
+        try requireDuckDB()
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-phase7-versioned-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let serverDir = root.appendingPathComponent("server-26.2", isDirectory: true)
+        let releaseRoot = root.appendingPathComponent("releases", isDirectory: true)
+        let publicDownloads = root.appendingPathComponent("site/downloads", isDirectory: true)
+        let clientPackage = serverDir.appendingPathComponent("client-package", isDirectory: true)
+        try FileManager.default.createDirectory(at: clientPackage.appendingPathComponent("mods"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: serverDir.appendingPathComponent("mods"), withIntermediateDirectories: true)
+        try "client mod 26.2".write(to: clientPackage.appendingPathComponent("mods/example-client-26.2.jar"), atomically: true, encoding: .utf8)
+        try "server mod 26.2".write(to: serverDir.appendingPathComponent("mods/example-server-26.2.jar"), atomically: true, encoding: .utf8)
+
+        let clientZip = SwiftReleasePipeline.clientZipName(minecraftVersion: "26.2")
+        let mrpack = SwiftReleasePipeline.mrpackName(minecraftVersion: "26.2")
+        try writeArtifact(name: clientZip, content: "zip 26.2", serverDir: serverDir)
+        try writeArtifact(name: mrpack, content: "mrpack 26.2", serverDir: serverDir)
+
+        let releaseID = "release_20260619_V99_mc_26_2_staging"
+        let pipeline = SwiftReleasePipeline(config: SwiftReleasePipelineConfig(
+            projectRoot: root,
+            serverDir: serverDir,
+            releaseRoot: releaseRoot,
+            publicDownloads: publicDownloads,
+            databaseURL: root.appendingPathComponent("phase7-versioned.duckdb"),
+            releaseID: releaseID,
+            serverKey: "minecraft_26_2",
+            minecraftVersion: "26.2",
+            loaderVersion: "26.2.0.3-beta",
+            status: "staging",
+            activate: true,
+            buildClientZipIfMissing: false
+        ))
+
+        _ = try pipeline.createRelease()
+        let current = try CurrentReleaseValidator.decode(Data(contentsOf: publicDownloads.appendingPathComponent("current-release-26.2.json")))
+        #expect(current.serverKey == "minecraft_26_2")
+        #expect(current.minecraftVersion == "26.2")
+        #expect(current.loaderVersion == "26.2.0.3-beta")
+        #expect(current.clientZipURL == "/downloads/releases/\(releaseID)/\(clientZip)")
+        #expect(current.mrpackURL == "/downloads/releases/\(releaseID)/\(mrpack)")
+        #expect(!current.clientZipURL.contains("26.1.2"))
+        #expect(!current.mrpackURL.contains("26.1.2"))
+        #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/\(clientZip)").path))
+        #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/\(mrpack)").path))
+        #expect(!FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("current-release.json").path))
+        let activeServerKey = try duckDBScalar(database: root.appendingPathComponent("phase7-versioned.duckdb"), sql: "SELECT server_key FROM release.pack_releases WHERE release_id = '\(releaseID)' AND active = true;")
+        #expect(activeServerKey == "minecraft_26_2")
+    }
+
     @Test("phase 7 rejects old DMG soak reports without new-player setup acceptance")
     func phase7RejectsDMGSoakWithoutNewPlayerSetupAcceptance() throws {
         try requireDuckDB()
@@ -584,8 +639,8 @@ struct MCPummelchenModServerCoreTests {
         try FileManager.default.createDirectory(at: clientPackage.appendingPathComponent("mods"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: serverDir, withIntermediateDirectories: true)
         try "client mod".write(to: clientPackage.appendingPathComponent("mods/example-client.jar"), atomically: true, encoding: .utf8)
-        try writeArtifact(name: SwiftReleasePipeline.clientZipName, content: "zip", serverDir: serverDir)
-        try writeArtifact(name: SwiftReleasePipeline.mrpackName, content: "mrpack", serverDir: serverDir)
+        try writeArtifact(name: SwiftReleasePipeline.clientZipName(minecraftVersion: "26.1.2"), content: "zip", serverDir: serverDir)
+        try writeArtifact(name: SwiftReleasePipeline.mrpackName(minecraftVersion: "26.1.2"), content: "mrpack", serverDir: serverDir)
         let dmgSHA = try writeArtifact(name: SwiftReleasePipeline.dmgName, content: "dmg", serverDir: serverDir)
         let releaseID = "release_20260613_V79_missing_new_player_setup"
         try writeLegacyDMGHeadlessLiveSoakReport(releaseID: releaseID, dmgSHA: dmgSHA, serverDir: serverDir)
@@ -709,6 +764,14 @@ struct MCPummelchenModServerCoreTests {
             loader: "neoforge",
             minecraftVersion: "26.1.2"
         )?["fileName"] as? String == "maplespigcollection-neoforge-26.1.2-1.0.jar")
+        #expect(ModUpdateScanner.bestCurseForgeFile(
+            from: [
+                ["fileName": "old-neoforge-26.1.2.jar", "gameVersions": ["NeoForge", "26.1.2"]],
+                ["fileName": "fabric-26.2.jar", "gameVersions": ["Fabric", "26.2"]]
+            ],
+            loader: "neoforge",
+            minecraftVersion: "26.2"
+        ) == nil)
         #expect(ModUpdateScanner.curseForgeVersion(
             fileName: "low_latency-neoforge-26.1.2-1.0.5.jar",
             installedFile: "low_latency-neoforge-26.1.2-1.0.5.jar",
@@ -761,6 +824,52 @@ struct MCPummelchenModServerCoreTests {
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources;") == "2")
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources WHERE provider = 'modrinth';") == "1")
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources WHERE provider = 'curseforge';") == "1")
+    }
+
+    @Test("mod update scanner keeps source rows separate by Minecraft version")
+    func modUpdateScannerKeepsSourceRowsSeparateByMinecraftVersion() throws {
+        try requireDuckDB()
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-mod-scan-versions-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("site/public"), withIntermediateDirectories: true)
+        try """
+        {
+          "updates": [
+            {
+              "title": "BetterF3",
+              "new_file": "BetterF3-18.0.2-NeoForge-26.1.jar",
+              "version": "18.0.2",
+              "source_url": "https://modrinth.com/mod/betterf3"
+            }
+          ]
+        }
+        """.write(to: root.appendingPathComponent("site/public/tested-updates.json"), atomically: true, encoding: .utf8)
+
+        let database = root.appendingPathComponent("scanner.duckdb")
+        _ = try ModUpdateScanner(config: ModUpdateScannerConfig(
+            projectRoot: root,
+            databaseURL: database,
+            minecraftVersion: "26.1.2",
+            loaderVersion: "26.1.2.76",
+            windowSeconds: 0,
+            limit: 0,
+            seedFromTestedUpdates: true
+        )).run()
+        _ = try ModUpdateScanner(config: ModUpdateScannerConfig(
+            projectRoot: root,
+            databaseURL: database,
+            minecraftVersion: "26.2",
+            loaderVersion: "26.2.0.3-beta",
+            windowSeconds: 0,
+            limit: 0,
+            seedFromTestedUpdates: true
+        )).run()
+
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources;") == "2")
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources WHERE minecraft_version = '26.1.2';") == "1")
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources WHERE minecraft_version = '26.2';") == "1")
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources WHERE source_id LIKE '%_mc_26_2';") == "1")
     }
 
     @Test("mod update scanner does not attach batch files to one source URL")

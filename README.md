@@ -18,6 +18,8 @@ The Minecraft runtime starts with a vanilla server and adds the managed mod pack
 
 The platform supports multiple Minecraft server versions side by side. The oldest supported version remains the live play target until newer versions pass validation. DuckDB stores supported server versions, mod sources, scan results, release metadata, and client inventory with Minecraft/NeoForge version fields. The macOS client installs supported NeoForge client profiles and Multiplayer entries named by version, for example `Pummelchen Server 26.1.2` and `Pummelchen Server 26.2`, so future Minecraft releases can be staged without disrupting the current live server.
 
+The daily mod update check must scan every DuckDB-supported `live` and `staging` Minecraft version with `MCPummelchenModServer mod-update-scan --all-supported true`. Staging releases publish version-scoped current release files, while only the DuckDB `is_live` version may update the global `/downloads/current-release.json` endpoint used by normal clients.
+
 
 ## Core Benefits For MC Server Admins
 

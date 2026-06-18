@@ -88,17 +88,45 @@ public struct SwiftReleaseResult: Equatable, Sendable {
 }
 
 public struct SwiftReleasePipeline: Sendable {
-    public static let clientZipName = "minecraft_26.1.2_client_macos_apple_silicon.zip"
-    public static let mrpackName = "pummelchen-server-26.1.2.mrpack"
     public static let dmgName = "MCPummelchenModClient.dmg"
     public static let dmgHeadlessLiveSoakReportName = "MCPummelchenModClient.dmg.headless-live-soak.json"
     public static let requiredDMGLiveSoakSeconds: Double = 300
 
     public let config: SwiftReleasePipelineConfig
     private var fileManager: FileManager { FileManager.default }
+    private var clientZipName: String { Self.clientZipName(minecraftVersion: config.minecraftVersion) }
+    private var mrpackName: String { Self.mrpackName(minecraftVersion: config.minecraftVersion) }
+    private var releaseArtifactNames: [String] {
+        [
+            clientZipName,
+            "\(clientZipName).sha256",
+            mrpackName,
+            "\(mrpackName).sha256",
+            Self.dmgName,
+            "\(Self.dmgName).sha256",
+            Self.dmgHeadlessLiveSoakReportName
+        ]
+    }
 
     public init(config: SwiftReleasePipelineConfig) {
         self.config = config
+    }
+
+    public static func clientZipName(minecraftVersion: String) -> String {
+        "minecraft_\(artifactVersion(minecraftVersion))_client_macos_apple_silicon.zip"
+    }
+
+    public static func mrpackName(minecraftVersion: String) -> String {
+        "pummelchen-server-\(artifactVersion(minecraftVersion)).mrpack"
+    }
+
+    private static func artifactVersion(_ minecraftVersion: String) -> String {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+        let scalars = minecraftVersion.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let value = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".-_"))
+        return value.isEmpty ? "unknown" : value
     }
 
     public func createRelease() throws -> SwiftReleaseResult {
@@ -140,11 +168,11 @@ public struct SwiftReleasePipeline: Sendable {
         let artifacts = releaseDir.appendingPathComponent("artifacts", isDirectory: true)
         try fileManager.createDirectory(at: artifacts, withIntermediateDirectories: true)
         try rebuildClientDistributionArtifacts(sourcePackage: releaseDir.appendingPathComponent("client-package", isDirectory: true))
-        for name in [Self.clientZipName, "\(Self.clientZipName).sha256", Self.mrpackName, Self.dmgName, "\(Self.dmgName).sha256", Self.dmgHeadlessLiveSoakReportName] {
+        for name in releaseArtifactNames {
             try copyIfExists(config.serverDir.appendingPathComponent(name), to: artifacts.appendingPathComponent(name))
         }
-        let clientZip = artifacts.appendingPathComponent(Self.clientZipName)
-        let mrpack = artifacts.appendingPathComponent(Self.mrpackName)
+        let clientZip = artifacts.appendingPathComponent(clientZipName)
+        let mrpack = artifacts.appendingPathComponent(mrpackName)
         try requireFile(clientZip)
         try requireFile(mrpack)
         let clientZipSHA = try SHA256Hasher.hashFile(at: clientZip)
@@ -202,8 +230,8 @@ public struct SwiftReleasePipeline: Sendable {
         try requireFile(releaseDir.appendingPathComponent("metadata.json"))
         try requireFile(releaseDir.appendingPathComponent("manifests/server-files.tsv"))
         try requireFile(releaseDir.appendingPathComponent("manifests/client-package.tsv"))
-        try requireFile(releaseDir.appendingPathComponent("artifacts/\(Self.clientZipName)"))
-        try requireFile(releaseDir.appendingPathComponent("artifacts/\(Self.mrpackName)"))
+        try requireFile(releaseDir.appendingPathComponent("artifacts/\(clientZipName)"))
+        try requireFile(releaseDir.appendingPathComponent("artifacts/\(mrpackName)"))
         let publicManifest = releaseDir.appendingPathComponent("public/client-sync-manifest.tsv")
         let manifest = try ClientSyncManifestParser.parse(String(contentsOf: publicManifest, encoding: .utf8))
         try ContractValidation.require(!manifest.entries.isEmpty, "release public manifest must contain client entries")
@@ -232,9 +260,12 @@ public struct SwiftReleasePipeline: Sendable {
         let payload = currentReleasePayload(createdAt: createdAt, activatedAt: Self.isoNow(), clientZipSHA: clientZipSHA, mrpackSHA: mrpackSHA, dmgSHA: dmgSHA)
         let data = try JSONEncoder.pummelchenSorted.encode(payload)
         try fileManager.createDirectory(at: config.publicDownloads, withIntermediateDirectories: true)
-        try data.write(to: config.publicDownloads.appendingPathComponent("current-release.json"), options: .atomic)
-        try (config.releaseID + "\n").write(to: config.publicDownloads.appendingPathComponent("current-release.txt"), atomically: true, encoding: .utf8)
-        try publishCurrentDownloadLinks(publicRelease: publicRelease)
+        try writeVersionScopedCurrentRelease(data)
+        if try shouldPublishGlobalCurrentRelease() {
+            try data.write(to: config.publicDownloads.appendingPathComponent("current-release.json"), options: .atomic)
+            try (config.releaseID + "\n").write(to: config.publicDownloads.appendingPathComponent("current-release.txt"), atomically: true, encoding: .utf8)
+            try publishCurrentDownloadLinks(publicRelease: publicRelease)
+        }
         try publishSiteJSON(from: publicRelease.appendingPathComponent("data/tested-updates.json"), named: "tested-updates.json")
         try executeDuckDB("""
         UPDATE release.pack_releases SET active = false WHERE server_key = \(Self.sqlLiteral(config.serverKey));
@@ -245,6 +276,30 @@ public struct SwiftReleasePipeline: Sendable {
         VALUES (\(Self.sqlLiteral(UUID().uuidString)), \(Self.sqlLiteral(config.releaseID)), TIMESTAMP '\(Self.duckTimestamp(Date()))', 'activate', 'ok', \(Self.sqlLiteral(config.actor)), \(Self.sqlLiteral(config.notes)));
         """)
         try runRestartIfConfigured()
+    }
+
+    private func writeVersionScopedCurrentRelease(_ data: Data) throws {
+        let versionName = "current-release-\(Self.artifactVersion(config.minecraftVersion)).json"
+        let serverKeyName = "current-release-\(Self.artifactVersion(config.serverKey)).json"
+        try data.write(to: config.publicDownloads.appendingPathComponent(versionName), options: .atomic)
+        if serverKeyName != versionName {
+            try data.write(to: config.publicDownloads.appendingPathComponent(serverKeyName), options: .atomic)
+        }
+    }
+
+    private func shouldPublishGlobalCurrentRelease() throws -> Bool {
+        if let csv = try? queryDuckDB("""
+        SELECT is_live
+        FROM core.minecraft_server_versions
+        WHERE minecraft_version = \(Self.sqlLiteral(config.minecraftVersion))
+        LIMIT 1;
+        """) {
+            let value = csv.split(separator: "\n").dropFirst().first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if let value, !value.isEmpty {
+                return ["true", "1", "t"].contains(value)
+            }
+        }
+        return config.serverKey == "minecraft_26_1_2" && config.minecraftVersion == "26.1.2"
     }
 
     private func buildPublicRelease(releaseDir: URL, createdAt: String) throws {
@@ -270,11 +325,11 @@ public struct SwiftReleasePipeline: Sendable {
             }
         }
         try (rows.joined(separator: "\n") + "\n").write(to: publicDir.appendingPathComponent("client-sync-manifest.tsv"), atomically: true, encoding: .utf8)
-        for name in [Self.clientZipName, "\(Self.clientZipName).sha256", Self.mrpackName, Self.dmgName, "\(Self.dmgName).sha256", Self.dmgHeadlessLiveSoakReportName] {
+        for name in releaseArtifactNames {
             try copyIfExists(releaseDir.appendingPathComponent("artifacts/\(name)"), to: publicDir.appendingPathComponent(name))
         }
-        let clientZipSHA = try SHA256Hasher.hashFile(at: releaseDir.appendingPathComponent("artifacts/\(Self.clientZipName)"))
-        let mrpackSHA = try SHA256Hasher.hashFile(at: releaseDir.appendingPathComponent("artifacts/\(Self.mrpackName)"))
+        let clientZipSHA = try SHA256Hasher.hashFile(at: releaseDir.appendingPathComponent("artifacts/\(clientZipName)"))
+        let mrpackSHA = try SHA256Hasher.hashFile(at: releaseDir.appendingPathComponent("artifacts/\(mrpackName)"))
         let dmg = releaseDir.appendingPathComponent("artifacts/\(Self.dmgName)")
         let dmgSHA = fileManager.fileExists(atPath: dmg.path) ? try SHA256Hasher.hashFile(at: dmg) : nil
         let payload = currentReleasePayload(createdAt: createdAt, activatedAt: nil, clientZipSHA: clientZipSHA, mrpackSHA: mrpackSHA, dmgSHA: dmgSHA)
@@ -292,9 +347,9 @@ public struct SwiftReleasePipeline: Sendable {
             loaderVersion: config.loaderVersion,
             serverKey: config.serverKey,
             manifestURL: "/downloads/releases/\(config.releaseID)/client-sync-manifest.tsv",
-            clientZipURL: "/downloads/releases/\(config.releaseID)/\(Self.clientZipName)",
+            clientZipURL: "/downloads/releases/\(config.releaseID)/\(clientZipName)",
             clientZipSHA256: clientZipSHA,
-            mrpackURL: "/downloads/releases/\(config.releaseID)/\(Self.mrpackName)",
+            mrpackURL: "/downloads/releases/\(config.releaseID)/\(mrpackName)",
             mrpackSHA256: mrpackSHA,
             dmgURL: dmgSHA == nil ? nil : "/downloads/releases/\(config.releaseID)/\(Self.dmgName)",
             dmgSHA256: dmgSHA,
@@ -541,8 +596,8 @@ public struct SwiftReleasePipeline: Sendable {
             return
         }
 
-        let zipTarget = config.serverDir.appendingPathComponent(Self.clientZipName)
-        let zipSHATarget = config.serverDir.appendingPathComponent("\(Self.clientZipName).sha256")
+        let zipTarget = config.serverDir.appendingPathComponent(clientZipName)
+        let zipSHATarget = config.serverDir.appendingPathComponent("\(clientZipName).sha256")
         try removeIfExists(zipTarget)
         try removeIfExists(zipSHATarget)
         try runCommand(
@@ -551,10 +606,10 @@ public struct SwiftReleasePipeline: Sendable {
             currentDirectory: sourcePackage.deletingLastPathComponent()
         )
         let zipHash = try SHA256Hasher.hashFile(at: zipTarget)
-        try "\(zipHash)  \(Self.clientZipName)\n".write(to: zipSHATarget, atomically: true, encoding: .utf8)
+        try "\(zipHash)  \(clientZipName)\n".write(to: zipSHATarget, atomically: true, encoding: .utf8)
 
-        let mrpackTarget = config.serverDir.appendingPathComponent(Self.mrpackName)
-        let mrpackSHATarget = config.serverDir.appendingPathComponent("\(Self.mrpackName).sha256")
+        let mrpackTarget = config.serverDir.appendingPathComponent(mrpackName)
+        let mrpackSHATarget = config.serverDir.appendingPathComponent("\(mrpackName).sha256")
         try removeIfExists(mrpackTarget)
         try removeIfExists(mrpackSHATarget)
 
@@ -568,7 +623,7 @@ public struct SwiftReleasePipeline: Sendable {
             currentDirectory: stage
         )
         let mrpackHash = try SHA256Hasher.hashFile(at: mrpackTarget)
-        try "\(mrpackHash)  \(Self.mrpackName)\n".write(to: mrpackSHATarget, atomically: true, encoding: .utf8)
+        try "\(mrpackHash)  \(mrpackName)\n".write(to: mrpackSHATarget, atomically: true, encoding: .utf8)
     }
 
     private func removeIfExists(_ url: URL) throws {
@@ -675,9 +730,10 @@ public struct SwiftReleasePipeline: Sendable {
 
     private func publishCurrentDownloadLinks(publicRelease: URL) throws {
         let names = [
-            Self.clientZipName,
-            "\(Self.clientZipName).sha256",
-            Self.mrpackName,
+            clientZipName,
+            "\(clientZipName).sha256",
+            mrpackName,
+            "\(mrpackName).sha256",
             Self.dmgName,
             "\(Self.dmgName).sha256",
             Self.dmgHeadlessLiveSoakReportName

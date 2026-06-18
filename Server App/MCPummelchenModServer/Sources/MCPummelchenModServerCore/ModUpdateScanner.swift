@@ -310,7 +310,7 @@ public struct ModUpdateScanner: Sendable {
                 let modKey = Self.modKey(displayName: displayName, installedFile: installedFile, sourceURL: sourceURL)
                 let installedVersion = version ?? installedFile.flatMap(Self.versionFromFilename)
                 let source = ModSourceRecord(
-                    sourceID: Self.stableID("\(modKey)|\(sourceURL)|\(installedFile ?? "")"),
+                    sourceID: Self.versionedSourceID(Self.stableID("\(modKey)|\(sourceURL)|\(installedFile ?? "")"), minecraftVersion: config.minecraftVersion),
                     modKey: modKey,
                     displayName: displayName,
                     installedFile: installedFile,
@@ -607,10 +607,7 @@ public struct ModUpdateScanner: Sendable {
             guard let versions = file["gameVersions"] as? [String] else { return false }
             let normalized = versions.map { $0.lowercased() }
             return normalized.contains(minecraftVersion.lowercased()) && normalized.contains(loaderName)
-        } ?? files.first { file in
-            guard let versions = file["gameVersions"] as? [String] else { return false }
-            return versions.map { $0.lowercased() }.contains(minecraftVersion.lowercased())
-        } ?? files.first
+        }
     }
 
     public static func curseForgeVersion(fileName: String?, installedFile: String?, installedVersion: String?) -> String? {
@@ -739,6 +736,10 @@ public struct ModUpdateScanner: Sendable {
             hash &*= 0x100000001b3
         }
         return "src_\(String(hash, radix: 16))"
+    }
+
+    private static func versionedSourceID(_ sourceID: String, minecraftVersion: String) -> String {
+        "\(sourceID)_mc_\(minecraftVersion.replacingOccurrences(of: ".", with: "_"))"
     }
 
     private static func sqlLiteral(_ value: String?) -> String {

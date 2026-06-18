@@ -24,7 +24,7 @@ enum ServerCommandError: Error, CustomStringConvertible {
               MCPummelchenModServer release-create --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id> [--activate true] [--restart-command <shell>] [--health-command <shell>]
               MCPummelchenModServer release-validate --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id>
               MCPummelchenModServer add-mod --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --url <curseforge-or-modrinth-url> --release-id <id> [--local-artifact <jar>] [--install-scope auto|server|client|both] [--activate true] [--dry-run false] [--server-test-command <shell>] [--build-dmg-command <shell>] [--restart-command <shell>] [--health-command <shell>]
-              MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-tested-updates true] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
+              MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--all-supported true] [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-tested-updates true] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
               MCPummelchenModServer world-reset --project-root <repo> --server-dir <dir> --duckdb <file> --seed <seed> [--dry-run true] [--yes true] [--radius-blocks 1000] [--delete-backup-after-success true] [--stop-command <shell>] [--start-command <shell>] [--gamerule-command <shell>] [--pregenerate-command <shell>] [--verify-forceloads-command <shell>] [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>] [--pregeneration-batch-size 384]
               MCPummelchenModServer rcon-command --project-root <repo> --server-dir <dir> --command <minecraft command> [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>]
             """
@@ -324,13 +324,28 @@ func run(arguments: [String]) throws {
             print("mod_add_step=\(step)")
         }
     case "mod-update-scan":
-        let scanner = try modUpdateScanner(args: args, projectRoot: projectRoot)
-        let summary = try scanner.run()
-        print("mod_update_scan=\(summary.scanID)")
-        print("sources_checked=\(summary.sourcesChecked)")
-        print("candidates_found=\(summary.candidatesFound)")
-        print("unresolved=\(summary.unresolved)")
-        print("seeded_sources=\(summary.seededSources)")
+        if optionBool(args.options["--all-supported"]) {
+            let summaries = try runAllSupportedModUpdateScans(args: args, projectRoot: projectRoot)
+            let checked = summaries.reduce(0) { $0 + $1.summary.sourcesChecked }
+            let candidates = summaries.reduce(0) { $0 + $1.summary.candidatesFound }
+            let unresolved = summaries.reduce(0) { $0 + $1.summary.unresolved }
+            print("mod_update_scan_all_supported=ok")
+            print("versions_checked=\(summaries.count)")
+            print("sources_checked=\(checked)")
+            print("candidates_found=\(candidates)")
+            print("unresolved=\(unresolved)")
+            for item in summaries {
+                print("mod_update_scan_version=\(item.version.minecraftVersion) loader=\(item.version.loader) loader_version=\(item.version.loaderVersion ?? "") scan_id=\(item.summary.scanID) sources_checked=\(item.summary.sourcesChecked) candidates_found=\(item.summary.candidatesFound) unresolved=\(item.summary.unresolved)")
+            }
+        } else {
+            let scanner = try modUpdateScanner(args: args, projectRoot: projectRoot)
+            let summary = try scanner.run()
+            print("mod_update_scan=\(summary.scanID)")
+            print("sources_checked=\(summary.sourcesChecked)")
+            print("candidates_found=\(summary.candidatesFound)")
+            print("unresolved=\(summary.unresolved)")
+            print("seeded_sources=\(summary.seededSources)")
+        }
     case "world-reset":
         let pipeline = try worldResetPipeline(args: args, projectRoot: projectRoot)
         let result = try pipeline.run()
@@ -399,6 +414,7 @@ private func releasePipeline(args: Arguments, projectRoot: URL) throws -> SwiftR
     let releaseRoot = URL(fileURLWithPath: try args.require("--release-root"), isDirectory: true).standardizedFileURL
     let publicDownloads = URL(fileURLWithPath: try args.require("--public-downloads"), isDirectory: true).standardizedFileURL
     let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
+    let minecraftVersion = args.options["--minecraft-version"] ?? "26.1.2"
     let config = SwiftReleasePipelineConfig(
         projectRoot: projectRoot,
         serverDir: serverDir,
@@ -406,8 +422,8 @@ private func releasePipeline(args: Arguments, projectRoot: URL) throws -> SwiftR
         publicDownloads: publicDownloads,
         databaseURL: duckDB,
         releaseID: try args.require("--release-id"),
-        serverKey: args.options["--server-key"] ?? "minecraft_26_1_2",
-        minecraftVersion: args.options["--minecraft-version"] ?? "26.1.2",
+        serverKey: args.options["--server-key"] ?? serverKey(minecraftVersion: minecraftVersion),
+        minecraftVersion: minecraftVersion,
         loaderVersion: args.options["--loader-version"] ?? "26.1.2.76",
         status: args.options["--status"] ?? "tested",
         notes: args.options["--notes"] ?? "",
@@ -449,6 +465,22 @@ private func addModPipeline(args: Arguments, projectRoot: URL) throws -> ModAddP
 }
 
 private func modUpdateScanner(args: Arguments, projectRoot: URL) throws -> ModUpdateScanner {
+    try modUpdateScanner(
+        args: args,
+        projectRoot: projectRoot,
+        minecraftVersion: args.options["--minecraft-version"] ?? "26.1.2",
+        loader: args.options["--loader"] ?? "neoforge",
+        loaderVersion: args.options["--loader-version"] ?? "26.1.2.76"
+    )
+}
+
+private func modUpdateScanner(
+    args: Arguments,
+    projectRoot: URL,
+    minecraftVersion: String,
+    loader: String,
+    loaderVersion: String?
+) throws -> ModUpdateScanner {
     let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
     let limit = args.options["--limit"].flatMap(Int.init)
     let maxURLs = Int(args.options["--max-urls-per-window"] ?? "5") ?? 5
@@ -462,15 +494,105 @@ private func modUpdateScanner(args: Arguments, projectRoot: URL) throws -> ModUp
     return ModUpdateScanner(config: ModUpdateScannerConfig(
         projectRoot: projectRoot,
         databaseURL: duckDB,
-        minecraftVersion: args.options["--minecraft-version"] ?? "26.1.2",
-        loader: args.options["--loader"] ?? "neoforge",
-        loaderVersion: args.options["--loader-version"] ?? "26.1.2.76",
+        minecraftVersion: minecraftVersion,
+        loader: loader,
+        loaderVersion: loaderVersion,
         maxURLsPerWindow: maxURLs,
         windowSeconds: windowSeconds,
         limit: limit,
         seedFromTestedUpdates: args.options["--seed-from-tested-updates"] == "true",
         dryRun: args.options["--dry-run"] == "true"
     ))
+}
+
+private struct SupportedVersionForScan {
+    let minecraftVersion: String
+    let loader: String
+    let loaderVersion: String?
+}
+
+private struct VersionedScanSummary {
+    let version: SupportedVersionForScan
+    let summary: ModUpdateScanSummary
+}
+
+private func runAllSupportedModUpdateScans(args: Arguments, projectRoot: URL) throws -> [VersionedScanSummary] {
+    let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
+    let versions = try supportedVersionsForScanning(databaseURL: duckDB)
+    guard !versions.isEmpty else {
+        throw ServerCommandError.invalidValue("no live or staging Minecraft server versions found in DuckDB")
+    }
+    var summaries: [VersionedScanSummary] = []
+    for version in versions {
+        let scanner = try modUpdateScanner(
+            args: args,
+            projectRoot: projectRoot,
+            minecraftVersion: version.minecraftVersion,
+            loader: version.loader,
+            loaderVersion: version.loaderVersion
+        )
+        summaries.append(VersionedScanSummary(version: version, summary: try scanner.run()))
+    }
+    return summaries
+}
+
+private func supportedVersionsForScanning(databaseURL: URL) throws -> [SupportedVersionForScan] {
+    let csv = try DuckDBDatabase(databaseURL: databaseURL, readOnly: true).queryCSV("""
+    SELECT minecraft_version, loader, loader_version
+    FROM core.minecraft_server_versions
+    WHERE lower(status) IN ('live', 'staging')
+    ORDER BY sort_order, minecraft_version;
+    """)
+    return parseCSVRows(csv).compactMap { row in
+        guard row.count >= 3, !row[0].isEmpty else {
+            return nil
+        }
+        return SupportedVersionForScan(
+            minecraftVersion: row[0],
+            loader: row[1].isEmpty ? "neoforge" : row[1],
+            loaderVersion: row[2].isEmpty ? nil : row[2]
+        )
+    }
+}
+
+private func serverKey(minecraftVersion: String) -> String {
+    "minecraft_\(minecraftVersion.replacingOccurrences(of: ".", with: "_"))"
+}
+
+private func optionBool(_ value: String?) -> Bool {
+    guard let value else { return false }
+    return ["1", "true", "yes", "y"].contains(value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+}
+
+private func parseCSVRows(_ csv: String) -> [[String]] {
+    csv.split(separator: "\n").dropFirst().map { parseCSVLine(String($0)) }
+}
+
+private func parseCSVLine(_ line: String) -> [String] {
+    var fields: [String] = []
+    var current = ""
+    var quoted = false
+    let characters = Array(line)
+    var index = 0
+    while index < characters.count {
+        let char = characters[index]
+        if char == "\"" {
+            if quoted, index + 1 < characters.count, characters[index + 1] == "\"" {
+                current.append("\"")
+                index += 2
+                continue
+            }
+            quoted.toggle()
+        } else if char == ",", !quoted {
+            fields.append(current)
+            current = ""
+        } else {
+            current.append(char)
+        }
+        index += 1
+    }
+    fields.append(current)
+    return fields
 }
 
 private func worldResetPipeline(args: Arguments, projectRoot: URL) throws -> SwiftWorldResetPipeline {

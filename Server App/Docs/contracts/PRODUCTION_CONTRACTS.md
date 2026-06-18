@@ -77,6 +77,8 @@ Required defaults:
 
 Releases are immutable directories named `release_<YYYYMMDD>_V<N>[_label]`.
 
+Pack artifact names are version-scoped. For Minecraft `26.1.2`, the generated client ZIP is `minecraft_26.1.2_client_macos_apple_silicon.zip` and the MRPack is `pummelchen-server-26.1.2.mrpack`; newer Minecraft versions must use their own matching artifact names.
+
 Each release contains:
 
 - `CHANGELOG.md`
@@ -91,7 +93,9 @@ Each release contains:
 - `public/client-sync-manifest.tsv`
 - `public/client-files`
 
-Activation publishes static files through nginx and writes `/downloads/current-release.json` plus `/downloads/current-release.txt`.
+Activation always publishes static release files through nginx and writes version-scoped current release files such as `/downloads/current-release-26.2.json` and `/downloads/current-release-minecraft_26_2.json`.
+
+Only the Minecraft version marked `is_live = true` in DuckDB may also update `/downloads/current-release.json`, `/downloads/current-release.txt`, and the stable DMG/download aliases used by normal clients. Staging versions must not overwrite the global current release pointer.
 
 `current-release.json` is also the client-app self-update contract. When a release includes a macOS DMG, the payload must include both:
 
@@ -133,7 +137,8 @@ Server health must cover:
 
 Release health must verify:
 
-- current-release JSON exists and points to the active release
+- the version-scoped current-release JSON exists and points to the active release
+- global current-release JSON is updated only when the release Minecraft version is marked live in DuckDB
 - client manifest exists and parses
 - every manifest entry resolves through nginx
 - every downloaded file matches size and SHA256

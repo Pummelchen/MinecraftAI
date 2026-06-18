@@ -160,6 +160,7 @@ public struct ModAddPipeline: Sendable {
             publicDownloads: config.publicDownloads,
             databaseURL: config.databaseURL,
             releaseID: config.releaseID,
+            serverKey: Self.serverKey(minecraftVersion: config.minecraftVersion),
             minecraftVersion: config.minecraftVersion,
             loaderVersion: config.loaderVersion,
             notes: "Add mod: \(artifacts.map(\.displayName).joined(separator: ", "))",
@@ -409,7 +410,8 @@ public struct ModAddPipeline: Sendable {
                     return value
                 }
                 .joined(separator: "_")
-            let stableID = sourceID.isEmpty ? Self.stableID("\(artifact.sourceURL)|\(artifact.fileName)") : sourceID
+            let baseStableID = sourceID.isEmpty ? Self.stableID("\(artifact.sourceURL)|\(artifact.fileName)") : sourceID
+            let stableID = Self.versionedSourceID(baseStableID, minecraftVersion: config.minecraftVersion)
             try DuckDBDatabase(databaseURL: config.databaseURL).execute("""
             DELETE FROM core.mod_sources WHERE source_id = \(Self.sqlLiteral(stableID));
             INSERT INTO core.mod_sources(
@@ -651,6 +653,14 @@ public struct ModAddPipeline: Sendable {
         value.lowercased()
             .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+
+    private static func serverKey(minecraftVersion: String) -> String {
+        "minecraft_\(minecraftVersion.replacingOccurrences(of: ".", with: "_"))"
+    }
+
+    private static func versionedSourceID(_ sourceID: String, minecraftVersion: String) -> String {
+        "\(sourceID)_mc_\(minecraftVersion.replacingOccurrences(of: ".", with: "_"))"
     }
 
     private static func stableID(_ value: String) -> String {

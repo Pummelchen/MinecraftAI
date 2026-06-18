@@ -308,7 +308,7 @@ struct HeadlessSoakRunner {
 
             neoforgeOK = hasNeoForgeInstall(minecraftDir: minecraftDir)
             guard neoforgeOK else {
-                throw HeadlessSoakError.missingPath(minecraftDir.appendingPathComponent("versions/neoforge-26.1.2.76").path)
+                throw HeadlessSoakError.missingPath(minecraftDir.appendingPathComponent("versions/neoforge-\(config.loaderVersion)").path)
             }
 
             setupReport = try inspectNewPlayerSetup(
