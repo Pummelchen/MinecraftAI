@@ -24,6 +24,13 @@ public enum MCPummelchenModServerError: Error, CustomStringConvertible {
     }
 }
 
+private struct LiveModSourceInventory {
+    let displayName: String
+    let sourceURL: String
+    let installedFiles: String
+    let installedVersions: String
+}
+
 public struct HTTPRequest: Equatable, Sendable {
     public let method: String
     public let path: String
@@ -284,8 +291,17 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
 
         let current = try CurrentReleaseValidator.decode(readCurrentReleaseData())
         let supportedVersions = supportedMinecraftVersionsForInventory(current: current)
-        let rows = try readEmbeddedJSONRows(scriptID: scriptID).map {
-            annotatedModInventoryRow($0, current: current, supportedVersions: supportedVersions)
+        let liveModSources = liveModSourceInventory(minecraftVersion: current.minecraftVersion ?? "")
+        var rows = try readEmbeddedJSONRows(scriptID: scriptID).map {
+            annotatedModInventoryRow($0, current: current, supportedVersions: supportedVersions, liveModSources: liveModSources)
+        }
+        if scope == "server" {
+            rows.append(contentsOf: missingLiveModInventoryRows(
+                existingRows: rows,
+                liveModSources: liveModSources,
+                current: current,
+                supportedVersions: supportedVersions
+            ))
         }
         let payload: [String: Any] = [
             "api_version": "v1",
@@ -343,7 +359,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     private func annotatedModInventoryRow(
         _ row: [String: Any],
         current: CurrentRelease,
-        supportedVersions: [[String: Any]]
+        supportedVersions: [[String: Any]],
+        liveModSources: [String: LiveModSourceInventory]
     ) -> [String: Any] {
         let currentVersion = current.minecraftVersion ?? ""
         let searchable = [
@@ -372,8 +389,100 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         }
 
         var annotated = row
+        if let live = liveModSource(for: row, liveModSources: liveModSources) {
+            annotated["files"] = live.installedFiles
+            annotated["versionFile"] = live.installedFiles
+            annotated["installed_version"] = live.installedVersions
+            let existingSearch = annotated["search"] as? String ?? ""
+            annotated["search"] = "\(existingSearch) \(live.installedFiles) \(live.installedVersions)"
+        }
         annotated["compatibility"] = compatibility
         return annotated
+    }
+
+    private func liveModSourceInventory(minecraftVersion: String) -> [String: LiveModSourceInventory] {
+        guard !minecraftVersion.isEmpty,
+              let csv = try? DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+              SELECT
+                lower(source_url) AS source_url_key,
+                source_url,
+                display_name,
+                regexp_replace(lower(display_name), '[^a-z0-9]+', '-', 'g') AS name_key,
+                string_agg(DISTINCT installed_file, ', ' ORDER BY installed_file) AS installed_files,
+                string_agg(DISTINCT COALESCE(installed_version, ''), ', ' ORDER BY COALESCE(installed_version, '')) AS installed_versions
+              FROM core.mod_sources
+              WHERE active
+                AND minecraft_version = \(Self.sqlLiteral(minecraftVersion))
+                AND COALESCE(installed_file, '') <> ''
+              GROUP BY 1, 2, 3, 4;
+              """) else {
+            return [:]
+        }
+        var values: [String: LiveModSourceInventory] = [:]
+        for row in Self.parseCSV(csv) {
+            let inventory = LiveModSourceInventory(
+                displayName: row["display_name"] ?? "",
+                sourceURL: row["source_url"] ?? "",
+                installedFiles: row["installed_files"] ?? "",
+                installedVersions: row["installed_versions"] ?? ""
+            )
+            if let sourceURL = row["source_url_key"], !sourceURL.isEmpty {
+                values["url:\(sourceURL)"] = inventory
+            }
+            if let name = row["name_key"], !name.isEmpty {
+                values["name:\(name.trimmingCharacters(in: CharacterSet(charactersIn: "-")))"] = inventory
+            }
+        }
+        return values
+    }
+
+    private func missingLiveModInventoryRows(
+        existingRows: [[String: Any]],
+        liveModSources: [String: LiveModSourceInventory],
+        current: CurrentRelease,
+        supportedVersions: [[String: Any]]
+    ) -> [[String: Any]] {
+        let existingText = existingRows.compactMap { $0["files"] as? String }.joined(separator: "\n")
+        var seenFiles = Set<String>()
+        let uniqueSources = liveModSources.values
+            .filter { !$0.installedFiles.isEmpty }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+
+        var rows: [[String: Any]] = []
+        for source in uniqueSources {
+            guard seenFiles.insert(source.installedFiles).inserted,
+                  !existingText.contains(source.installedFiles) else {
+                continue
+            }
+            let row: [String: Any] = [
+                "name": source.displayName.isEmpty ? source.installedFiles : source.displayName,
+                "type": "Live DuckDB Source",
+                "files": source.installedFiles,
+                "versionFile": source.installedFiles,
+                "installed_version": source.installedVersions,
+                "sourceUrl": source.sourceURL,
+                "sourceHost": URL(string: source.sourceURL)?.host ?? "",
+                "details": "Live mod source row generated from DuckDB because this active mod is not present in the static website inventory.",
+                "search": "\(source.displayName) \(source.installedFiles) \(source.installedVersions) \(source.sourceURL)"
+            ]
+            rows.append(annotatedModInventoryRow(
+                row,
+                current: current,
+                supportedVersions: supportedVersions,
+                liveModSources: liveModSources
+            ))
+        }
+        return rows
+    }
+
+    private func liveModSource(for row: [String: Any], liveModSources: [String: LiveModSourceInventory]) -> LiveModSourceInventory? {
+        if let sourceURL = (row["sourceUrl"] as? String)?.lowercased(), let value = liveModSources["url:\(sourceURL)"] {
+            return value
+        }
+        if let name = row["name"] as? String {
+            return liveModSources["name:\(Self.normalizedModInventoryKey(name))"]
+        }
+        return nil
     }
 
     private static func modInventoryText(_ text: String, mentionsMinecraftVersion version: String) -> Bool {
@@ -397,6 +506,17 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             compact.isEmpty ? nil : "mc\(compact)"
         ].compactMap { $0 }
         return tokens.contains { text.contains($0) }
+    }
+
+    private static func normalizedModInventoryKey(_ value: String) -> String {
+        value.lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+
+    private static func sqlLiteral(_ value: String?) -> String {
+        guard let value, !value.isEmpty else { return "NULL" }
+        return "'\(value.replacingOccurrences(of: "'", with: "''"))'"
     }
 
     private func readEmbeddedJSONRows(scriptID: String) throws -> [[String: Any]] {

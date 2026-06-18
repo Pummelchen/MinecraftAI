@@ -25,6 +25,7 @@ enum ServerCommandError: Error, CustomStringConvertible {
               MCPummelchenModServer release-validate --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id>
               MCPummelchenModServer add-mod --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --url <curseforge-or-modrinth-url> --release-id <id> [--local-artifact <jar>] [--install-scope auto|server|client|both] [--activate true] [--dry-run false] [--server-test-command <shell>] [--build-dmg-command <shell>] [--restart-command <shell>] [--health-command <shell>]
               MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--all-supported true] [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-tested-updates true] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
+              MCPummelchenModServer mod-update-apply --project-root <repo> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id-prefix <id> [--all-supported true] [--minecraft-version 26.1.2] [--dry-run true] [--activate-live true] [--server-test-command <shell>] [--build-dmg-command <shell>] [--restart-command <shell>] [--health-command <shell>]
               MCPummelchenModServer world-reset --project-root <repo> --server-dir <dir> --duckdb <file> --seed <seed> [--dry-run true] [--yes true] [--radius-blocks 1000] [--delete-backup-after-success true] [--stop-command <shell>] [--start-command <shell>] [--gamerule-command <shell>] [--pregenerate-command <shell>] [--verify-forceloads-command <shell>] [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>] [--pregeneration-batch-size 384]
               MCPummelchenModServer rcon-command --project-root <repo> --server-dir <dir> --command <minecraft command> [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>]
             """
@@ -346,6 +347,17 @@ func run(arguments: [String]) throws {
             print("unresolved=\(summary.unresolved)")
             print("seeded_sources=\(summary.seededSources)")
         }
+    case "mod-update-apply":
+        let pipeline = try modUpdateApplyPipeline(args: args, projectRoot: projectRoot)
+        let result = try pipeline.run()
+        print("mod_update_apply=ok")
+        print("mod_update_apply_dry_run=\(result.dryRun)")
+        for version in result.versions {
+            print("mod_update_apply_version=\(version.minecraftVersion) status=\(version.status) release_id=\(version.releaseID ?? "") updates=\(version.appliedUpdates.count) skipped=\(version.skippedReason ?? "")")
+            for update in version.appliedUpdates {
+                print("mod_update_applied=\(version.minecraftVersion) old=\(update.oldFiles.joined(separator: "|")) new=\(update.newFile) latest=\(update.latestVersion) sha256=\(update.sha256)")
+            }
+        }
     case "world-reset":
         let pipeline = try worldResetPipeline(args: args, projectRoot: projectRoot)
         let result = try pipeline.run()
@@ -502,6 +514,27 @@ private func modUpdateScanner(
         limit: limit,
         seedFromTestedUpdates: args.options["--seed-from-tested-updates"] == "true",
         dryRun: args.options["--dry-run"] == "true"
+    ))
+}
+
+private func modUpdateApplyPipeline(args: Arguments, projectRoot: URL) throws -> ModUpdateApplyPipeline {
+    let releaseRoot = URL(fileURLWithPath: try args.require("--release-root"), isDirectory: true).standardizedFileURL
+    let publicDownloads = URL(fileURLWithPath: try args.require("--public-downloads"), isDirectory: true).standardizedFileURL
+    let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
+    return ModUpdateApplyPipeline(config: ModUpdateApplyPipelineConfig(
+        projectRoot: projectRoot,
+        releaseRoot: releaseRoot,
+        publicDownloads: publicDownloads,
+        databaseURL: duckDB,
+        minecraftVersion: args.options["--minecraft-version"],
+        allSupported: optionBool(args.options["--all-supported"]),
+        releaseIDPrefix: try args.require("--release-id-prefix"),
+        activateLiveVersions: args.options["--activate-live"] != "false",
+        dryRun: args.options["--dry-run"] != "false",
+        buildDMGCommand: args.options["--build-dmg-command"],
+        serverTestCommand: args.options["--server-test-command"],
+        restartCommand: args.options["--restart-command"],
+        healthCommand: args.options["--health-command"]
     ))
 }
 
