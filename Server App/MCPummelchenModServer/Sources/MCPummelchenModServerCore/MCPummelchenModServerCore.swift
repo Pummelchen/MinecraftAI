@@ -293,23 +293,32 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         let supportedVersions = supportedMinecraftVersionsForInventory(current: current)
         let liveModSources = liveModSourceInventory(minecraftVersion: current.minecraftVersion ?? "")
         let versionedModSources = versionedModSourceInventory(supportedVersions: supportedVersions)
+        let currentManifestFiles = currentReleaseManifestFileNames(current: current, scope: scope)
         var rows = try readEmbeddedJSONRows(scriptID: scriptID).map {
             annotatedModInventoryRow(
                 $0,
                 current: current,
                 supportedVersions: supportedVersions,
                 liveModSources: liveModSources,
-                versionedModSources: versionedModSources
+                versionedModSources: versionedModSources,
+                currentManifestFiles: currentManifestFiles
             )
         }
+        rows = rows.filter { ($0["_has_inventory_evidence"] as? Bool) == true }
         if scope == "server" {
             rows.append(contentsOf: missingLiveModInventoryRows(
                 existingRows: rows,
                 liveModSources: liveModSources,
                 current: current,
                 supportedVersions: supportedVersions,
-                versionedModSources: versionedModSources
+                versionedModSources: versionedModSources,
+                currentManifestFiles: currentManifestFiles
             ))
+        }
+        rows = rows.map {
+            var row = $0
+            row.removeValue(forKey: "_has_inventory_evidence")
+            return row
         }
         let payload: [String: Any] = [
             "api_version": "v1",
@@ -369,10 +378,12 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         current: CurrentRelease,
         supportedVersions: [[String: Any]],
         liveModSources: [String: LiveModSourceInventory],
-        versionedModSources: [String: [String: LiveModSourceInventory]]
+        versionedModSources: [String: [String: LiveModSourceInventory]],
+        currentManifestFiles: Set<String>
     ) -> [String: Any] {
         let currentVersion = current.minecraftVersion ?? ""
         let sourceByVersion = versionedModSource(for: row, versionedModSources: versionedModSources) ?? [:]
+        let inCurrentManifest = rowMatchesCurrentManifest(row, currentManifestFiles: currentManifestFiles)
         let searchable = [
             row["name"] as? String,
             row["files"] as? String,
@@ -388,7 +399,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 continue
             }
             let versionStatus = (version["status"] as? String)?.lowercased() ?? ""
-            if sourceByVersion[minecraftVersion] != nil && minecraftVersion == currentVersion {
+            if minecraftVersion == currentVersion && (sourceByVersion[minecraftVersion] != nil || inCurrentManifest) {
                 compatibility[minecraftVersion] = "Active"
             } else if sourceByVersion[minecraftVersion] != nil && versionStatus == "staging" {
                 compatibility[minecraftVersion] = "Staged"
@@ -413,7 +424,61 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             annotated["search"] = "\(existingSearch) \(live.installedFiles) \(live.installedVersions)"
         }
         annotated["compatibility"] = compatibility
+        annotated["_has_inventory_evidence"] = inCurrentManifest || !sourceByVersion.isEmpty
         return annotated
+    }
+
+    private func currentReleaseManifestFileNames(current: CurrentRelease, scope: String) -> Set<String> {
+        let manifestName = scope == "server" ? "server-files.tsv" : "client-package.tsv"
+        let candidates = [
+            config.projectRoot.appendingPathComponent("releases/\(current.releaseID)/manifests/\(manifestName)"),
+            config.projectRoot.appendingPathComponent("site/public/downloads/releases/\(current.releaseID)/manifests/\(manifestName)")
+        ]
+        for candidate in candidates where FileManager.default.fileExists(atPath: candidate.path) {
+            if let text = try? String(contentsOf: candidate, encoding: .utf8) {
+                return Self.parseManifestFileNames(text)
+            }
+        }
+        return []
+    }
+
+    private static func parseManifestFileNames(_ text: String) -> Set<String> {
+        var files = Set<String>()
+        for line in text.split(separator: "\n").dropFirst() {
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard fields.count >= 2 else {
+                continue
+            }
+            let relativePath = fields[1]
+            let fileName = URL(fileURLWithPath: relativePath).lastPathComponent.lowercased()
+            if !fileName.isEmpty {
+                files.insert(fileName)
+            }
+        }
+        return files
+    }
+
+    private func rowMatchesCurrentManifest(_ row: [String: Any], currentManifestFiles: Set<String>) -> Bool {
+        guard !currentManifestFiles.isEmpty else {
+            return false
+        }
+        let candidates = [
+            row["files"] as? String,
+            row["versionFile"] as? String
+        ].compactMap { $0 }
+        for candidate in candidates {
+            let pieces = candidate
+                .components(separatedBy: CharacterSet(charactersIn: ",;+"))
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            for piece in pieces {
+                let fileName = URL(fileURLWithPath: piece).lastPathComponent.lowercased()
+                if currentManifestFiles.contains(fileName) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private func versionedModSourceInventory(supportedVersions: [[String: Any]]) -> [String: [String: LiveModSourceInventory]] {
@@ -502,7 +567,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         liveModSources: [String: LiveModSourceInventory],
         current: CurrentRelease,
         supportedVersions: [[String: Any]],
-        versionedModSources: [String: [String: LiveModSourceInventory]]
+        versionedModSources: [String: [String: LiveModSourceInventory]],
+        currentManifestFiles: Set<String>
     ) -> [[String: Any]] {
         let existingText = existingRows.compactMap { $0["files"] as? String }.joined(separator: "\n")
         var seenFiles = Set<String>()
@@ -532,7 +598,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 current: current,
                 supportedVersions: supportedVersions,
                 liveModSources: liveModSources,
-                versionedModSources: versionedModSources
+                versionedModSources: versionedModSources,
+                currentManifestFiles: currentManifestFiles
             ))
         }
         return rows
