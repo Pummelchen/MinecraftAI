@@ -135,6 +135,7 @@ public struct ClientDefaultsRepairCoordinator: Sendable {
                         loaderVersion: defaults.loaderVersion,
                         serverName: defaults.serverName,
                         serverAddress: defaults.serverAddress,
+                        supportedServers: defaults.supportedServers,
                         irisProperties: defaults.irisProperties,
                         configProperties: defaults.configProperties,
                         physicsMobType: defaults.physicsMobType
@@ -194,6 +195,7 @@ public struct ClientDefaultsRepairCoordinator: Sendable {
                 loaderVersion: defaults.loaderVersion,
                 serverName: defaults.serverName,
                 serverAddress: defaults.serverAddress,
+                supportedServers: defaults.supportedServers,
                 irisProperties: defaults.irisProperties,
                 configProperties: defaults.configProperties,
                 physicsMobType: defaults.physicsMobType

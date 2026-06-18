@@ -28,6 +28,19 @@ public struct NeoForgeClientRequirement: Equatable, Sendable {
     public var launcherVersionID: String {
         "neoforge-\(loaderVersion)"
     }
+
+    public static let live = NeoForgeClientRequirement()
+
+    public static let supported: [NeoForgeClientRequirement] = [
+        .live,
+        NeoForgeClientRequirement(
+            minecraftVersion: "26.2",
+            loaderVersion: "26.2.0.3-beta",
+            installerName: "neoforge-26.2.0.3-beta-installer.jar",
+            installerSHA256: "90fad51778895f921182d6685719cba8a6d8caff69974d721bbdef750fe34c24",
+            downloadURL: URL(string: "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.2.0.3-beta/neoforge-26.2.0.3-beta-installer.jar")!
+        )
+    ]
 }
 
 public enum NeoForgeClientInstallerError: Error, CustomStringConvertible {
@@ -48,6 +61,22 @@ public enum NeoForgeClientInstallerError: Error, CustomStringConvertible {
 }
 
 public enum NeoForgeClientInstaller {
+    public static func ensureSupportedInstalled(
+        minecraftDirectory: URL,
+        pummelchenHome: URL,
+        javaExecutable: URL,
+        requirements: [NeoForgeClientRequirement] = NeoForgeClientRequirement.supported
+    ) async throws {
+        for requirement in requirements {
+            try await ensureInstalled(
+                minecraftDirectory: minecraftDirectory,
+                pummelchenHome: pummelchenHome,
+                javaExecutable: javaExecutable,
+                requirement: requirement
+            )
+        }
+    }
+
     public static func ensureInstalled(
         minecraftDirectory: URL,
         pummelchenHome: URL,

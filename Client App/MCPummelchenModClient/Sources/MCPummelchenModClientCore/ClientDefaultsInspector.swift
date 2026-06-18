@@ -109,7 +109,7 @@ public enum ClientDefaultsInspector {
         rows.append(resourcePackHealth(defaults: defaults, options: options))
         rows.append(memoryHealth(defaults: defaults, launcherProfiles: launcherProfiles))
         rows.append(javaHealth(defaults: defaults, launcherProfiles: launcherProfiles))
-        rows.append(serverEntryHealth(servers: servers))
+        rows.append(serverEntryHealth(defaults: defaults, servers: servers))
         rows.append(physicsMobFracturingHealth(defaults: defaults, minecraftDirectory: minecraftDirectory))
         rows.append(contentsOf: configHealth(defaults: defaults, minecraftDirectory: minecraftDirectory))
         return rows
@@ -257,27 +257,35 @@ public enum ClientDefaultsInspector {
         )
     }
 
-    private static func serverEntryHealth(servers: String?) -> ClientDefaultHealthRow {
+    private static func serverEntryHealth(defaults: MinecraftClientDefaults, servers: String?) -> ClientDefaultHealthRow {
+        let desiredServers = defaults.supportedServers
+        let desiredValue = desiredServers
+            .map { "\($0.serverName) (\($0.serverAddress))" }
+            .joined(separator: " | ")
+
         guard let servers, !servers.isEmpty else {
         return ClientDefaultHealthRow(
             id: "server_entry",
-            label: "Server Entity",
-            desiredValue: "91.99.176.243:25565",
+            label: "Server Entries",
+            desiredValue: desiredValue,
             observedValue: "servers.dat missing",
             status: .missing,
             source: "servers.dat",
-            recommendedAction: "Add managed server entry"
+            recommendedAction: "Add managed server entries"
         )
     }
-        let ok = servers.contains("91.99.176.243") || servers.localizedCaseInsensitiveContains("Pummelchen")
+        let missing = desiredServers.filter { server in
+            !servers.contains(server.serverAddress) && !servers.localizedCaseInsensitiveContains(server.serverName)
+        }
+        let ok = missing.isEmpty
         return ClientDefaultHealthRow(
             id: "server_entry",
-            label: "Server Entity",
-            desiredValue: "91.99.176.243:25565",
-            observedValue: ok ? "Pummelchen Server Ready" : "Pummelchen server not found",
+            label: "Server Entries",
+            desiredValue: desiredValue,
+            observedValue: ok ? "Pummelchen Servers Ready" : "Missing: \(missing.map(\.serverName).joined(separator: ", "))",
             status: ok ? .pass : .fail,
             source: "servers.dat",
-            recommendedAction: "Add managed server entry"
+            recommendedAction: "Add managed server entries"
         )
     }
 

@@ -51,11 +51,18 @@ struct MinecraftClientDefaultsTests {
         let profiles = try String(contentsOf: root.appendingPathComponent("launcher_profiles.json"), encoding: .utf8)
         #expect(profiles.contains("-Xmx8G"))
         #expect(profiles.contains("neoforge-26.1.2.76"))
+        #expect(profiles.contains("neoforge-26.2.0.3-beta"))
+        #expect(profiles.contains("Pummelchen Server 26.1.2"))
+        #expect(profiles.contains("Pummelchen Server 26.2"))
         #expect(profiles.contains(managedJava) || profiles.contains(managedJava.replacingOccurrences(of: "/", with: "\\/")))
 
         let servers = try Data(contentsOf: root.appendingPathComponent("servers.dat"))
         #expect(servers.range(of: Data("91.99.176.243:25565".utf8)) != nil)
+        #expect(servers.range(of: Data("91.99.176.243:25566".utf8)) != nil)
+        #expect(servers.range(of: Data("Pummelchen Server 26.1.2".utf8)) != nil)
+        #expect(servers.range(of: Data("Pummelchen Server 26.2".utf8)) != nil)
         #expect(servers.occurrences(of: Data("91.99.176.243:25565".utf8)) == 1)
+        #expect(servers.occurrences(of: Data("91.99.176.243:25566".utf8)) == 1)
 
         let otherDefaults = MinecraftClientDefaults(serverName: "Other Server", serverAddress: "example.org:25565")
         let otherRoot = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -67,6 +74,7 @@ struct MinecraftClientDefaultsTests {
         let mergedServers = try Data(contentsOf: otherRoot.appendingPathComponent("servers.dat"))
         #expect(mergedServers.range(of: Data("example.org:25565".utf8)) != nil)
         #expect(mergedServers.range(of: Data("91.99.176.243:25565".utf8)) != nil)
+        #expect(mergedServers.range(of: Data("91.99.176.243:25566".utf8)) != nil)
 
         let existingPummelchenRoot = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("pummelchen-minecraft-existing-server-\(UUID().uuidString)", isDirectory: true)
@@ -79,6 +87,7 @@ struct MinecraftClientDefaultsTests {
         try MinecraftClientDefaultWriter.apply(to: existingPummelchenRoot)
         let existingManagedServers = try Data(contentsOf: existingPummelchenRoot.appendingPathComponent("servers.dat"))
         #expect(existingManagedServers.occurrences(of: Data("91.99.176.243:25565".utf8)) == 1)
+        #expect(existingManagedServers.occurrences(of: Data("91.99.176.243:25566".utf8)) == 1)
 
         let defaultPortRoot = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("pummelchen-minecraft-default-port-\(UUID().uuidString)", isDirectory: true)
@@ -90,7 +99,8 @@ struct MinecraftClientDefaultsTests {
         )
         try MinecraftClientDefaultWriter.apply(to: defaultPortRoot)
         let defaultPortServers = try Data(contentsOf: defaultPortRoot.appendingPathComponent("servers.dat"))
-        #expect(defaultPortServers.occurrences(of: Data("91.99.176.243".utf8)) == 1)
+        #expect(defaultPortServers.occurrences(of: Data("91.99.176.243".utf8)) == 2)
+        #expect(defaultPortServers.range(of: Data("91.99.176.243:25566".utf8)) != nil)
     }
 
     @Test("uses 6 GB heap on 8 GB Macs and 8 GB heap otherwise")

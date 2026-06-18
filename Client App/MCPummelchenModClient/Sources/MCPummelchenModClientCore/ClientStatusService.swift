@@ -377,7 +377,12 @@ public struct ClientStatusService: Sendable {
     private func defaultsForStatus() async -> MinecraftClientDefaults {
         do {
             let java = try await JavaRuntimeManager.ensureInstalled(pummelchenHome: configuration.pummelchenHome)
-            let loader = NeoForgeClientRequirement()
+            let loader = NeoForgeClientRequirement.live
+            try await NeoForgeClientInstaller.ensureSupportedInstalled(
+                minecraftDirectory: configuration.minecraftDirectory,
+                pummelchenHome: configuration.pummelchenHome,
+                javaExecutable: java.javaExecutableURL
+            )
             return MinecraftClientDefaults(javaExecutablePath: java.javaExecutableURL.path, loaderVersion: loader.loaderVersion)
         } catch {
             return MinecraftClientDefaults()

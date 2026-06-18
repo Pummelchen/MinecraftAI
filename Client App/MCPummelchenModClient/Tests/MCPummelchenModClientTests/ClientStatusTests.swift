@@ -41,7 +41,7 @@ struct ClientStatusTests {
         {"profiles":{"NeoForge":{"javaArgs":"-Xmx8G -XX:+UseG1GC","javaDir":"\(escapedJavaPath)"}}}
         """
             .write(to: root.appendingPathComponent("launcher_profiles.json"), atomically: true, encoding: .utf8)
-        try "Pummelchen 91.99.176.243:25565".write(to: root.appendingPathComponent("servers.dat"), atomically: true, encoding: .utf8)
+        try "Pummelchen Server 26.1.2 91.99.176.243:25565 Pummelchen Server 26.2 91.99.176.243:25566".write(to: root.appendingPathComponent("servers.dat"), atomically: true, encoding: .utf8)
         try "showLoadWarnings=false\n".write(to: root.appendingPathComponent("config/neoforge-client.toml"), atomically: true, encoding: .utf8)
         try "showLoadWarnings=false\n".write(to: root.appendingPathComponent("config/forge-client.toml"), atomically: true, encoding: .utf8)
         try "showCheckScreen=false\n".write(to: root.appendingPathComponent("config/yuushya-client.toml"), atomically: true, encoding: .utf8)
@@ -82,8 +82,8 @@ struct ClientStatusTests {
         #expect(java.status == .pass)
 
         let server = try #require(rows.first { $0.id == "server_entry" })
-        #expect(server.label == "Server Entity")
-        #expect(server.observedValue == "Pummelchen Server Ready")
+        #expect(server.label == "Server Entries")
+        #expect(server.observedValue == "Pummelchen Servers Ready")
     }
 
     @Test("default inspector detects missing read-only defaults without mutating files")

@@ -272,12 +272,11 @@ public struct ClientSyncEngine: Sendable {
             return MinecraftClientDefaults()
         }
         let status = try await JavaRuntimeManager.ensureInstalled(pummelchenHome: configuration.pummelchenHome)
-        let loader = NeoForgeClientRequirement()
-        try await NeoForgeClientInstaller.ensureInstalled(
+        let loader = NeoForgeClientRequirement.live
+        try await NeoForgeClientInstaller.ensureSupportedInstalled(
             minecraftDirectory: configuration.minecraftDirectory,
             pummelchenHome: configuration.pummelchenHome,
-            javaExecutable: status.javaExecutableURL,
-            requirement: loader
+            javaExecutable: status.javaExecutableURL
         )
         return MinecraftClientDefaults(javaExecutablePath: status.javaExecutableURL.path, loaderVersion: loader.loaderVersion)
     }

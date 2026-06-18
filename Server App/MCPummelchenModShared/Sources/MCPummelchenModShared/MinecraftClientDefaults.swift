@@ -1,5 +1,27 @@
 import Foundation
 
+public struct MinecraftSupportedServer: Equatable, Sendable {
+    public let minecraftVersion: String
+    public let loaderVersion: String
+    public let serverName: String
+    public let serverAddress: String
+    public let isLive: Bool
+
+    public init(
+        minecraftVersion: String,
+        loaderVersion: String,
+        serverName: String? = nil,
+        serverAddress: String,
+        isLive: Bool = false
+    ) {
+        self.minecraftVersion = minecraftVersion
+        self.loaderVersion = loaderVersion
+        self.serverName = serverName ?? "Pummelchen Server \(minecraftVersion)"
+        self.serverAddress = serverAddress
+        self.isLive = isLive
+    }
+}
+
 public struct MinecraftClientDefaults: Equatable, Sendable {
     public let shaderPack: String
     public let resourcePacks: [String]
@@ -8,9 +30,25 @@ public struct MinecraftClientDefaults: Equatable, Sendable {
     public let loaderVersion: String
     public let serverName: String
     public let serverAddress: String
+    public let supportedServers: [MinecraftSupportedServer]
     public let irisProperties: [String: String]
     public let configProperties: [String: [String: String]]
     public let physicsMobType: Int
+
+    public static let defaultSupportedServers: [MinecraftSupportedServer] = [
+        MinecraftSupportedServer(
+            minecraftVersion: "26.1.2",
+            loaderVersion: "26.1.2.76",
+            serverAddress: "91.99.176.243:25565",
+            isLive: true
+        ),
+        MinecraftSupportedServer(
+            minecraftVersion: "26.2",
+            loaderVersion: "26.2.0.3-beta",
+            serverAddress: "91.99.176.243:25566",
+            isLive: false
+        )
+    ]
 
     public static func recommendedHeapGB(physicalMemoryBytes: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Int {
         let gib = UInt64(1024 * 1024 * 1024)
@@ -34,8 +72,9 @@ public struct MinecraftClientDefaults: Equatable, Sendable {
         javaArguments: String = MinecraftClientDefaults.recommendedJavaArguments(),
         javaExecutablePath: String? = nil,
         loaderVersion: String = "26.1.2.76",
-        serverName: String = "Pummelchen Server",
+        serverName: String = "Pummelchen Server 26.1.2",
         serverAddress: String = "91.99.176.243:25565",
+        supportedServers: [MinecraftSupportedServer] = MinecraftClientDefaults.defaultSupportedServers,
         irisProperties: [String: String] = [
             "shaderPack": "BSL_v10.1.3.zip",
             "enableShaders": "true",
@@ -63,9 +102,50 @@ public struct MinecraftClientDefaults: Equatable, Sendable {
         self.loaderVersion = loaderVersion
         self.serverName = serverName
         self.serverAddress = serverAddress
+        self.supportedServers = Self.effectiveSupportedServers(
+            supplied: supportedServers,
+            serverName: serverName,
+            serverAddress: serverAddress,
+            loaderVersion: loaderVersion
+        )
         self.irisProperties = irisProperties
         self.configProperties = configProperties
         self.physicsMobType = physicsMobType
+    }
+
+    private static func effectiveSupportedServers(
+        supplied: [MinecraftSupportedServer],
+        serverName: String,
+        serverAddress: String,
+        loaderVersion: String
+    ) -> [MinecraftSupportedServer] {
+        let customServerWasRequested = serverName != "Pummelchen Server 26.1.2" || serverAddress != "91.99.176.243:25565"
+        guard customServerWasRequested else {
+            return supplied
+        }
+
+        let custom = MinecraftSupportedServer(
+            minecraftVersion: minecraftVersion(fromLoaderVersion: loaderVersion),
+            loaderVersion: loaderVersion,
+            serverName: serverName,
+            serverAddress: serverAddress,
+            isLive: true
+        )
+        return [custom] + supplied.filter { normalizedServerAddress($0.serverAddress) != normalizedServerAddress(serverAddress) }
+    }
+
+    private static func minecraftVersion(fromLoaderVersion loaderVersion: String) -> String {
+        let parts = loaderVersion.split(separator: ".")
+        guard parts.count >= 2 else { return loaderVersion }
+        if parts.count >= 3, parts[0] == "26", parts[1] == "1" {
+            return "26.1.2"
+        }
+        return "\(parts[0]).\(parts[1])"
+    }
+
+    private static func normalizedServerAddress(_ address: String) -> String {
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return trimmed.contains(":") ? trimmed : "\(trimmed):25565"
     }
 }
 
@@ -109,8 +189,8 @@ public enum MinecraftClientDefaultWriter {
             }
         }
         try setPhysicsMobType(defaults.physicsMobType, minecraftDirectory: minecraftDirectory)
-        try setLauncherProfile(defaults: defaults, minecraftDirectory: minecraftDirectory)
-        try ensureServerEntry(defaults: defaults, minecraftDirectory: minecraftDirectory)
+        try setLauncherProfiles(defaults: defaults, minecraftDirectory: minecraftDirectory)
+        try ensureServerEntries(defaults: defaults, minecraftDirectory: minecraftDirectory)
     }
 
     private static func setPhysicsMobType(_ mobType: Int, minecraftDirectory: URL) throws {
@@ -177,7 +257,7 @@ public enum MinecraftClientDefaultWriter {
         try output.joined(separator: "\n").write(to: path, atomically: true, encoding: .utf8)
     }
 
-    private static func setLauncherProfile(defaults: MinecraftClientDefaults, minecraftDirectory: URL) throws {
+    private static func setLauncherProfiles(defaults: MinecraftClientDefaults, minecraftDirectory: URL) throws {
         let path = minecraftDirectory.appendingPathComponent("launcher_profiles.json")
         var root: [String: Any] = [:]
         if let data = try? Data(contentsOf: path),
@@ -185,26 +265,50 @@ public enum MinecraftClientDefaultWriter {
             root = parsed
         }
         var profiles = root["profiles"] as? [String: Any] ?? [:]
-        var profile = profiles["NeoForge"] as? [String: Any] ?? [:]
-        profile["name"] = "NeoForge"
-        profile["type"] = "custom"
-        profile["lastVersionId"] = "neoforge-\(defaults.loaderVersion)"
-        profile["javaArgs"] = defaults.javaArguments
-        if let javaExecutablePath = defaults.javaExecutablePath, !javaExecutablePath.isEmpty {
-            profile["javaDir"] = javaExecutablePath
+
+        for server in defaults.supportedServers {
+            profiles[launcherProfileID(for: server)] = launcherProfile(defaults: defaults, server: server, existing: profiles[launcherProfileID(for: server)] as? [String: Any])
         }
-        profiles["NeoForge"] = profile
+
+        if let liveServer = defaults.supportedServers.first(where: { $0.isLive }) ?? defaults.supportedServers.first {
+            profiles["NeoForge"] = launcherProfile(defaults: defaults, server: liveServer, existing: profiles["NeoForge"] as? [String: Any], name: "NeoForge")
+        }
+
         root["profiles"] = profiles
         let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
         try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: path, options: .atomic)
     }
 
-    private static func ensureServerEntry(defaults: MinecraftClientDefaults, minecraftDirectory: URL) throws {
-        let path = minecraftDirectory.appendingPathComponent("servers.dat")
-        if let existing = try? Data(contentsOf: path), (try? existing.hasServerAddress(defaults.serverAddress)) == true {
-            return
+    private static func launcherProfileID(for server: MinecraftSupportedServer) -> String {
+        "Pummelchen-\(server.minecraftVersion)"
+    }
+
+    private static func launcherProfile(
+        defaults: MinecraftClientDefaults,
+        server: MinecraftSupportedServer,
+        existing: [String: Any]?,
+        name: String? = nil
+    ) -> [String: Any] {
+        var profile = existing ?? [:]
+        profile["name"] = name ?? server.serverName
+        profile["type"] = "custom"
+        profile["lastVersionId"] = "neoforge-\(server.loaderVersion)"
+        profile["javaArgs"] = defaults.javaArguments
+        if let javaExecutablePath = defaults.javaExecutablePath, !javaExecutablePath.isEmpty {
+            profile["javaDir"] = javaExecutablePath
         }
+        return profile
+    }
+
+    private static func ensureServerEntries(defaults: MinecraftClientDefaults, minecraftDirectory: URL) throws {
+        let path = minecraftDirectory.appendingPathComponent("servers.dat")
+        let missingServers = defaults.supportedServers.filter { server in
+            guard let existing = try? Data(contentsOf: path) else { return true }
+            return (try? existing.hasServerAddress(server.serverAddress)) != true
+        }
+        guard !missingServers.isEmpty else { return }
+
         if FileManager.default.fileExists(atPath: path.path) {
             let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
             try FileManager.default.copyItem(
@@ -212,23 +316,29 @@ public enum MinecraftClientDefaultWriter {
                 to: path.deletingLastPathComponent().appendingPathComponent("servers.dat.pummelchen-backup-\(stamp)")
             )
         }
-        if let existing = try? Data(contentsOf: path),
-           let updated = try? existing.appendingServerEntry(name: defaults.serverName, address: defaults.serverAddress) {
+
+        if let existing = try? Data(contentsOf: path) {
+            var updated = existing
+            for server in missingServers {
+                updated = try updated.appendingServerEntry(name: server.serverName, address: server.serverAddress)
+            }
             try updated.write(to: path, options: .atomic)
         } else {
-            try Self.singleServerFile(name: defaults.serverName, address: defaults.serverAddress).write(to: path, options: .atomic)
+            try Self.singleServerFile(servers: defaults.supportedServers).write(to: path, options: .atomic)
         }
     }
 
-    private static func singleServerFile(name: String, address: String) -> Data {
+    private static func singleServerFile(servers: [MinecraftSupportedServer]) -> Data {
         var data = Data()
         data.append(10)
         data.appendUTF("")
         data.append(9)
         data.appendUTF("servers")
         data.append(10)
-        data.appendInt32(1)
-        data.appendServerCompound(name: name, address: address)
+        data.appendInt32(Int32(servers.count))
+        for server in servers {
+            data.appendServerCompound(name: server.serverName, address: server.serverAddress)
+        }
         data.append(0)
         return data
     }
