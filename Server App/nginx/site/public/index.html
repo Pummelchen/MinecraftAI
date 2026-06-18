@@ -309,17 +309,25 @@
       white-space: nowrap;
     }
     .compat-active,
-    .compat-compatible {
+    .compat-compatible,
+    .compat-staged {
       color: #b9efc8;
       background: #0d2414;
       border-color: #285d3c;
     }
-    .compat-needs-test {
+    .compat-needs-test,
+    .compat-compatible-by-file {
       color: #ffe2a8;
       background: #241b0c;
       border-color: #6d5420;
     }
-    .compat-unknown {
+    .compat-not-installed {
+      color: #ffc2bd;
+      background: #271211;
+      border-color: #6d3029;
+    }
+    .compat-unknown,
+    .compat-live-data-unavailable {
       color: #c5cec4;
       background: #151b16;
       border-color: #354237;
@@ -1106,7 +1114,7 @@
           hozAlign: 'center',
           headerTooltip: `${label} compatibility`,
           formatter: cell => {
-            const value = cell.getValue() || 'Unknown';
+            const value = cell.getValue() || 'Live data unavailable';
             return `<span class="compat compat-${compatibilityClass(value)}">${escapeHTML(value)}</span>`;
           },
         };

@@ -189,6 +189,30 @@ struct MCPummelchenModServerCoreTests {
         CREATE SCHEMA IF NOT EXISTS reporting;
         CREATE OR REPLACE VIEW reporting.v_minecraft_server_versions AS
         SELECT * FROM core.minecraft_server_versions;
+        CREATE TABLE core.mod_sources (
+          source_id VARCHAR PRIMARY KEY,
+          mod_key VARCHAR NOT NULL,
+          display_name VARCHAR NOT NULL,
+          installed_file VARCHAR,
+          installed_version VARCHAR,
+          provider VARCHAR NOT NULL,
+          source_url VARCHAR NOT NULL,
+          priority INTEGER NOT NULL DEFAULT 100,
+          active BOOLEAN NOT NULL DEFAULT true,
+          created_at TIMESTAMP NOT NULL DEFAULT now(),
+          updated_at TIMESTAMP NOT NULL DEFAULT now(),
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader VARCHAR DEFAULT 'neoforge',
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mod_sources(
+          source_id, mod_key, display_name, installed_file, installed_version,
+          provider, source_url, active, minecraft_version, loader, loader_version
+        )
+        VALUES
+          ('fixture-server-26-1-2', 'fixture-server-mod', 'Fixture Server Mod', 'server-26.1.2.jar', '1.0.0', 'fixture', 'https://fixture.local/server', true, '26.1.2', 'neoforge', '26.1.2.76'),
+          ('fixture-server-26-2', 'fixture-server-mod', 'Fixture Server Mod', 'server-26.2.jar', '2.0.0', 'fixture', 'https://fixture.local/server', true, '26.2', 'neoforge', '26.2.0.3-beta'),
+          ('fixture-client-26-1-2', 'fixture-client-mod', 'Fixture Client Mod', 'client.jar', '1.0.0', 'fixture', 'https://fixture.local/client', true, '26.1.2', 'neoforge', '26.1.2.76');
         """)
 
         let api = makeAPI(fixture: fixture)
@@ -215,7 +239,8 @@ struct MCPummelchenModServerCoreTests {
         #expect(supportedVersions.count == 2)
         #expect(serverRows.first?["name"] as? String == "Fixture Server Mod")
         #expect(serverCompatibility["26.1.2"] == "Active")
-        #expect(serverCompatibility["26.2"] == "Compatible")
+        #expect(serverCompatibility["26.2"] == "Staged")
+        #expect(serverRows.first?["files"] as? String == "server-26.1.2.jar")
         #expect(clientObject?["scope"] as? String == "client")
         #expect(clientRows.first?["name"] as? String == "Fixture Client Mod")
         #expect(clientCompatibility["26.1.2"] == "Active")
