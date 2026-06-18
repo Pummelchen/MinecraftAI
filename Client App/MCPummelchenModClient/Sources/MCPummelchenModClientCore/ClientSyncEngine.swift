@@ -64,6 +64,8 @@ public struct ClientSyncResult: Equatable, Sendable {
     public let filesQuarantined: Int
     public let message: String
     public let selfUpdateScheduled: Bool
+    public let minecraftVersion: String?
+    public let loaderVersion: String?
 
     public init(
         runID: String,
@@ -77,7 +79,9 @@ public struct ClientSyncResult: Equatable, Sendable {
         filesDownloaded: Int,
         filesQuarantined: Int,
         message: String,
-        selfUpdateScheduled: Bool = false
+        selfUpdateScheduled: Bool = false,
+        minecraftVersion: String? = nil,
+        loaderVersion: String? = nil
     ) {
         self.runID = runID
         self.startedAt = startedAt
@@ -91,6 +95,8 @@ public struct ClientSyncResult: Equatable, Sendable {
         self.filesQuarantined = filesQuarantined
         self.message = message
         self.selfUpdateScheduled = selfUpdateScheduled
+        self.minecraftVersion = minecraftVersion
+        self.loaderVersion = loaderVersion
     }
 }
 
@@ -180,7 +186,9 @@ public struct ClientSyncEngine: Sendable {
                 filesDownloaded: downloaded,
                 filesQuarantined: unmanagedMoved,
                 message: message,
-                selfUpdateScheduled: selfUpdate.scheduled
+                selfUpdateScheduled: selfUpdate.scheduled,
+                minecraftVersion: release.minecraftVersion,
+                loaderVersion: release.loaderVersion
             )
             try store.record(
                 syncResult: result,
@@ -498,7 +506,9 @@ public struct ClientSyncEngine: Sendable {
             lastError: result.result == "ok" ? nil : result.message,
             message: networkProtocol.map { "\(result.message) transport=\($0)" } ?? result.message,
             osSummary: ProcessInfo.processInfo.operatingSystemVersionString,
-            arch: Self.machineArchitecture()
+            arch: Self.machineArchitecture(),
+            minecraftVersion: result.minecraftVersion,
+            loaderVersion: result.loaderVersion
         )
         let webTransport: ClientWebTransportControlChannel
         do {
@@ -516,13 +526,17 @@ public struct ClientSyncEngine: Sendable {
         let inventoryUpload = ClientInventoryUpload(
             clientID: clientID,
             reportedAt: result.finishedAt,
+            minecraftVersion: result.minecraftVersion,
+            loaderVersion: result.loaderVersion,
             files: inventory.map {
                 ClientInventoryFile(
                     section: $0.section.rawValue,
                     name: $0.name,
                     sizeBytes: Int($0.sizeBytes),
                     sha256: $0.sha256,
-                    status: "verified"
+                    status: "verified",
+                    minecraftVersion: result.minecraftVersion,
+                    loaderVersion: result.loaderVersion
                 )
             }
         )

@@ -641,6 +641,44 @@
       stroke: currentColor;
     }
     .progress-example { margin: 10px 0; }
+    .version-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .version-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: var(--panel);
+    }
+    .version-card h3 {
+      margin: 0 0 10px;
+      font-size: 18px;
+    }
+    .version-card dl { margin: 0; }
+    .version-card dl div {
+      display: grid;
+      grid-template-columns: 112px 1fr;
+      gap: 10px;
+      padding: 5px 0;
+      border: 0;
+    }
+    .version-card dt {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .version-card dd {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+    .version-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
     footer { padding: 24px 0 42px; color: var(--muted); }
     @media (max-width: 640px) {
       .wrap { padding: 16px; }
@@ -709,6 +747,12 @@
           <canvas data-live-chart="disk_used_percent" width="520" height="176" aria-label="Disk usage percentage graph"></canvas>
         </article>
       </div>
+    </section>
+
+    <section id="server-versions">
+      <h2>Minecraft Server Versions</h2>
+      <p class="note">Supported Minecraft server versions are managed side by side. The live server remains the oldest supported version until newer versions pass validation.</p>
+      <div id="serverVersionsGrid" class="version-grid" aria-live="polite"></div>
     </section>
 
     <section id="install">
@@ -936,6 +980,38 @@
         node.textContent = relativeTimeLabel(node.getAttribute('datetime') || '');
       });
     }
+    function renderServerVersions(data) {
+      const grid = document.getElementById('serverVersionsGrid');
+      if (!grid) return;
+      const versions = Array.isArray(data?.versions) ? data.versions : [];
+      if (!versions.length) {
+        grid.innerHTML = '<p class="note">No supported Minecraft server versions are published yet.</p>';
+        return;
+      }
+      grid.innerHTML = versions.map(version => `
+        <article class="version-card">
+          <h3>${escapeHTML(version.server_name || `Pummelchen Server ${version.minecraft_version || ''}`)}</h3>
+          <dl>
+            <div><dt>Status</dt><dd>${escapeHTML(version.status || '-')}</dd></div>
+            <div><dt>Minecraft</dt><dd>${escapeHTML(version.minecraft_version || '-')}</dd></div>
+            <div><dt>NeoForge</dt><dd>${escapeHTML(version.loader_version || '-')}</dd></div>
+            <div><dt>Address</dt><dd>${escapeHTML(version.server_address || '-')}</dd></div>
+          </dl>
+          <div class="version-actions">
+            <a class="button secondary" href="${escapeHTML(version.page_url || '#')}">Open Version Page</a>
+          </div>
+        </article>
+      `).join('');
+    }
+    async function refreshServerVersions() {
+      try {
+        const response = await fetch('/server-versions.json', { cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        renderServerVersions(await response.json());
+      } catch {
+        renderServerVersions({ versions: [] });
+      }
+    }
     function readJSONScript(id) {
       const node = document.getElementById(id);
       if (!node) return [];
@@ -1114,6 +1190,8 @@
     window.setInterval(updateRelativeTimes, 60000);
     refreshLiveStats();
     window.setInterval(refreshLiveStats, 5000);
+    refreshServerVersions();
+    window.setInterval(refreshServerVersions, 5000);
     window.addEventListener('resize', refreshLiveStats);
     wireSnippetCopyButtons();
     wireModInventoryTables();

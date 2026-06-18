@@ -207,7 +207,9 @@ struct ClientStatusTests {
             filesVerified: 1,
             filesDownloaded: 1,
             filesQuarantined: 0,
-            message: "synced"
+            message: "synced",
+            minecraftVersion: "26.1.2",
+            loaderVersion: "26.1.2.76"
         )
         try store.record(
             syncResult: sync,
@@ -224,6 +226,8 @@ struct ClientStatusTests {
         )
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM manifest_audits WHERE status = 'ok';") == "1")
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM installed_files WHERE status = 'verified';") == "1")
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM installed_files_by_version WHERE minecraft_version = '26.1.2' AND status = 'verified';") == "1")
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM client_supported_versions WHERE minecraft_version IN ('26.1.2', '26.2');") == "2")
         #expect(try duckDBScalar(database: database, sql: "SELECT value FROM client_state WHERE key = 'last_manifest_entries';") == "1")
         #endif
     }

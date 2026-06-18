@@ -9,6 +9,8 @@ DuckDB is the production database and the only supported project database.
 - `schema.sql`: canonical schema entrypoint for operators.
 - `migrations/001_foundation.sql`: creates `core`, `audit`, `reporting`, and `archive` schemas plus reporting views.
 - `migrations/002_operational_schemas_and_indexes.sql`: creates the operational `client`, `control`, `release`, and `world` schemas and DuckDB ART indexes used by frequent status, release, control-event, and world-reset lookups.
+- `migrations/003_minecraft_versions.sql`: adds supported Minecraft server versions plus version-aware mod source, scan, and client inventory columns/views.
+- `migrations/004_client_inventory_by_version.sql`: creates the canonical version-keyed client inventory table used when clients report multiple supported Minecraft versions.
 
 ## Apply Migrations
 

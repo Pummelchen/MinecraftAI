@@ -488,6 +488,7 @@ private func modUpdateScanner(args: Arguments, projectRoot: URL) throws -> ModUp
         databaseURL: duckDB,
         minecraftVersion: args.options["--minecraft-version"] ?? "26.1.2",
         loader: args.options["--loader"] ?? "neoforge",
+        loaderVersion: args.options["--loader-version"] ?? "26.1.2.76",
         maxURLsPerWindow: maxURLs,
         windowSeconds: windowSeconds,
         limit: limit,

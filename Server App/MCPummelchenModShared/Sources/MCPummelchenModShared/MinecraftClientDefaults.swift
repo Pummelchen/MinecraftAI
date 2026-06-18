@@ -6,19 +6,22 @@ public struct MinecraftSupportedServer: Equatable, Sendable {
     public let serverName: String
     public let serverAddress: String
     public let isLive: Bool
+    public let status: String
 
     public init(
         minecraftVersion: String,
         loaderVersion: String,
         serverName: String? = nil,
         serverAddress: String,
-        isLive: Bool = false
+        isLive: Bool = false,
+        status: String? = nil
     ) {
         self.minecraftVersion = minecraftVersion
         self.loaderVersion = loaderVersion
         self.serverName = serverName ?? "Pummelchen Server \(minecraftVersion)"
         self.serverAddress = serverAddress
         self.isLive = isLive
+        self.status = status ?? (isLive ? "live" : "staging")
     }
 }
 

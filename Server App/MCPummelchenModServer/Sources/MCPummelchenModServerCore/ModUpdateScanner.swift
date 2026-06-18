@@ -24,6 +24,7 @@ public struct ModUpdateScannerConfig: Sendable {
     public let databaseURL: URL
     public let minecraftVersion: String
     public let loader: String
+    public let loaderVersion: String?
     public let maxURLsPerWindow: Int
     public let windowSeconds: TimeInterval
     public let limit: Int?
@@ -35,6 +36,7 @@ public struct ModUpdateScannerConfig: Sendable {
         databaseURL: URL,
         minecraftVersion: String = "26.1.2",
         loader: String = "neoforge",
+        loaderVersion: String? = "26.1.2.76",
         maxURLsPerWindow: Int = 5,
         windowSeconds: TimeInterval = 10,
         limit: Int? = nil,
@@ -45,6 +47,7 @@ public struct ModUpdateScannerConfig: Sendable {
         self.databaseURL = databaseURL
         self.minecraftVersion = minecraftVersion
         self.loader = loader
+        self.loaderVersion = loaderVersion
         self.maxURLsPerWindow = maxURLsPerWindow
         self.windowSeconds = windowSeconds
         self.limit = limit
@@ -95,8 +98,22 @@ public struct ModUpdateScanner: Sendable {
         let startedAt = Self.duckTimestamp(Date())
         if !config.dryRun {
             try execute("""
-            INSERT INTO core.mod_update_scans(scan_id, started_at, status, urls_checked, candidates_found, unresolved, notes)
-            VALUES (\(Self.sqlLiteral(scanID)), TIMESTAMP '\(startedAt)', 'running', 0, 0, 0, 'started');
+            INSERT INTO core.mod_update_scans(
+              scan_id, started_at, status, urls_checked, candidates_found,
+              unresolved, notes, minecraft_version, loader, loader_version
+            )
+            VALUES (
+              \(Self.sqlLiteral(scanID)),
+              TIMESTAMP '\(startedAt)',
+              'running',
+              0,
+              0,
+              0,
+              'started',
+              \(Self.sqlLiteral(config.minecraftVersion)),
+              \(Self.sqlLiteral(config.loader)),
+              \(Self.sqlLiteral(config.loaderVersion))
+            );
             """)
         }
 
@@ -216,7 +233,10 @@ public struct ModUpdateScanner: Sendable {
           priority INTEGER NOT NULL DEFAULT 100,
           active BOOLEAN NOT NULL DEFAULT true,
           created_at TIMESTAMP NOT NULL DEFAULT now(),
-          updated_at TIMESTAMP NOT NULL DEFAULT now()
+          updated_at TIMESTAMP NOT NULL DEFAULT now(),
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader VARCHAR DEFAULT 'neoforge',
+          loader_version VARCHAR
         );
         CREATE TABLE IF NOT EXISTS core.mod_update_scans (
           scan_id VARCHAR PRIMARY KEY,
@@ -226,7 +246,10 @@ public struct ModUpdateScanner: Sendable {
           urls_checked INTEGER NOT NULL DEFAULT 0,
           candidates_found INTEGER NOT NULL DEFAULT 0,
           unresolved INTEGER NOT NULL DEFAULT 0,
-          notes VARCHAR
+          notes VARCHAR,
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader VARCHAR DEFAULT 'neoforge',
+          loader_version VARCHAR
         );
         CREATE TABLE IF NOT EXISTS core.mod_update_scan_results (
           result_id VARCHAR PRIMARY KEY,
@@ -240,8 +263,20 @@ public struct ModUpdateScanner: Sendable {
           installed_version VARCHAR,
           latest_version VARCHAR,
           latest_url VARCHAR,
-          details VARCHAR
+          details VARCHAR,
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader VARCHAR DEFAULT 'neoforge',
+          loader_version VARCHAR
         );
+        ALTER TABLE core.mod_sources ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR DEFAULT '26.1.2';
+        ALTER TABLE core.mod_sources ADD COLUMN IF NOT EXISTS loader VARCHAR DEFAULT 'neoforge';
+        ALTER TABLE core.mod_sources ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
+        ALTER TABLE core.mod_update_scans ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR DEFAULT '26.1.2';
+        ALTER TABLE core.mod_update_scans ADD COLUMN IF NOT EXISTS loader VARCHAR DEFAULT 'neoforge';
+        ALTER TABLE core.mod_update_scans ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
+        ALTER TABLE core.mod_update_scan_results ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR DEFAULT '26.1.2';
+        ALTER TABLE core.mod_update_scan_results ADD COLUMN IF NOT EXISTS loader VARCHAR DEFAULT 'neoforge';
+        ALTER TABLE core.mod_update_scan_results ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
         """)
     }
 
@@ -296,6 +331,7 @@ public struct ModUpdateScanner: Sendable {
         SELECT source_id, mod_key, display_name, COALESCE(installed_file, ''), COALESCE(installed_version, ''), provider, source_url
         FROM core.mod_sources
         WHERE active = true
+          AND COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
         ORDER BY priority ASC, display_name ASC, source_url ASC
         \(limitClause);
         """)
@@ -422,7 +458,11 @@ public struct ModUpdateScanner: Sendable {
     private func upsert(source: ModSourceRecord) throws {
         try execute("""
         DELETE FROM core.mod_sources WHERE source_id = \(Self.sqlLiteral(source.sourceID));
-        INSERT INTO core.mod_sources(source_id, mod_key, display_name, installed_file, installed_version, provider, source_url, priority, active, updated_at)
+        INSERT INTO core.mod_sources(
+          source_id, mod_key, display_name, installed_file, installed_version,
+          provider, source_url, priority, active, updated_at,
+          minecraft_version, loader, loader_version
+        )
         VALUES (
           \(Self.sqlLiteral(source.sourceID)),
           \(Self.sqlLiteral(source.modKey)),
@@ -433,7 +473,10 @@ public struct ModUpdateScanner: Sendable {
           \(Self.sqlLiteral(source.sourceURL)),
           100,
           true,
-          now()
+          now(),
+          \(Self.sqlLiteral(config.minecraftVersion)),
+          \(Self.sqlLiteral(config.loader)),
+          \(Self.sqlLiteral(config.loaderVersion))
         );
         """)
     }
@@ -442,7 +485,8 @@ public struct ModUpdateScanner: Sendable {
         try execute("""
         INSERT INTO core.mod_update_scan_results(
           result_id, scan_id, source_id, checked_at, provider, source_url, status,
-          installed_file, installed_version, latest_version, latest_url, details
+          installed_file, installed_version, latest_version, latest_url, details,
+          minecraft_version, loader, loader_version
         )
         VALUES (
           \(Self.sqlLiteral(UUID().uuidString)),
@@ -456,7 +500,10 @@ public struct ModUpdateScanner: Sendable {
           \(Self.sqlLiteral(result.source.installedVersion)),
           \(Self.sqlLiteral(result.latestVersion)),
           \(Self.sqlLiteral(result.latestURL)),
-          \(Self.sqlLiteral(result.details))
+          \(Self.sqlLiteral(result.details)),
+          \(Self.sqlLiteral(config.minecraftVersion)),
+          \(Self.sqlLiteral(config.loader)),
+          \(Self.sqlLiteral(config.loaderVersion))
         );
         """)
     }

@@ -779,7 +779,8 @@ public struct ServerClientReportStore: Sendable {
         try execute("""
         INSERT INTO client.client_reports(
           client_id, reported_at, installed_release_id, target_release_id, status,
-          manifest_entries, changed_files, last_error, message, os_summary, arch
+          manifest_entries, changed_files, last_error, message, os_summary, arch,
+          minecraft_version, loader_version
         )
         VALUES (
           \(Self.sqlLiteral(payload.clientID)),
@@ -792,11 +793,14 @@ public struct ServerClientReportStore: Sendable {
           \(Self.sqlLiteral(payload.lastError)),
           \(Self.sqlLiteral(payload.message)),
           \(Self.sqlLiteral(payload.osSummary)),
-          \(Self.sqlLiteral(payload.arch))
+          \(Self.sqlLiteral(payload.arch)),
+          \(Self.sqlLiteral(payload.minecraftVersion)),
+          \(Self.sqlLiteral(payload.loaderVersion))
         );
         INSERT INTO client.client_latest_status(
           client_id, first_seen_at, last_seen_at, installed_release_id, target_release_id,
-          status, manifest_entries, changed_files, last_error, last_status_message, os_summary, arch
+          status, manifest_entries, changed_files, last_error, last_status_message, os_summary, arch,
+          minecraft_version, loader_version
         )
         VALUES (
           \(Self.sqlLiteral(payload.clientID)),
@@ -810,7 +814,9 @@ public struct ServerClientReportStore: Sendable {
           \(Self.sqlLiteral(payload.lastError)),
           \(Self.sqlLiteral(payload.message)),
           \(Self.sqlLiteral(payload.osSummary)),
-          \(Self.sqlLiteral(payload.arch))
+          \(Self.sqlLiteral(payload.arch)),
+          \(Self.sqlLiteral(payload.minecraftVersion)),
+          \(Self.sqlLiteral(payload.loaderVersion))
         )
         ON CONFLICT(client_id) DO UPDATE SET
           last_seen_at = excluded.last_seen_at,
@@ -822,7 +828,9 @@ public struct ServerClientReportStore: Sendable {
           last_error = excluded.last_error,
           last_status_message = excluded.last_status_message,
           os_summary = excluded.os_summary,
-          arch = excluded.arch;
+          arch = excluded.arch,
+          minecraft_version = excluded.minecraft_version,
+          loader_version = excluded.loader_version;
         """)
     }
 
@@ -830,14 +838,45 @@ public struct ServerClientReportStore: Sendable {
         try initialize()
         try Self.validateClientID(payload.clientID)
         let reportedAt = Self.sqlTimestamp(payload.reportedAt)
-        var sql = "DELETE FROM client.client_inventory WHERE client_id = \(Self.sqlLiteral(payload.clientID));\n"
+        let payloadMinecraftVersion = payload.minecraftVersion ?? Self.liveMinecraftVersion
+        let payloadLoaderVersion = payload.loaderVersion ?? Self.liveLoaderVersion
+        var sql = """
+        DELETE FROM client.client_inventory_by_version
+        WHERE client_id = \(Self.sqlLiteral(payload.clientID))
+          AND minecraft_version = \(Self.sqlLiteral(payloadMinecraftVersion));
+        DELETE FROM client.client_inventory
+        WHERE client_id = \(Self.sqlLiteral(payload.clientID))
+          AND COALESCE(minecraft_version, '26.1.2') = \(Self.sqlLiteral(payloadMinecraftVersion));
+        """
         for file in payload.files {
             try ContractValidation.requireSHA256(file.sha256, field: "inventory sha256")
             try ContractValidation.require(file.sizeBytes >= 0, "inventory size_bytes must be non-negative")
             try ContractValidation.require(["mods", "resourcepacks", "shaderpacks", "tools"].contains(file.section), "invalid inventory section")
+            let fileMinecraftVersion = file.minecraftVersion ?? payloadMinecraftVersion
+            let fileLoaderVersion = file.loaderVersion ?? payloadLoaderVersion
             sql += """
-            INSERT INTO client.client_inventory(client_id, reported_at, section, name, size_bytes, sha256, status)
+            INSERT OR REPLACE INTO client.client_inventory(
+              client_id, reported_at, section, name, size_bytes, sha256,
+              status, minecraft_version, loader_version
+            )
             VALUES (
+              \(Self.sqlLiteral(payload.clientID)),
+              TIMESTAMP '\(reportedAt)',
+              \(Self.sqlLiteral(file.section)),
+              \(Self.sqlLiteral(file.name)),
+              \(file.sizeBytes),
+              \(Self.sqlLiteral(file.sha256)),
+              \(Self.sqlLiteral(file.status)),
+              \(Self.sqlLiteral(fileMinecraftVersion)),
+              \(Self.sqlLiteral(fileLoaderVersion))
+            );
+            INSERT OR REPLACE INTO client.client_inventory_by_version(
+              minecraft_version, loader_version, client_id, reported_at, section,
+              name, size_bytes, sha256, status
+            )
+            VALUES (
+              \(Self.sqlLiteral(fileMinecraftVersion)),
+              \(Self.sqlLiteral(fileLoaderVersion)),
               \(Self.sqlLiteral(payload.clientID)),
               TIMESTAMP '\(reportedAt)',
               \(Self.sqlLiteral(file.section)),
@@ -944,7 +983,9 @@ public struct ServerClientReportStore: Sendable {
           last_error VARCHAR,
           message VARCHAR,
           os_summary VARCHAR,
-          arch VARCHAR
+          arch VARCHAR,
+          minecraft_version VARCHAR,
+          loader_version VARCHAR
         );
         CREATE TABLE IF NOT EXISTS client.client_latest_status (
           client_id VARCHAR PRIMARY KEY,
@@ -958,7 +999,9 @@ public struct ServerClientReportStore: Sendable {
           last_error VARCHAR,
           last_status_message VARCHAR,
           os_summary VARCHAR,
-          arch VARCHAR
+          arch VARCHAR,
+          minecraft_version VARCHAR,
+          loader_version VARCHAR
         );
         CREATE TABLE IF NOT EXISTS client.client_inventory (
           client_id VARCHAR NOT NULL,
@@ -968,7 +1011,21 @@ public struct ServerClientReportStore: Sendable {
           size_bytes BIGINT NOT NULL,
           sha256 VARCHAR NOT NULL,
           status VARCHAR NOT NULL,
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader_version VARCHAR,
           PRIMARY KEY(client_id, section, name)
+        );
+        CREATE TABLE IF NOT EXISTS client.client_inventory_by_version (
+          minecraft_version VARCHAR NOT NULL,
+          loader_version VARCHAR,
+          client_id VARCHAR NOT NULL,
+          reported_at TIMESTAMP NOT NULL,
+          section VARCHAR NOT NULL,
+          name VARCHAR NOT NULL,
+          size_bytes BIGINT NOT NULL,
+          sha256 VARCHAR NOT NULL,
+          status VARCHAR NOT NULL,
+          PRIMARY KEY(minecraft_version, client_id, section, name)
         );
         CREATE TABLE IF NOT EXISTS client.client_diagnostics (
           diagnostic_id VARCHAR PRIMARY KEY,
@@ -988,7 +1045,9 @@ public struct ServerClientReportStore: Sendable {
           report_id VARCHAR PRIMARY KEY,
           client_id VARCHAR NOT NULL,
           reported_at TIMESTAMP NOT NULL,
-          defaults_ok BOOLEAN NOT NULL
+          defaults_ok BOOLEAN NOT NULL,
+          minecraft_version VARCHAR,
+          loader_version VARCHAR
         );
         CREATE TABLE IF NOT EXISTS client.client_defaults_events (
           event_id VARCHAR PRIMARY KEY,
@@ -997,8 +1056,20 @@ public struct ServerClientReportStore: Sendable {
           key VARCHAR NOT NULL,
           status VARCHAR NOT NULL,
           desired_value VARCHAR NOT NULL,
-          observed_value VARCHAR
+          observed_value VARCHAR,
+          minecraft_version VARCHAR,
+          loader_version VARCHAR
         );
+        ALTER TABLE client.client_reports ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR;
+        ALTER TABLE client.client_reports ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
+        ALTER TABLE client.client_latest_status ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR;
+        ALTER TABLE client.client_latest_status ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
+        ALTER TABLE client.client_inventory ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR DEFAULT '26.1.2';
+        ALTER TABLE client.client_inventory ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
+        ALTER TABLE client.client_defaults_reports ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR;
+        ALTER TABLE client.client_defaults_reports ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
+        ALTER TABLE client.client_defaults_events ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR;
+        ALTER TABLE client.client_defaults_events ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
         """)
     }
 
@@ -1022,6 +1093,14 @@ public struct ServerClientReportStore: Sendable {
     private static func sqlTimestamp(_ value: String) -> String {
         let parsed = ISO8601DateFormatter().date(from: value) ?? Date()
         return duckTimestamp(parsed)
+    }
+
+    private static var liveMinecraftVersion: String {
+        MinecraftClientDefaults.defaultSupportedServers.first(where: { $0.isLive })?.minecraftVersion ?? "26.1.2"
+    }
+
+    private static var liveLoaderVersion: String {
+        MinecraftClientDefaults.defaultSupportedServers.first(where: { $0.isLive })?.loaderVersion ?? "26.1.2.76"
     }
 
     private static func duckTimestamp(_ date: Date) -> String {

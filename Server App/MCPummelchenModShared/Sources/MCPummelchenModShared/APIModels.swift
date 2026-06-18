@@ -30,6 +30,8 @@ public struct ClientStatusReport: Codable, Equatable, Sendable {
     public let message: String?
     public let osSummary: String?
     public let arch: String?
+    public let minecraftVersion: String?
+    public let loaderVersion: String?
 
     enum CodingKeys: String, CodingKey {
         case clientID = "client_id"
@@ -43,6 +45,8 @@ public struct ClientStatusReport: Codable, Equatable, Sendable {
         case message
         case osSummary = "os_summary"
         case arch
+        case minecraftVersion = "minecraft_version"
+        case loaderVersion = "loader_version"
     }
 
     public init(
@@ -56,7 +60,9 @@ public struct ClientStatusReport: Codable, Equatable, Sendable {
         lastError: String?,
         message: String?,
         osSummary: String?,
-        arch: String?
+        arch: String?,
+        minecraftVersion: String? = nil,
+        loaderVersion: String? = nil
     ) {
         self.clientID = clientID
         self.reportedAt = reportedAt
@@ -69,6 +75,8 @@ public struct ClientStatusReport: Codable, Equatable, Sendable {
         self.message = message
         self.osSummary = osSummary
         self.arch = arch
+        self.minecraftVersion = minecraftVersion
+        self.loaderVersion = loaderVersion
     }
 }
 
@@ -96,17 +104,29 @@ public struct ClientRegistrationRequest: Codable, Equatable, Sendable {
 public struct ClientInventoryUpload: Codable, Equatable, Sendable {
     public let clientID: String
     public let reportedAt: String
+    public let minecraftVersion: String?
+    public let loaderVersion: String?
     public let files: [ClientInventoryFile]
 
     enum CodingKeys: String, CodingKey {
         case clientID = "client_id"
         case reportedAt = "reported_at"
+        case minecraftVersion = "minecraft_version"
+        case loaderVersion = "loader_version"
         case files
     }
 
-    public init(clientID: String, reportedAt: String, files: [ClientInventoryFile]) {
+    public init(
+        clientID: String,
+        reportedAt: String,
+        minecraftVersion: String? = nil,
+        loaderVersion: String? = nil,
+        files: [ClientInventoryFile]
+    ) {
         self.clientID = clientID
         self.reportedAt = reportedAt
+        self.minecraftVersion = minecraftVersion
+        self.loaderVersion = loaderVersion
         self.files = files
     }
 }
@@ -117,6 +137,8 @@ public struct ClientInventoryFile: Codable, Equatable, Sendable {
     public let sizeBytes: Int
     public let sha256: String
     public let status: String
+    public let minecraftVersion: String?
+    public let loaderVersion: String?
 
     enum CodingKeys: String, CodingKey {
         case section
@@ -124,14 +146,26 @@ public struct ClientInventoryFile: Codable, Equatable, Sendable {
         case sizeBytes = "size_bytes"
         case sha256
         case status
+        case minecraftVersion = "minecraft_version"
+        case loaderVersion = "loader_version"
     }
 
-    public init(section: String, name: String, sizeBytes: Int, sha256: String, status: String) {
+    public init(
+        section: String,
+        name: String,
+        sizeBytes: Int,
+        sha256: String,
+        status: String,
+        minecraftVersion: String? = nil,
+        loaderVersion: String? = nil
+    ) {
         self.section = section
         self.name = name
         self.sizeBytes = sizeBytes
         self.sha256 = sha256
         self.status = status
+        self.minecraftVersion = minecraftVersion
+        self.loaderVersion = loaderVersion
     }
 }
 

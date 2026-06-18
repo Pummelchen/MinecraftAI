@@ -393,8 +393,14 @@ public struct ModAddPipeline: Sendable {
           priority INTEGER NOT NULL DEFAULT 100,
           active BOOLEAN NOT NULL DEFAULT true,
           created_at TIMESTAMP NOT NULL DEFAULT now(),
-          updated_at TIMESTAMP NOT NULL DEFAULT now()
+          updated_at TIMESTAMP NOT NULL DEFAULT now(),
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader VARCHAR DEFAULT 'neoforge',
+          loader_version VARCHAR
         );
+        ALTER TABLE core.mod_sources ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR DEFAULT '26.1.2';
+        ALTER TABLE core.mod_sources ADD COLUMN IF NOT EXISTS loader VARCHAR DEFAULT 'neoforge';
+        ALTER TABLE core.mod_sources ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
         """)
         for artifact in artifacts {
             let sourceID = [Optional(artifact.provider), artifact.projectID, artifact.fileID]
@@ -406,7 +412,11 @@ public struct ModAddPipeline: Sendable {
             let stableID = sourceID.isEmpty ? Self.stableID("\(artifact.sourceURL)|\(artifact.fileName)") : sourceID
             try DuckDBDatabase(databaseURL: config.databaseURL).execute("""
             DELETE FROM core.mod_sources WHERE source_id = \(Self.sqlLiteral(stableID));
-            INSERT INTO core.mod_sources(source_id, mod_key, display_name, installed_file, installed_version, provider, source_url, priority, active, updated_at)
+            INSERT INTO core.mod_sources(
+              source_id, mod_key, display_name, installed_file, installed_version,
+              provider, source_url, priority, active, updated_at,
+              minecraft_version, loader, loader_version
+            )
             VALUES (
               \(Self.sqlLiteral(stableID)),
               \(Self.sqlLiteral(Self.modKey(artifact.displayName))),
@@ -417,7 +427,10 @@ public struct ModAddPipeline: Sendable {
               \(Self.sqlLiteral(artifact.sourceURL)),
               25,
               true,
-              now()
+              now(),
+              \(Self.sqlLiteral(config.minecraftVersion)),
+              \(Self.sqlLiteral(config.loader)),
+              \(Self.sqlLiteral(config.loaderVersion))
             );
             """)
         }
