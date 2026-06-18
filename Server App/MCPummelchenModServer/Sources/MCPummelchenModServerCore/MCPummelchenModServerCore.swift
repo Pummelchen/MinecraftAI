@@ -167,6 +167,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 return try clientHealth()
             case ("GET", "/api/v1/site/live-stats"):
                 return try siteLiveStats()
+            case ("GET", "/api/v1/minecraft/server-versions"):
+                return try minecraftServerVersions()
             case ("GET", "/api/v1/site/tested-updates"):
                 return try siteTestedUpdates()
             case ("GET", "/api/v1/site/update-activity"):
@@ -283,6 +285,53 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         return .json(data, headers: [
             "Cache-Control": "no-store, max-age=0",
             "X-Pummelchen-Stats-Source": "swift-server"
+        ])
+    }
+
+    private func minecraftServerVersions() throws -> HTTPResponse {
+        let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+        SELECT
+          minecraft_version,
+          loader,
+          loader_version,
+          server_name,
+          server_address,
+          server_dir,
+          status,
+          is_live,
+          sort_order,
+          CAST(updated_at AS VARCHAR) AS updated_at,
+          COALESCE(notes, '') AS notes
+        FROM reporting.v_minecraft_server_versions
+        ORDER BY sort_order, minecraft_version;
+        """)
+        let versions = Self.parseCSV(csv).map { row -> [String: Any] in
+            let minecraftVersion = row["minecraft_version"] ?? ""
+            return [
+                "minecraft_version": minecraftVersion,
+                "loader": row["loader"] ?? "neoforge",
+                "loader_version": row["loader_version"] ?? "",
+                "server_name": row["server_name"] ?? "Pummelchen Server \(minecraftVersion)",
+                "server_address": row["server_address"] ?? "",
+                "server_dir": row["server_dir"] ?? "",
+                "status": row["status"] ?? "unknown",
+                "is_live": Self.duckBool(row["is_live"] ?? ""),
+                "sort_order": Int(row["sort_order"] ?? "") ?? 100,
+                "updated_at": Self.isoTimestamp(fromDuckDB: row["updated_at"] ?? ""),
+                "page_url": Self.versionPageURL(minecraftVersion: minecraftVersion),
+                "notes": row["notes"] ?? ""
+            ]
+        }
+        let payload: [String: Any] = [
+            "api_version": "v1",
+            "generated_at": Self.isoNow(),
+            "generated_by": "MCPummelchenModServer-duckdb-live",
+            "versions": versions
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        return .json(data, headers: [
+            "Cache-Control": "no-store, max-age=0",
+            "X-Pummelchen-Stats-Source": "swift-server-duckdb"
         ])
     }
 
@@ -417,6 +466,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     }
 
     private func serverPublicKeyX963Base64() -> String? {
+        #if canImport(Security)
         guard let certificatePath = config.webTransportCertificatePath else {
             return nil
         }
@@ -439,6 +489,9 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         } catch {
             return nil
         }
+        #else
+        return nil
+        #endif
     }
 
     private func createControlEvent(_ request: HTTPRequest) throws -> HTTPResponse {
@@ -724,6 +777,26 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             .replacingOccurrences(of: #"(--rcon-password\s+)(\S+)"#, with: "$1[REDACTED]", options: .regularExpression)
             .replacingOccurrences(of: #"(rcon\.password\s*=\s*)(\S+)"#, with: "$1[REDACTED]", options: .regularExpression)
             .replacingOccurrences(of: #""client_secret"\s*:\s*"[^"]+""#, with: #""client_secret":"[REDACTED]""#, options: .regularExpression)
+    }
+
+    private static func duckBool(_ value: String) -> Bool {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "true", "t", "1", "yes":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func versionPageURL(minecraftVersion: String) -> String {
+        guard !minecraftVersion.isEmpty else {
+            return "index.html"
+        }
+        let safe = minecraftVersion
+            .lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9.]+"#, with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return "server-\(safe).html"
     }
 }
 

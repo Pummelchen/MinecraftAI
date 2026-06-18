@@ -158,6 +158,56 @@ struct MCPummelchenModServerCoreTests {
         #expect(neoForgeObject?["latest_neoforge_version"] as? String == "26.1.2.76")
     }
 
+    @Test("serves supported Minecraft server versions from DuckDB")
+    func servesSupportedMinecraftServerVersionsFromDuckDB() throws {
+        try requireDuckDB()
+        let fixture = try makeProjectFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let database = fixture.root.appendingPathComponent("data/test-phase6.duckdb")
+        try DuckDBDatabase(databaseURL: database).execute("""
+        CREATE SCHEMA IF NOT EXISTS core;
+        CREATE TABLE core.minecraft_server_versions (
+          minecraft_version VARCHAR PRIMARY KEY,
+          loader VARCHAR NOT NULL DEFAULT 'neoforge',
+          loader_version VARCHAR NOT NULL,
+          server_name VARCHAR NOT NULL,
+          server_address VARCHAR NOT NULL,
+          server_dir VARCHAR,
+          status VARCHAR NOT NULL,
+          is_live BOOLEAN NOT NULL DEFAULT false,
+          sort_order INTEGER NOT NULL DEFAULT 100,
+          updated_at TIMESTAMP NOT NULL DEFAULT now(),
+          notes VARCHAR
+        );
+        INSERT INTO core.minecraft_server_versions(
+          minecraft_version, loader, loader_version, server_name, server_address,
+          server_dir, status, is_live, sort_order, updated_at, notes
+        )
+        VALUES
+          ('26.1.2', 'neoforge', '26.1.2.76', 'Pummelchen Server 26.1.2', '91.99.176.243:25565', '/srv/minecraft-26.1.2', 'live', true, 10, TIMESTAMP '2026-06-18 17:37:43', 'Current live play target.'),
+          ('26.2', 'neoforge', '26.2.0.3-beta', 'Pummelchen Server 26.2', '91.99.176.243:25566', '/srv/minecraft-26.2', 'staging', false, 20, TIMESTAMP '2026-06-18 17:37:43', 'Staged for compatibility testing.');
+        CREATE SCHEMA IF NOT EXISTS reporting;
+        CREATE OR REPLACE VIEW reporting.v_minecraft_server_versions AS
+        SELECT * FROM core.minecraft_server_versions;
+        """)
+
+        let api = makeAPI(fixture: fixture)
+        let response = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/minecraft/server-versions"))
+        let object = try JSONSerialization.jsonObject(with: response.body) as? [String: Any]
+        let versions = try #require(object?["versions"] as? [[String: Any]])
+
+        #expect(response.statusCode == 200)
+        #expect(response.headers["X-Pummelchen-Stats-Source"] == "swift-server-duckdb")
+        #expect(versions.count == 2)
+        #expect(versions.first?["minecraft_version"] as? String == "26.1.2")
+        #expect(versions.first?["is_live"] as? Bool == true)
+        #expect(versions.first?["page_url"] as? String == "server-26.1.2.html")
+        #expect(versions.last?["minecraft_version"] as? String == "26.2")
+        #expect(versions.last?["status"] as? String == "staging")
+        #expect(versions.last?["page_url"] as? String == "server-26.2.html")
+    }
+
     @Test("tested updates feed includes live DuckDB releases")
     func testedUpdatesFeedIncludesLiveDuckDBReleases() throws {
         try requireDuckDB()

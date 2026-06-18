@@ -1005,7 +1005,7 @@
     }
     async function refreshServerVersions() {
       try {
-        const response = await fetch('/server-versions.json', { cache: 'no-store' });
+        const response = await fetch('/api/v1/minecraft/server-versions', { cache: 'no-store' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         renderServerVersions(await response.json());
       } catch {
