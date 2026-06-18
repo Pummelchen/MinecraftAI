@@ -16,6 +16,8 @@ This project uses AI environments like OpenCode/Codex/Qoder as a natural-languag
 
 The Minecraft runtime starts with a vanilla server and adds the managed mod pack through NeoForge. The same release flow also handles client-side shader packs, resource packs, and configuration scripts, keeping the server and macOS clients aligned through nginx-served HTTPS release downloads plus authenticated HTTPS live update control APIs.
 
+`add-mod` is now a full pipeline command: when you call `MCPummelchenModServer add-mod` without `--dry-run true`, it resolves dependencies, applies compatibility checks, runs a server smoke test, builds a full release, runs the DMG build + 5-minute headless live soak, and publishes a DMG-backed release for download.
+
 The platform supports multiple Minecraft server versions side by side. The oldest supported version remains the live play target until newer versions pass validation. DuckDB stores supported server versions, mod sources, scan results, release metadata, and client inventory with Minecraft/NeoForge version fields. The macOS client installs supported NeoForge client profiles and Multiplayer entries named by version, for example `Pummelchen Server 26.1.2` and `Pummelchen Server 26.2`, so future Minecraft releases can be staged without disrupting the current live server.
 
 The daily mod update check must scan every DuckDB-supported `live` and `staging` Minecraft version with `MCPummelchenModServer mod-update-scan --all-supported true`. Staging releases publish version-scoped current release files, while only the DuckDB `is_live` version may update the global `/downloads/current-release.json` endpoint used by normal clients.
