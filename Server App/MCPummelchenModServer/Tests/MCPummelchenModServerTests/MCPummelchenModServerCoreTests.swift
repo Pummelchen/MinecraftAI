@@ -160,8 +160,36 @@ struct MCPummelchenModServerCoreTests {
 
     @Test("serves version-tagged mod inventory tables through Swift API")
     func servesVersionTaggedModInventoryTables() throws {
+        try requireDuckDB()
         let fixture = try makeProjectFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let database = fixture.root.appendingPathComponent("data/test-phase6.duckdb")
+        try DuckDBDatabase(databaseURL: database).execute("""
+        CREATE SCHEMA IF NOT EXISTS core;
+        CREATE TABLE core.minecraft_server_versions (
+          minecraft_version VARCHAR PRIMARY KEY,
+          loader VARCHAR NOT NULL DEFAULT 'neoforge',
+          loader_version VARCHAR NOT NULL,
+          server_name VARCHAR NOT NULL,
+          server_address VARCHAR NOT NULL,
+          server_dir VARCHAR,
+          status VARCHAR NOT NULL,
+          is_live BOOLEAN NOT NULL DEFAULT false,
+          sort_order INTEGER NOT NULL DEFAULT 100,
+          updated_at TIMESTAMP NOT NULL DEFAULT now(),
+          notes VARCHAR
+        );
+        INSERT INTO core.minecraft_server_versions(
+          minecraft_version, loader, loader_version, server_name, server_address,
+          server_dir, status, is_live, sort_order, updated_at, notes
+        )
+        VALUES
+          ('26.1.2', 'neoforge', '26.1.2.76', 'Pummelchen Server 26.1.2', '91.99.176.243:25565', '/srv/minecraft-26.1.2', 'live', true, 10, TIMESTAMP '2026-06-18 17:37:43', 'Current live play target.'),
+          ('26.2', 'neoforge', '26.2.0.3-beta', 'Pummelchen Server 26.2', '91.99.176.243:25566', '/srv/minecraft-26.2', 'staging', false, 20, TIMESTAMP '2026-06-18 17:37:43', 'Staged for compatibility testing.');
+        CREATE SCHEMA IF NOT EXISTS reporting;
+        CREATE OR REPLACE VIEW reporting.v_minecraft_server_versions AS
+        SELECT * FROM core.minecraft_server_versions;
+        """)
 
         let api = makeAPI(fixture: fixture)
         let serverMods = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/mod-inventory/server"))
@@ -176,14 +204,22 @@ struct MCPummelchenModServerCoreTests {
         let clientObject = try JSONSerialization.jsonObject(with: clientMods.body) as? [String: Any]
         let serverRows = try #require(serverObject?["rows"] as? [[String: Any]])
         let clientRows = try #require(clientObject?["rows"] as? [[String: Any]])
+        let supportedVersions = try #require(serverObject?["supported_versions"] as? [[String: Any]])
+        let serverCompatibility = try #require(serverRows.first?["compatibility"] as? [String: String])
+        let clientCompatibility = try #require(clientRows.first?["compatibility"] as? [String: String])
 
         #expect(serverObject?["minecraft_version"] as? String == "26.1.2")
         #expect(serverObject?["server_key"] as? String == "minecraft_26_1_2")
         #expect(serverObject?["release_id"] as? String == "release_20260612_V6_modernarch-refresh")
         #expect(serverObject?["scope"] as? String == "server")
+        #expect(supportedVersions.count == 2)
         #expect(serverRows.first?["name"] as? String == "Fixture Server Mod")
+        #expect(serverCompatibility["26.1.2"] == "Active")
+        #expect(serverCompatibility["26.2"] == "Compatible")
         #expect(clientObject?["scope"] as? String == "client")
         #expect(clientRows.first?["name"] as? String == "Fixture Client Mod")
+        #expect(clientCompatibility["26.1.2"] == "Active")
+        #expect(clientCompatibility["26.2"] == "Needs test")
     }
 
     @Test("serves supported Minecraft server versions from DuckDB")
@@ -1339,7 +1375,7 @@ struct MCPummelchenModServerCoreTests {
         <!doctype html>
         <html>
         <body>
-          <script type="application/json" id="serverModsData">[{"name":"Fixture Server Mod","type":"Gameplay","files":"server.jar","sourceHost":"fixture.local","details":"Server fixture"}]</script>
+          <script type="application/json" id="serverModsData">[{"name":"Fixture Server Mod","type":"Gameplay","files":"server-26.2.jar","sourceHost":"fixture.local","details":"Server fixture"}]</script>
           <script type="application/json" id="clientModsData">[{"name":"Fixture Client Mod","type":"Client Visuals","files":"client.jar","sourceHost":"fixture.local","details":"Client fixture"}]</script>
         </body>
         </html>

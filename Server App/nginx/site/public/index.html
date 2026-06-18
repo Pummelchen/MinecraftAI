@@ -295,6 +295,35 @@
     }
     .sheet-grid a:hover,
     .sheet-grid a:focus-visible { color: #bff5cb; }
+    .compat {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 82px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+    .compat-active,
+    .compat-compatible {
+      color: #b9efc8;
+      background: #0d2414;
+      border-color: #285d3c;
+    }
+    .compat-needs-test {
+      color: #ffe2a8;
+      background: #241b0c;
+      border-color: #6d5420;
+    }
+    .compat-unknown {
+      color: #c5cec4;
+      background: #151b16;
+      border-color: #354237;
+    }
     .sheet-grid .tabulator-footer {
       background: #0c120d;
       border-top: 1px solid var(--line);
@@ -1048,8 +1077,11 @@
       const release = metadata.releaseID ? ` · ${metadata.releaseID}` : '';
       count.textContent = `${visible === total ? `${total} entries` : `${visible} of ${total} entries`}${version}${release}`;
     }
-    function modInventoryColumns() {
-      return [
+    function compatibilityClass(value) {
+      return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unknown';
+    }
+    function modInventoryColumns(supportedVersions = []) {
+      const baseColumns = [
         { title: 'Name', field: 'name', minWidth: 240, frozen: true, formatter: cell => {
           const data = cell.getRow().getData();
           if (!data.sourceUrl) return escapeHTML(data.name);
@@ -1064,6 +1096,22 @@
         } },
         { title: 'Details', field: 'details', minWidth: 520 },
       ];
+      const versionColumns = supportedVersions.map(version => {
+        const minecraftVersion = version.minecraft_version || version.minecraftVersion || '';
+        const label = minecraftVersion ? `MC ${minecraftVersion}` : 'MC';
+        return {
+          title: label,
+          field: `compatibility.${minecraftVersion}`,
+          minWidth: 120,
+          hozAlign: 'center',
+          headerTooltip: `${label} compatibility`,
+          formatter: cell => {
+            const value = cell.getValue() || 'Unknown';
+            return `<span class="compat compat-${compatibilityClass(value)}">${escapeHTML(value)}</span>`;
+          },
+        };
+      });
+      return [...baseColumns, ...versionColumns];
     }
     function searchableModRow(row) {
       return [
@@ -1074,6 +1122,7 @@
         row.sourceHost,
         row.details,
         row.search,
+        row.compatibility ? Object.values(row.compatibility).join(' ') : '',
       ].filter(Boolean).join(' ').toLowerCase();
     }
     function normalizeModInventoryRows(rows) {
@@ -1086,6 +1135,7 @@
       return {
         minecraftVersion: payload?.minecraft_version || '',
         releaseID: payload?.release_id || '',
+        supportedVersions: Array.isArray(payload?.supported_versions) ? payload.supported_versions : [],
       };
     }
     function rowsFromInventoryPayload(payload, fallbackRows) {
@@ -1101,9 +1151,15 @@
       if (existing) {
         existing.rows = rows;
         existing.metadata = metadata;
+        const signature = JSON.stringify((metadata.supportedVersions || []).map(version => version.minecraft_version || version.minecraftVersion || ''));
+        if (signature !== existing.versionSignature) {
+          existing.versionSignature = signature;
+          existing.table.setColumns(modInventoryColumns(metadata.supportedVersions || []));
+        }
         existing.table.replaceData(rows).then(() => existing.applyFilter());
         return;
       }
+      const versionSignature = JSON.stringify((metadata.supportedVersions || []).map(version => version.minecraft_version || version.minecraftVersion || ''));
       const table = new Tabulator(grid, {
         data: rows,
         layout: 'fitColumns',
@@ -1118,7 +1174,7 @@
           resizable: true,
           tooltip: true,
         },
-        columns: modInventoryColumns(),
+        columns: modInventoryColumns(metadata.supportedVersions || []),
       });
       table.on('dataFiltered', (filters, activeRows) => {
         const state = modInventoryTableState[config.gridId];
@@ -1139,7 +1195,7 @@
         const visibleRows = query ? table.getRows(true).length : tableRows.length;
         updateModInventoryCount(config.countId, visibleRows, tableRows.length, tableMetadata);
       };
-      modInventoryTableState[config.gridId] = { table, rows, metadata, applyFilter };
+      modInventoryTableState[config.gridId] = { table, rows, metadata, applyFilter, versionSignature };
       table.on('tableBuilt', applyFilter);
       if (input) input.addEventListener('input', applyFilter);
     }

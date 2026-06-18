@@ -283,7 +283,10 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         }
 
         let current = try CurrentReleaseValidator.decode(readCurrentReleaseData())
-        let rows = try readEmbeddedJSONRows(scriptID: scriptID)
+        let supportedVersions = supportedMinecraftVersionsForInventory(current: current)
+        let rows = try readEmbeddedJSONRows(scriptID: scriptID).map {
+            annotatedModInventoryRow($0, current: current, supportedVersions: supportedVersions)
+        }
         let payload: [String: Any] = [
             "api_version": "v1",
             "generated_at": Self.isoNow(),
@@ -294,6 +297,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             "minecraft_version": current.minecraftVersion ?? "",
             "loader_version": current.loaderVersion ?? "",
             "status": "live",
+            "supported_versions": supportedVersions,
             "total_entries": rows.count,
             "rows": rows
         ]
@@ -302,6 +306,97 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             "Cache-Control": "no-store, max-age=0",
             "X-Pummelchen-Stats-Source": "swift-server-site-inventory"
         ])
+    }
+
+    private func supportedMinecraftVersionsForInventory(current: CurrentRelease) -> [[String: Any]] {
+        if let csv = try? DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+        SELECT minecraft_version, loader_version, status, is_live, sort_order
+        FROM reporting.v_minecraft_server_versions
+        WHERE lower(status) IN ('live', 'staging')
+        ORDER BY sort_order, minecraft_version;
+        """) {
+            let rows = Self.parseCSV(csv).compactMap { row -> [String: Any]? in
+                guard let version = row["minecraft_version"], !version.isEmpty else {
+                    return nil
+                }
+                return [
+                    "minecraft_version": version,
+                    "loader_version": row["loader_version"] ?? "",
+                    "status": row["status"] ?? "",
+                    "is_live": Self.duckBool(row["is_live"] ?? ""),
+                    "sort_order": Int(row["sort_order"] ?? "") ?? 100
+                ]
+            }
+            if !rows.isEmpty {
+                return rows
+            }
+        }
+        return [[
+            "minecraft_version": current.minecraftVersion ?? "",
+            "loader_version": current.loaderVersion ?? "",
+            "status": "live",
+            "is_live": true,
+            "sort_order": 10
+        ]]
+    }
+
+    private func annotatedModInventoryRow(
+        _ row: [String: Any],
+        current: CurrentRelease,
+        supportedVersions: [[String: Any]]
+    ) -> [String: Any] {
+        let currentVersion = current.minecraftVersion ?? ""
+        let searchable = [
+            row["name"] as? String,
+            row["files"] as? String,
+            row["versionFile"] as? String,
+            row["details"] as? String,
+            row["search"] as? String,
+            row["sourceUrl"] as? String
+        ].compactMap { $0?.lowercased() }.joined(separator: " ")
+
+        var compatibility: [String: String] = [:]
+        for version in supportedVersions {
+            guard let minecraftVersion = version["minecraft_version"] as? String, !minecraftVersion.isEmpty else {
+                continue
+            }
+            if minecraftVersion == currentVersion {
+                compatibility[minecraftVersion] = "Active"
+            } else if Self.modInventoryText(searchable, mentionsMinecraftVersion: minecraftVersion) {
+                compatibility[minecraftVersion] = "Compatible"
+            } else if (version["status"] as? String)?.lowercased() == "staging" {
+                compatibility[minecraftVersion] = "Needs test"
+            } else {
+                compatibility[minecraftVersion] = "Unknown"
+            }
+        }
+
+        var annotated = row
+        annotated["compatibility"] = compatibility
+        return annotated
+    }
+
+    private static func modInventoryText(_ text: String, mentionsMinecraftVersion version: String) -> Bool {
+        let normalized = version.lowercased()
+        let underscore = normalized.replacingOccurrences(of: ".", with: "_")
+        let dashed = normalized.replacingOccurrences(of: ".", with: "-")
+        let compact = normalized.replacingOccurrences(of: ".", with: "")
+        let tokens = [
+            normalized,
+            underscore,
+            dashed,
+            "mc\(normalized)",
+            "mc\(underscore)",
+            "mc\(dashed)",
+            "minecraft \(normalized)",
+            "neoforge \(normalized)",
+            "neoforge-\(normalized)",
+            "neoforge_\(underscore)",
+            "neo_\(underscore)",
+            "neo-\(dashed)",
+            compact.isEmpty ? nil : "mc\(compact)"
+        ].compactMap { $0 }
+        return tokens.contains { text.contains($0) }
     }
 
     private func readEmbeddedJSONRows(scriptID: String) throws -> [[String: Any]] {
