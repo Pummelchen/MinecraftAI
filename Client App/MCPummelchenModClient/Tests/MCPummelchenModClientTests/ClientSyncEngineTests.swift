@@ -3,6 +3,12 @@ import Testing
 @testable import MCPummelchenModClientCore
 @testable import MCPummelchenModShared
 
+#if os(Linux)
+import Glibc
+#else
+import Darwin
+#endif
+
 @Suite("Swift client sync engine")
 struct ClientSyncEngineTests {
     @Test("control watcher syncs only release, sync, defaults, and explicit client sync events")
@@ -207,15 +213,69 @@ final class LocalHTTPServer {
         process.currentDirectoryURL = root
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["python3", "-m", "http.server", String(port), "--bind", "127.0.0.1"]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
         try process.run()
         self.process = process
-        Thread.sleep(forTimeInterval: 0.5)
+        let deadline = Date().addingTimeInterval(4)
+        while Date() < deadline {
+            if !process.isRunning {
+                throw NSError(
+                    domain: "LocalHTTPServer",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "python http.server exited before binding 127.0.0.1:\(port)"]
+                )
+            }
+            if Self.isTCPPortOpen(port: port) {
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        stop()
+        throw NSError(
+            domain: "LocalHTTPServer",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "python http.server did not bind 127.0.0.1:\(port) before timeout"]
+        )
     }
 
     func stop() {
-        process?.terminate()
-        process?.waitUntilExit()
+        guard let process else { return }
+        if process.isRunning {
+            process.terminate()
+            let deadline = Date().addingTimeInterval(2)
+            while process.isRunning && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            if process.isRunning {
+                let killer = Process()
+                killer.executableURL = URL(fileURLWithPath: "/bin/kill")
+                killer.arguments = ["-9", String(process.processIdentifier)]
+                try? killer.run()
+                killer.waitUntilExit()
+            }
+        }
+        process.waitUntilExit()
+        self.process = nil
+    }
+
+    private static func isTCPPortOpen(port: Int) -> Bool {
+        #if os(Linux)
+        let stream = Int32(SOCK_STREAM.rawValue)
+        #else
+        let stream = Int32(SOCK_STREAM)
+        #endif
+        let fd = socket(AF_INET, stream, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(UInt16(port).bigEndian)
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        return withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0
+            }
+        }
     }
 }

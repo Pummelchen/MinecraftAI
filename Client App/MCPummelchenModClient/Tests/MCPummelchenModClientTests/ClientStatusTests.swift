@@ -118,6 +118,7 @@ struct ClientStatusTests {
         let installed = minecraft.appendingPathComponent("mods/example.jar")
         try "mod-ok".write(to: source, atomically: true, encoding: .utf8)
         try "mod-ok".write(to: installed, atomically: true, encoding: .utf8)
+        try MinecraftClientDefaultWriter.apply(defaults: MinecraftClientDefaults(), to: minecraft)
         try (releaseID + "\n").write(to: minecraft.appendingPathComponent(".pummelchen/installed-release.txt"), atomically: true, encoding: .utf8)
 
         let hash = try SHA256Hasher.hashFile(at: source)
@@ -136,7 +137,11 @@ struct ClientStatusTests {
             serverURL: URL(string: "http://127.0.0.1:\(server.port)")!,
             minecraftDirectory: minecraft,
             pummelchenHome: home,
-            databaseURL: home.appendingPathComponent("client.duckdb")
+            databaseURL: home.appendingPathComponent("client.duckdb"),
+            retryPolicy: ClientHTTPRetryPolicy(maxAttempts: 1, requestTimeoutSeconds: 2, baseDelayNanoseconds: 0),
+            clientAPIToken: nil,
+            manageRuntimeChecks: false,
+            probeEndpointLatency: false
         ))
 
         let healthy = await service.check()

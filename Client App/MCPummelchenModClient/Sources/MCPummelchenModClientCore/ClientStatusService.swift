@@ -122,6 +122,8 @@ public struct ClientStatusConfiguration: Sendable {
     public let retryPolicy: ClientHTTPRetryPolicy
     public let clientID: String?
     public let clientAPIToken: String?
+    public let manageRuntimeChecks: Bool
+    public let probeEndpointLatency: Bool
 
     public init(
         serverURL: URL = URL(string: "https://pummelchen.91.99.176.243.nip.io")!,
@@ -130,7 +132,9 @@ public struct ClientStatusConfiguration: Sendable {
         databaseURL: URL,
         retryPolicy: ClientHTTPRetryPolicy = ClientHTTPRetryPolicy(),
         clientID: String? = nil,
-        clientAPIToken: String? = ClientCredentialProvider.defaultClientAPIToken()
+        clientAPIToken: String? = ClientCredentialProvider.defaultClientAPIToken(),
+        manageRuntimeChecks: Bool = true,
+        probeEndpointLatency: Bool = true
     ) {
         self.serverURL = serverURL
         self.minecraftDirectory = minecraftDirectory
@@ -139,6 +143,8 @@ public struct ClientStatusConfiguration: Sendable {
         self.retryPolicy = retryPolicy
         self.clientID = clientID
         self.clientAPIToken = clientAPIToken
+        self.manageRuntimeChecks = manageRuntimeChecks
+        self.probeEndpointLatency = probeEndpointLatency
     }
 
     public static func productionDefault(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> ClientStatusConfiguration {
@@ -244,12 +250,18 @@ public struct ClientStatusService: Sendable {
         }
 
         let defaultsHealth = repaired.rows
-        let downloadServerTask = Task {
-            await downloadServerStatus(checkedAt: checkedAt)
-        }
-        let updateServerTask = Task {
-            await updateServerStatus(checkedAt: checkedAt)
-        }
+        async let downloadServer = endpointProbeStatus(
+            enabled: configuration.probeEndpointLatency,
+            label: "Mod Download Server",
+            checkedAt: checkedAt,
+            probe: { await downloadServerStatus(checkedAt: checkedAt) }
+        )
+        async let updateServer = endpointProbeStatus(
+            enabled: configuration.probeEndpointLatency,
+            label: "Live Update Server",
+            checkedAt: checkedAt,
+            probe: { await updateServerStatus(checkedAt: checkedAt) }
+        )
 
         do {
             let releaseProbe = try await measure {
@@ -278,8 +290,8 @@ public struct ClientStatusService: Sendable {
             return ClientStatusSnapshot(
                 state: state,
                 serverURL: configuration.serverURL.absoluteString,
-                downloadServer: await downloadServerTask.value,
-                updateServer: await updateServerTask.value,
+                downloadServer: await downloadServer,
+                updateServer: await updateServer,
                 serverReleaseID: serverRelease.releaseID,
                 localReleaseID: localRelease,
                 checkedAt: checkedAt,
@@ -293,8 +305,8 @@ public struct ClientStatusService: Sendable {
             return ClientStatusSnapshot(
                 state: .offline,
                 serverURL: configuration.serverURL.absoluteString,
-                downloadServer: await downloadServerTask.value,
-                updateServer: await updateServerTask.value,
+                downloadServer: await downloadServer,
+                updateServer: await updateServer,
                 serverReleaseID: nil,
                 localReleaseID: localRelease,
                 checkedAt: checkedAt,
@@ -305,6 +317,24 @@ public struct ClientStatusService: Sendable {
                 errorMessage: String(describing: error)
             )
         }
+    }
+
+    private func endpointProbeStatus(
+        enabled: Bool,
+        label: String,
+        checkedAt: String,
+        probe: () async -> EndpointConnectionStatus
+    ) async -> EndpointConnectionStatus {
+        guard enabled else {
+            return EndpointConnectionStatus(
+                label: label,
+                state: .degraded,
+                latencyMS: nil,
+                message: "not probed in this check",
+                checkedAt: checkedAt
+            )
+        }
+        return await probe()
     }
 
     private func reportDefaultsRepairDiagnostics(
@@ -400,6 +430,9 @@ public struct ClientStatusService: Sendable {
     }
 
     private func defaultsForStatus() async -> MinecraftClientDefaults {
+        guard configuration.manageRuntimeChecks else {
+            return MinecraftClientDefaults()
+        }
         do {
             let java = try await JavaRuntimeManager.ensureInstalled(pummelchenHome: configuration.pummelchenHome)
             let loader = NeoForgeClientRequirement.live
