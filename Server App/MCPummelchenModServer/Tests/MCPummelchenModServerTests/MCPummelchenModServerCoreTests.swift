@@ -260,7 +260,8 @@ struct MCPummelchenModServerCoreTests {
         VALUES
           ('fixture-server-26-1-2', 'fixture-server-mod', 'Fixture Server Mod', 'server-26.1.2.jar', '1.0.0', 'fixture', 'https://fixture.local/server', true, '26.1.2', 'neoforge', '26.1.2.76'),
           ('fixture-server-26-2', 'fixture-server-mod', 'Fixture Server Mod', 'server-26.2.jar', '2.0.0', 'fixture', 'https://fixture.local/server', true, '26.2', 'neoforge', '26.2.0.3-beta'),
-          ('fixture-client-26-1-2', 'fixture-client-mod', 'Fixture Client Mod', 'client.jar', '1.0.0', 'fixture', 'https://fixture.local/client', true, '26.1.2', 'neoforge', '26.1.2.76');
+          ('fixture-client-26-1-2', 'fixture-client-mod', 'Fixture Client Mod', 'example-mod.jar', '1.0.0', 'fixture', 'https://fixture.local/client', true, '26.1.2', 'neoforge', '26.1.2.76'),
+          ('fixture-shared-26-1-2', 'fixture-shared-mod', 'Fixture Shared Mod', 'shared.jar', '1.0.0', 'fixture', 'https://fixture.local/shared', true, '26.1.2', 'neoforge', '26.1.2.76');
         """)
         let manifestDir = fixture.root.appendingPathComponent(
             "site/public/downloads/releases/release_20260612_V6_modernarch-refresh/manifests",
@@ -278,19 +279,30 @@ struct MCPummelchenModServerCoreTests {
         let api = makeAPI(fixture: fixture)
         let serverMods = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/mod-inventory/server"))
         let clientMods = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/mod-inventory/client"))
+        let mergedMods = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/mod-inventory/mods"))
 
         #expect(serverMods.statusCode == 200)
         #expect(clientMods.statusCode == 200)
+        #expect(mergedMods.statusCode == 200)
         #expect(serverMods.headers["Cache-Control"] == "no-store, max-age=0")
         #expect(clientMods.headers["X-Pummelchen-Stats-Source"] == "swift-server-site-inventory")
+        #expect(mergedMods.headers["X-Pummelchen-Stats-Source"] == "swift-server-site-inventory")
 
         let serverObject = try JSONSerialization.jsonObject(with: serverMods.body) as? [String: Any]
         let clientObject = try JSONSerialization.jsonObject(with: clientMods.body) as? [String: Any]
+        let mergedObject = try JSONSerialization.jsonObject(with: mergedMods.body) as? [String: Any]
         let serverRows = try #require(serverObject?["rows"] as? [[String: Any]])
         let clientRows = try #require(clientObject?["rows"] as? [[String: Any]])
+        let mergedRows = try #require(mergedObject?["rows"] as? [[String: Any]])
         let supportedVersions = try #require(serverObject?["supported_versions"] as? [[String: Any]])
         let serverCompatibility = try #require(serverRows.first?["compatibility"] as? [String: String])
         let clientCompatibility = try #require(clientRows.first?["compatibility"] as? [String: String])
+        let mergedPlacements = Dictionary(uniqueKeysWithValues: mergedRows.compactMap { row -> (String, String)? in
+            guard let name = row["name"] as? String, let placement = row["placement"] as? String else {
+                return nil
+            }
+            return (name, placement)
+        })
 
         #expect(serverObject?["minecraft_version"] as? String == "26.1.2")
         #expect(serverObject?["server_key"] as? String == "minecraft_26_1_2")
@@ -307,6 +319,10 @@ struct MCPummelchenModServerCoreTests {
         #expect(clientRows.first?["sourceHost"] as? String == "fixture.local")
         #expect(clientCompatibility["26.1.2"] == "Active")
         #expect(clientCompatibility["26.2"] == "Needs test")
+        #expect(mergedObject?["scope"] as? String == "mods")
+        #expect(mergedPlacements["Fixture Server Mod"] == "Server Mod")
+        #expect(mergedPlacements["Fixture Client Mod"] == "Client Mod")
+        #expect(mergedPlacements["Fixture Shared Mod"] == "Server & Client Mod")
         let clientTypes = Set(clientRows.compactMap { $0["type"] as? String })
         #expect(!clientTypes.contains("Client Mod"))
         #expect(clientTypes.contains("Gameplay"))
@@ -1856,8 +1872,8 @@ struct MCPummelchenModServerCoreTests {
         <!doctype html>
         <html>
         <body>
-          <script type="application/json" id="serverModsData">[{"name":"Fixture Server Mod","type":"Gameplay","files":"server-26.2.jar","sourceHost":"fixture.local","details":"Server fixture"}]</script>
-          <script type="application/json" id="clientModsData">[{"name":"Fixture Client Mod","type":"Client Visuals","files":"client.jar","sourceHost":"fixture.local","details":"Client fixture"}]</script>
+          <script type="application/json" id="serverModsData">[{"name":"Fixture Server Mod","type":"Gameplay","files":"server-26.2.jar","sourceHost":"fixture.local","details":"Server fixture"},{"name":"Fixture Shared Mod","type":"Gameplay","files":"shared.jar","sourceHost":"fixture.local","details":"Shared server fixture"}]</script>
+          <script type="application/json" id="clientModsData">[{"name":"Fixture Client Mod","type":"Client Visuals","files":"example-mod.jar","sourceHost":"fixture.local","details":"Client fixture"},{"name":"Fixture Shared Mod","type":"Gameplay","files":"example-mod.jar","sourceHost":"fixture.local","details":"Shared client fixture"}]</script>
         </body>
         </html>
         """.write(to: root.appendingPathComponent("site/public/index.html"), atomically: true, encoding: .utf8)

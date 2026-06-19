@@ -157,6 +157,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 return try siteLiveStats()
             case ("GET", "/api/v1/minecraft/server-versions"):
                 return try minecraftServerVersions()
+            case ("GET", "/api/v1/site/mod-inventory/mods"):
+                return try siteMergedModInventory()
             case ("GET", "/api/v1/site/mod-inventory/server"):
                 return try siteModInventory(scope: "server")
             case ("GET", "/api/v1/site/mod-inventory/client"):
@@ -315,6 +317,43 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         ])
     }
 
+    private func siteMergedModInventory() throws -> HTTPResponse {
+        let current = try CurrentReleaseValidator.decode(readCurrentReleaseData())
+        let supportedVersions = supportedMinecraftVersionsForInventory(current: current)
+        let serverRows = try siteModInventoryRows(
+            scriptID: "serverModsData",
+            scope: "server",
+            current: current,
+            supportedVersions: supportedVersions
+        )
+        let clientRows = try siteModInventoryRows(
+            scriptID: "clientModsData",
+            scope: "client",
+            current: current,
+            supportedVersions: supportedVersions
+        )
+        let rows = Self.mergedModInventoryRows(serverRows: serverRows, clientRows: clientRows)
+        let payload: [String: Any] = [
+            "api_version": "v1",
+            "generated_at": Self.isoNow(),
+            "generated_by": "MCPummelchenModServer-site-inventory",
+            "scope": "mods",
+            "release_id": current.releaseID,
+            "server_key": current.serverKey,
+            "minecraft_version": current.minecraftVersion ?? "",
+            "loader_version": current.loaderVersion ?? "",
+            "status": "live",
+            "supported_versions": supportedVersions,
+            "total_entries": rows.count,
+            "rows": rows
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        return .json(data, headers: [
+            "Cache-Control": "no-store, max-age=0",
+            "X-Pummelchen-Stats-Source": "swift-server-site-inventory"
+        ])
+    }
+
     private func siteModInventoryRows(
         scriptID: String,
         scope: String,
@@ -357,6 +396,139 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             var row = $0
             row.removeValue(forKey: "_has_inventory_evidence")
             return row
+        }
+    }
+
+    private static func mergedModInventoryRows(serverRows: [[String: Any]], clientRows: [[String: Any]]) -> [[String: Any]] {
+        var merged: [String: [String: Any]] = [:]
+        var order: [String] = []
+        var placement: [String: (server: Bool, client: Bool)] = [:]
+        var generatedServerRows = Set<String>()
+
+        func add(_ row: [String: Any], isServer: Bool, isClient: Bool) {
+            let key = modInventoryMergeKey(row)
+            if merged[key] == nil {
+                merged[key] = row
+                order.append(key)
+            } else {
+                merged[key] = mergedModInventoryRow(merged[key] ?? [:], with: row)
+            }
+            let previous = placement[key] ?? (server: false, client: false)
+            placement[key] = (server: previous.server || isServer, client: previous.client || isClient)
+            if isServer, isGeneratedDuckDBInventoryRow(row) {
+                generatedServerRows.insert(key)
+            }
+        }
+
+        serverRows.forEach { add($0, isServer: true, isClient: false) }
+        clientRows.forEach { add($0, isServer: false, isClient: true) }
+
+        return order.compactMap { key in
+            guard var row = merged[key] else { return nil }
+            let flags = placement[key] ?? (server: false, client: false)
+            let serverPlacement = flags.server && !(flags.client && generatedServerRows.contains(key))
+            let placementLabel = modInventoryPlacementLabel(server: serverPlacement, client: flags.client)
+            row["placement"] = placementLabel
+            row["scope"] = placementLabel
+            let existingSearch = row["search"] as? String ?? ""
+            row["search"] = "\(existingSearch) \(placementLabel)"
+            return row
+        }.sorted {
+            String(describing: $0["name"] ?? "").localizedCaseInsensitiveCompare(String(describing: $1["name"] ?? "")) == .orderedAscending
+        }
+    }
+
+    private static func isGeneratedDuckDBInventoryRow(_ row: [String: Any]) -> Bool {
+        if (row["type"] as? String) == "Live DuckDB Source" {
+            return true
+        }
+        return (row["details"] as? String ?? "").contains("generated from DuckDB")
+    }
+
+    private static func modInventoryMergeKey(_ row: [String: Any]) -> String {
+        if let sourceURL = row["sourceUrl"] as? String, !sourceURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "url:\(sourceURL.lowercased())"
+        }
+        if let name = row["name"] as? String, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "name:\(normalizedModInventoryKey(name))"
+        }
+        if let files = row["files"] as? String, !files.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "files:\(normalizedModInventoryKey(files))"
+        }
+        return "row:unknown"
+    }
+
+    private static func mergedModInventoryRow(_ existing: [String: Any], with incoming: [String: Any]) -> [String: Any] {
+        var row = existing
+        for field in ["name", "type", "sourceUrl", "sourceHost"] where (row[field] as? String ?? "").isEmpty {
+            row[field] = incoming[field]
+        }
+        row["files"] = mergedInventoryList(existing["files"] as? String, incoming["files"] as? String)
+        row["versionFile"] = mergedInventoryList(existing["versionFile"] as? String, incoming["versionFile"] as? String)
+        row["installed_version"] = mergedInventoryList(existing["installed_version"] as? String, incoming["installed_version"] as? String)
+        row["compatibility"] = mergedCompatibility(existing["compatibility"] as? [String: String], incoming["compatibility"] as? [String: String])
+
+        let existingDetails = existing["details"] as? String ?? ""
+        let incomingDetails = incoming["details"] as? String ?? ""
+        if existingDetails.isEmpty {
+            row["details"] = incomingDetails
+        } else if !incomingDetails.isEmpty, !existingDetails.contains(incomingDetails) {
+            row["details"] = "\(existingDetails) Also included in the Mac client package when required."
+        }
+
+        let search = [existing["search"] as? String, incoming["search"] as? String]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        if !search.isEmpty {
+            row["search"] = search
+        }
+        return row
+    }
+
+    private static func mergedInventoryList(_ left: String?, _ right: String?) -> String {
+        var seen = Set<String>()
+        var values: [String] = []
+        for value in [left, right].compactMap({ $0 }) {
+            for item in splitInventoryFileList(value) {
+                let key = item.lowercased()
+                if !seen.contains(key) {
+                    seen.insert(key)
+                    values.append(item)
+                }
+            }
+        }
+        return values.joined(separator: ", ")
+    }
+
+    private static func mergedCompatibility(_ left: [String: String]?, _ right: [String: String]?) -> [String: String] {
+        var values = left ?? [:]
+        for (version, status) in right ?? [:] {
+            let existing = values[version] ?? ""
+            if compatibilityRank(status) > compatibilityRank(existing) {
+                values[version] = status
+            }
+        }
+        return values
+    }
+
+    private static func compatibilityRank(_ value: String) -> Int {
+        switch value.lowercased() {
+        case "active": return 6
+        case "staged": return 5
+        case "compatible": return 4
+        case "compatible by file": return 3
+        case "needs test": return 2
+        case "not installed": return 1
+        default: return 0
+        }
+    }
+
+    private static func modInventoryPlacementLabel(server: Bool, client: Bool) -> String {
+        switch (server, client) {
+        case (true, true): return "Server & Client Mod"
+        case (true, false): return "Server Mod"
+        case (false, true): return "Client Mod"
+        default: return "Unknown"
         }
     }
 
