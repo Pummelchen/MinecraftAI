@@ -37,7 +37,25 @@ public enum ClientAppSelfUpdater {
         guard release.dmgURL != nil, release.dmgSHA256 != nil else {
             return false
         }
-        return currentBundleReleaseID != release.releaseID
+        guard let currentBundleReleaseID, currentBundleReleaseID != release.releaseID else {
+            return currentBundleReleaseID == nil
+        }
+        if let currentVersion = releaseSequenceNumber(currentBundleReleaseID),
+           let publishedVersion = releaseSequenceNumber(release.releaseID) {
+            return publishedVersion > currentVersion
+        }
+        return true
+    }
+
+    private static func releaseSequenceNumber(_ releaseID: String) -> Int? {
+        let pattern = #"_V([0-9]+)(?:_|$)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: releaseID, range: NSRange(releaseID.startIndex..., in: releaseID)),
+              match.numberOfRanges >= 2,
+              let range = Range(match.range(at: 1), in: releaseID) else {
+            return nil
+        }
+        return Int(releaseID[range])
     }
 
     public static func currentAppBundleURL() -> URL? {
@@ -65,7 +83,8 @@ public enum ClientAppSelfUpdater {
     }
 
     public static func bundleReleaseID(at appBundle: URL) -> String? {
-        guard let info = NSDictionary(contentsOf: appBundle.appendingPathComponent("Contents/Info.plist")) as? [String: Any] else {
+        guard let data = try? Data(contentsOf: appBundle.appendingPathComponent("Contents/Info.plist")),
+              let info = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
             return nil
         }
         return info["PummelchenReleaseID"] as? String

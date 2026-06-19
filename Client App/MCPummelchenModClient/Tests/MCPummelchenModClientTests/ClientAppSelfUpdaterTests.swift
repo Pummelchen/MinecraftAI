@@ -5,7 +5,7 @@ import Testing
 
 @Suite("Client app self updater")
 struct ClientAppSelfUpdaterTests {
-    @Test("detects when the app bundle release differs from the server release")
+    @Test("detects when the published release is newer than the app bundle release")
     func detectsNeededAppUpdate() throws {
         let release = CurrentRelease(
             releaseID: "release_20260613_V99_self_update",
@@ -27,6 +27,7 @@ struct ClientAppSelfUpdaterTests {
 
         #expect(!ClientAppSelfUpdater.needsUpdate(currentBundleReleaseID: release.releaseID, release: release))
         #expect(ClientAppSelfUpdater.needsUpdate(currentBundleReleaseID: "release_20260613_V98_old", release: release))
+        #expect(!ClientAppSelfUpdater.needsUpdate(currentBundleReleaseID: "release_20260613_V100_prepublication", release: release))
         #expect(ClientAppSelfUpdater.needsUpdate(currentBundleReleaseID: nil, release: release))
 
         let noDMG = CurrentRelease(

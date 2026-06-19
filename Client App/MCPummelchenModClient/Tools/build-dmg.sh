@@ -13,7 +13,7 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 DMG_NAME="MCPummelchenModClient.dmg"
 DMG_PATH="$DMG_DIR/$DMG_NAME"
-VERSION="${PUMMELCHEN_CLIENT_VERSION:-0.8.0}"
+VERSION="${PUMMELCHEN_CLIENT_VERSION:-0.8.1}"
 APP_RELEASE_ID="${PUMMELCHEN_RELEASE_ID:-development}"
 SERVER_URL="${PUMMELCHEN_SERVER_URL:-https://pummelchen.91.99.176.243.nip.io}"
 
@@ -135,7 +135,7 @@ export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-26.0}"
 swift build -c release --product MCPummelchenModClient
 swift build -c release --product pummelchen-client-sync
 
-rm -rf "$STAGE_DIR" "$DMG_PATH" "$DMG_PATH.sha256"
+rm -rf "$STAGE_DIR" "$DMG_PATH" "$DMG_PATH.sha256" "$DMG_PATH.headless-live-soak.json"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 
 install -m 755 "$BUILD_DIR/arm64-apple-macosx/release/MCPummelchenModClient" "$MACOS_DIR/MCPummelchenModClient"
@@ -252,6 +252,9 @@ if [[ -n "${PUMMELCHEN_RELEASE_ID:-}" ]]; then
     )
     if [[ -n "${PUMMELCHEN_HEADLESS_COMMAND:-}" ]]; then
         SOAK_ARGS+=(--headless-command "$PUMMELCHEN_HEADLESS_COMMAND")
+    fi
+    if [[ -n "${PUMMELCHEN_HEADLESS_EXPECTED_INSTALLED_RELEASE_ID:-}" ]]; then
+        SOAK_ARGS+=(--expected-installed-release-id "$PUMMELCHEN_HEADLESS_EXPECTED_INSTALLED_RELEASE_ID")
     fi
     swift run \
         --package-path "$SERVER_PACKAGE_DIR" \

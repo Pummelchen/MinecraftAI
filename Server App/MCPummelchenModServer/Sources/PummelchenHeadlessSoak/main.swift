@@ -19,7 +19,7 @@ enum HeadlessSoakError: Error, CustomStringConvertible {
         case .usage:
             return """
             usage:
-              pummelchen-headless-soak --dmg <path> --release-id <id> --server-address <host:25565> [--headless-command <shell>] [--server-url <url>] [--duration-seconds 300] [--work-dir <dir>] [--report <path>] [--client-api-token <token>] [--suppress-gui true] [--keep-work-dir true]
+              pummelchen-headless-soak --dmg <path> --release-id <id> --server-address <host:25565> [--expected-installed-release-id <id>] [--headless-command <shell>] [--server-url <url>] [--duration-seconds 300] [--work-dir <dir>] [--report <path>] [--client-api-token <token>] [--suppress-gui true] [--keep-work-dir true]
 
             By default this uses HeadlessMC plus HMC-Specifics to start a real Minecraft client from the synced isolated Minecraft directory and stay alive for the soak duration.
             The built-in runner suppresses HeadlessMC GUI probing by default so macOS soak runs do not steal focus or capture the mouse.
@@ -80,6 +80,7 @@ struct Arguments {
 struct HeadlessSoakConfig {
     let dmg: URL
     let releaseID: String
+    let expectedInstalledReleaseID: String
     let serverAddress: String
     let serverURL: URL
     let durationSeconds: Double
@@ -100,6 +101,7 @@ struct HeadlessSoakConfig {
     init(arguments: Arguments) throws {
         let dmg = URL(fileURLWithPath: try arguments.require("--dmg")).standardizedFileURL
         let releaseID = try arguments.require("--release-id")
+        let expectedInstalledReleaseID = arguments.options["--expected-installed-release-id"] ?? releaseID
         let serverAddress = try arguments.require("--server-address")
         let serverURL = URL(string: arguments.options["--server-url"] ?? "https://pummelchen.91.99.176.243.nip.io")
         guard let serverURL else { throw HeadlessSoakError.invalidValue("invalid --server-url") }
@@ -117,6 +119,7 @@ struct HeadlessSoakConfig {
             ?? dmg.deletingLastPathComponent().appendingPathComponent("MCPummelchenModClient.dmg.headless-live-soak.json")
         self.dmg = dmg
         self.releaseID = releaseID
+        self.expectedInstalledReleaseID = expectedInstalledReleaseID
         self.serverAddress = serverAddress
         self.serverURL = serverURL
         self.durationSeconds = durationSeconds
@@ -516,7 +519,7 @@ struct HeadlessSoakRunner {
         record("isolated_minecraft_directory_created", fileManager.fileExists(atPath: minecraftDir.path), minecraftDir.path)
         record("isolated_pummelchen_home_created", fileManager.fileExists(atPath: pummelchenHome.path), pummelchenHome.path)
         record("client_duckdb_created", fileManager.fileExists(atPath: database.path), database.path)
-        record("installed_release_recorded", installedRelease == config.releaseID, installedRelease.isEmpty ? "missing" : installedRelease)
+        record("installed_release_recorded", installedRelease == config.expectedInstalledReleaseID, installedRelease.isEmpty ? "missing" : installedRelease)
         record("manifest_saved", !manifest.entries.isEmpty, "\(manifest.entries.count) entries")
         record("managed_files_verified", verifiedFiles == manifest.entries.count, "\(verifiedFiles)/\(manifest.entries.count)")
 
