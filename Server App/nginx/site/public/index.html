@@ -1097,15 +1097,22 @@
       const versionColumns = supportedVersions.map(version => {
         const minecraftVersion = version.minecraft_version || version.minecraftVersion || '';
         const label = minecraftVersion ? `MC ${minecraftVersion}` : 'MC';
+        const field = `compatibility_${minecraftVersion.replace(/[^a-z0-9]+/gi, '_')}`;
         return {
           title: label,
-          field: `compatibility.${minecraftVersion}`,
+          field,
           minWidth: 120,
           hozAlign: 'center',
           headerTooltip: `${label} compatibility`,
           formatter: cell => {
-            const value = cell.getValue() || 'Live data unavailable';
+            const data = cell.getRow().getData();
+            const value = data.compatibility?.[minecraftVersion] || 'Not installed';
             return `<span class="compat compat-${compatibilityClass(value)}">${escapeHTML(value)}</span>`;
+          },
+          sorter: (a, b, aRow, bRow) => {
+            const aValue = aRow.getData().compatibility?.[minecraftVersion] || '';
+            const bValue = bRow.getData().compatibility?.[minecraftVersion] || '';
+            return aValue.localeCompare(bValue);
           },
         };
       });
