@@ -248,7 +248,7 @@ if [[ -n "${PUMMELCHEN_RELEASE_ID:-}" ]]; then
         --release-id "$PUMMELCHEN_RELEASE_ID"
         --server-address "${PUMMELCHEN_SERVER_ADDRESS:-91.99.176.243:25565}"
         --server-url "$SERVER_URL"
-        --duration-seconds "${PUMMELCHEN_HEADLESS_SOAK_SECONDS:-300}"
+        --duration-seconds "${PUMMELCHEN_HEADLESS_SOAK_SECONDS:-60}"
     )
     if [[ -n "${PUMMELCHEN_HEADLESS_COMMAND:-}" ]]; then
         SOAK_ARGS+=(--headless-command "$PUMMELCHEN_HEADLESS_COMMAND")

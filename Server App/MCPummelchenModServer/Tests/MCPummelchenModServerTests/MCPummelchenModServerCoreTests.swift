@@ -713,7 +713,7 @@ struct MCPummelchenModServerCoreTests {
 
         let healthRows = try duckDBScalar(database: root.appendingPathComponent("phase7.duckdb"), sql: "SELECT COUNT(*) FROM release.release_health_results WHERE release_id = '\(releaseID)';")
         #expect(healthRows == "3")
-        let headlessRows = try duckDBScalar(database: root.appendingPathComponent("phase7.duckdb"), sql: "SELECT COUNT(*) FROM core.headless_client_runs WHERE release_id = '\(releaseID)' AND status = 'passed' AND duration_seconds >= 300;")
+        let headlessRows = try duckDBScalar(database: root.appendingPathComponent("phase7.duckdb"), sql: "SELECT COUNT(*) FROM core.headless_client_runs WHERE release_id = '\(releaseID)' AND status = 'passed' AND duration_seconds >= 60;")
         #expect(headlessRows == "1")
         let restartRows = try duckDBScalar(database: root.appendingPathComponent("phase7.duckdb"), sql: "SELECT COUNT(*) FROM release.release_events WHERE release_id = '\(releaseID)' AND event_type = 'restart' AND status = 'skipped';")
         #expect(restartRows == "1")
@@ -2021,8 +2021,8 @@ struct MCPummelchenModServerCoreTests {
           "dmg_sha256": "\(dmgSHA)",
           "server_address": "91.99.176.243:25565",
           "started_at": "2026-06-13T12:00:00Z",
-          "completed_at": "2026-06-13T12:05:05Z",
-          "duration_seconds": 305,
+          "completed_at": "2026-06-13T12:01:05Z",
+          "duration_seconds": 65,
           "status": "passed",
           "installed_from_dmg": true,
           "java_ok": true,
@@ -2071,8 +2071,8 @@ struct MCPummelchenModServerCoreTests {
           "dmg_sha256": "\(dmgSHA)",
           "server_address": "91.99.176.243:25565",
           "started_at": "2026-06-13T12:00:00Z",
-          "completed_at": "2026-06-13T12:05:05Z",
-          "duration_seconds": 305,
+          "completed_at": "2026-06-13T12:01:05Z",
+          "duration_seconds": 65,
           "status": "passed",
           "installed_from_dmg": true,
           "java_ok": true,

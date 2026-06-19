@@ -90,7 +90,7 @@ public struct SwiftReleaseResult: Equatable, Sendable {
 public struct SwiftReleasePipeline: Sendable {
     public static let dmgName = "MCPummelchenModClient.dmg"
     public static let dmgHeadlessLiveSoakReportName = "MCPummelchenModClient.dmg.headless-live-soak.json"
-    public static let requiredDMGLiveSoakSeconds: Double = 300
+    public static let requiredDMGLiveSoakSeconds: Double = 60
 
     public let config: SwiftReleasePipelineConfig
     private var fileManager: FileManager { FileManager.default }

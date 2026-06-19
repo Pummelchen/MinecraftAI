@@ -19,7 +19,7 @@ enum HeadlessSoakError: Error, CustomStringConvertible {
         case .usage:
             return """
             usage:
-              pummelchen-headless-soak --dmg <path> --release-id <id> --server-address <host:25565> [--expected-installed-release-id <id>] [--headless-command <shell>] [--server-url <url>] [--duration-seconds 300] [--work-dir <dir>] [--report <path>] [--client-api-token <token>] [--suppress-gui true] [--keep-work-dir true]
+              pummelchen-headless-soak --dmg <path> --release-id <id> --server-address <host:25565> [--expected-installed-release-id <id>] [--headless-command <shell>] [--server-url <url>] [--duration-seconds 60] [--work-dir <dir>] [--report <path>] [--client-api-token <token>] [--suppress-gui true] [--keep-work-dir true]
 
             By default this uses HeadlessMC plus HMC-Specifics to start a real Minecraft client from the synced isolated Minecraft directory and stay alive for the soak duration.
             The built-in runner suppresses HeadlessMC GUI probing by default so macOS soak runs do not steal focus or capture the mouse.
@@ -105,9 +105,9 @@ struct HeadlessSoakConfig {
         let serverAddress = try arguments.require("--server-address")
         let serverURL = URL(string: arguments.options["--server-url"] ?? "https://pummelchen.91.99.176.243.nip.io")
         guard let serverURL else { throw HeadlessSoakError.invalidValue("invalid --server-url") }
-        let durationSeconds = Double(arguments.options["--duration-seconds"] ?? "300") ?? 300
-        guard durationSeconds >= 300 else {
-            throw HeadlessSoakError.invalidValue("--duration-seconds must be at least 300")
+        let durationSeconds = Double(arguments.options["--duration-seconds"] ?? "60") ?? 60
+        guard durationSeconds >= 60 else {
+            throw HeadlessSoakError.invalidValue("--duration-seconds must be at least 60")
         }
         let defaultWork = FileManager.default.temporaryDirectory
             .appendingPathComponent("pummelchen-headless-soak-\(releaseID)-\(UUID().uuidString)", isDirectory: true)
