@@ -138,15 +138,6 @@ CREATE TABLE IF NOT EXISTS release.release_health_results (
   details VARCHAR
 );
 
-CREATE TABLE IF NOT EXISTS release.tested_updates_feed (
-  update_id VARCHAR PRIMARY KEY,
-  release_id VARCHAR,
-  tested_at TIMESTAMP,
-  title VARCHAR,
-  status VARCHAR,
-  details VARCHAR
-);
-
 CREATE TABLE IF NOT EXISTS world.reset_jobs (
   job_id VARCHAR PRIMARY KEY,
   requested_at TIMESTAMP NOT NULL,
@@ -202,8 +193,5 @@ CREATE INDEX IF NOT EXISTS idx_release_events_release_time
   ON release.release_events(release_id, event_at);
 CREATE INDEX IF NOT EXISTS idx_release_health_release_time
   ON release.release_health_results(release_id, checked_at);
-CREATE INDEX IF NOT EXISTS idx_release_tested_updates_time
-  ON release.tested_updates_feed(tested_at);
-
 CREATE INDEX IF NOT EXISTS idx_world_reset_status_time
   ON world.reset_jobs(status, requested_at);

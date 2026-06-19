@@ -193,7 +193,7 @@ CREATE TABLE IF NOT EXISTS audit.parquet_exports (
     sha256 VARCHAR
 );
 
-CREATE OR REPLACE VIEW reporting.v_tested_updates_table AS
+CREATE OR REPLACE VIEW reporting.v_legacy_update_events_table AS
 WITH candidates AS (
     SELECT
         u.tested_at,

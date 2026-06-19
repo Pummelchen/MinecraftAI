@@ -138,21 +138,16 @@ struct MCPummelchenModServerCoreTests {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
         let api = makeAPI(fixture: fixture)
-        let testedUpdates = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/tested-updates"))
         let updateActivity = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/update-activity"))
         let neoForgeVersion = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/neoforge-version"))
 
-        #expect(testedUpdates.statusCode == 200)
         #expect(updateActivity.statusCode == 200)
         #expect(neoForgeVersion.statusCode == 200)
-        #expect(testedUpdates.headers["Cache-Control"] == "no-store, max-age=0")
         #expect(updateActivity.headers["Cache-Control"] == "no-store, max-age=0")
         #expect(neoForgeVersion.headers["Cache-Control"] == "no-store, max-age=0")
 
-        let testedObject = try JSONSerialization.jsonObject(with: testedUpdates.body) as? [String: Any]
         let activityObject = try JSONSerialization.jsonObject(with: updateActivity.body) as? [String: Any]
         let neoForgeObject = try JSONSerialization.jsonObject(with: neoForgeVersion.body) as? [String: Any]
-        #expect((testedObject?["updates"] as? [[String: Any]])?.count == 1)
         #expect((activityObject?["entries"] as? [[String: Any]])?.count == 1)
         #expect(neoForgeObject?["official_url"] as? String == "https://neoforged.net/")
         #expect(neoForgeObject?["latest_neoforge_version"] as? String == "26.1.2.76")
@@ -177,7 +172,7 @@ struct MCPummelchenModServerCoreTests {
             maxURLsPerWindow: 5,
             windowSeconds: 0,
             limit: 0,
-            seedFromTestedUpdates: true
+            seedFromProjectData: true
         )).run()
         #expect(summary.seededSources == 1)
         try DuckDBDatabase(databaseURL: database).execute("""
@@ -313,7 +308,7 @@ struct MCPummelchenModServerCoreTests {
         #expect(serverCompatibility["26.1.2"] == "Active")
         #expect(serverCompatibility["26.2"] == "Staged")
         #expect(serverRows.first?["files"] as? String == "server-26.1.2.jar")
-        #expect(serverRows.allSatisfy { ($0["type"] as? String) != "Live DuckDB Source" })
+        #expect(serverRows.allSatisfy { (($0["type"] as? String) ?? "").localizedCaseInsensitiveContains("source") == false })
         #expect(clientObject?["scope"] as? String == "client")
         #expect(clientRows.first?["name"] as? String == "Fixture Client Mod")
         #expect(clientRows.first?["sourceUrl"] as? String == "https://fixture.local/client")
@@ -410,8 +405,8 @@ struct MCPummelchenModServerCoreTests {
         #expect(versions.last?["client_mod_count"] as? Int == 0)
     }
 
-    @Test("tested updates feed includes live DuckDB releases")
-    func testedUpdatesFeedIncludesLiveDuckDBReleases() throws {
+    @Test("release history API includes live DuckDB releases")
+    func releaseHistoryAPIIncludesLiveDuckDBReleases() throws {
         try requireDuckDB()
         let fixture = try makeProjectFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -458,7 +453,7 @@ struct MCPummelchenModServerCoreTests {
         """)
 
         let api = makeAPI(fixture: fixture)
-        let response = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/tested-updates"))
+        let response = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/release-history"))
         let object = try JSONSerialization.jsonObject(with: response.body) as? [String: Any]
         let updates = try #require(object?["updates"] as? [[String: Any]])
 
@@ -659,7 +654,6 @@ struct MCPummelchenModServerCoreTests {
         let syncHelper = clientPackage.appendingPathComponent("tools/pummelchen-client-sync")
         try "#!/bin/sh\nexit 0\n".write(to: syncHelper, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: syncHelper.path)
-        try #"{"generated_by":"swift-duckdb-site","rows":[{"title":"Existing tested update"}]}"#.write(to: root.appendingPathComponent("site/public/data/tested-updates.json"), atomically: true, encoding: .utf8)
         try "server mod".write(to: serverDir.appendingPathComponent("mods/example-server.jar"), atomically: true, encoding: .utf8)
         try "datapack".write(to: serverDir.appendingPathComponent("server-datapacks/pummelchen-welcome.zip"), atomically: true, encoding: .utf8)
 
@@ -697,12 +691,8 @@ struct MCPummelchenModServerCoreTests {
         #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(SwiftReleasePipeline.dmgName).path)) == "releases/\(releaseID)/\(SwiftReleasePipeline.dmgName)")
         #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(liveClientZipName).path)) == "releases/\(releaseID)/\(liveClientZipName)")
         #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName).path)) == "releases/\(releaseID)/\(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName)")
-        #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/data/tested-updates.json").path))
-        let testedUpdates = try String(contentsOf: publicDownloads.appendingPathComponent("releases/\(releaseID)/data/tested-updates.json"), encoding: .utf8)
-        #expect(testedUpdates.contains("pummelchen-swift-release-pipeline"))
-        #expect(testedUpdates.contains("Release promoted: \(releaseID)"))
-        let siteTestedUpdates = try String(contentsOf: root.appendingPathComponent("site/public/tested-updates.json"), encoding: .utf8)
-        #expect(siteTestedUpdates.contains("Release promoted: \(releaseID)"))
+        #expect(!FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/data/tested-updates.json").path))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("site/public/tested-updates.json").path))
         let publicManifest = try String(contentsOf: publicDownloads.appendingPathComponent("releases/\(releaseID)/client-sync-manifest.tsv"), encoding: .utf8)
         let manifest = try ClientSyncManifestParser.parse(publicManifest)
         #expect(manifest.entries.contains { $0.section == "shaderpacks" && $0.name == "BSL_v10.1.3.zip.txt" })
@@ -772,6 +762,94 @@ struct MCPummelchenModServerCoreTests {
         } catch SwiftReleasePipelineError.missingRequiredPath(let path) {
             #expect(path.hasSuffix(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName))
         }
+    }
+
+    @Test("phase 7 prunes old release storage after activation")
+    func phase7PrunesOldReleaseStorageAfterActivation() throws {
+        try requireDuckDB()
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-phase7-retention-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let serverDir = root.appendingPathComponent("server", isDirectory: true)
+        let releaseRoot = root.appendingPathComponent("releases", isDirectory: true)
+        let publicDownloads = root.appendingPathComponent("site/downloads", isDirectory: true)
+        let clientPackage = serverDir.appendingPathComponent("client-package", isDirectory: true)
+        try FileManager.default.createDirectory(at: clientPackage.appendingPathComponent("mods"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: serverDir.appendingPathComponent("mods"), withIntermediateDirectories: true)
+        try "client mod".write(to: clientPackage.appendingPathComponent("mods/example-client.jar"), atomically: true, encoding: .utf8)
+        try "server mod".write(to: serverDir.appendingPathComponent("mods/example-server.jar"), atomically: true, encoding: .utf8)
+        try writeArtifact(name: SwiftReleasePipeline.clientZipName(minecraftVersion: "26.1.2"), content: "zip", serverDir: serverDir)
+        try writeArtifact(name: SwiftReleasePipeline.mrpackName(minecraftVersion: "26.1.2"), content: "mrpack", serverDir: serverDir)
+
+        let database = root.appendingPathComponent("phase7-retention.duckdb")
+        try DuckDBDatabase(databaseURL: database).execute("""
+        CREATE SCHEMA IF NOT EXISTS release;
+        CREATE TABLE release.pack_releases (
+          release_id VARCHAR PRIMARY KEY,
+          created_at TIMESTAMP NOT NULL,
+          activated_at TIMESTAMP,
+          server_key VARCHAR NOT NULL,
+          minecraft_version VARCHAR,
+          loader_version VARCHAR,
+          server_dir VARCHAR NOT NULL,
+          release_dir VARCHAR NOT NULL,
+          status VARCHAR NOT NULL,
+          active BOOLEAN NOT NULL DEFAULT false,
+          previous_release_id VARCHAR,
+          git_commit VARCHAR,
+          server_manifest_sha256 VARCHAR,
+          client_manifest_sha256 VARCHAR,
+          db_snapshot_sha256 VARCHAR,
+          client_zip_sha256 VARCHAR,
+          mrpack_sha256 VARCHAR,
+          dmg_sha256 VARCHAR,
+          changelog_path VARCHAR,
+          notes VARCHAR
+        );
+        """)
+        for index in 1...3 {
+            let releaseID = "release_20260610_V\(index)_old_retention"
+            try FileManager.default.createDirectory(at: releaseRoot.appendingPathComponent(releaseID), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: publicDownloads.appendingPathComponent("releases/\(releaseID)"), withIntermediateDirectories: true)
+            try DuckDBDatabase(databaseURL: database).execute("""
+            INSERT INTO release.pack_releases(
+              release_id, created_at, activated_at, server_key, minecraft_version, loader_version, server_dir, release_dir, status, active
+            )
+            VALUES (
+              '\(releaseID)',
+              TIMESTAMP '2026-06-10 00:0\(index):00',
+              TIMESTAMP '2026-06-10 00:0\(index):30',
+              'minecraft_26_1_2',
+              '26.1.2',
+              '26.1.2.76',
+              '\(serverDir.path)',
+              '\(releaseRoot.appendingPathComponent(releaseID).path)',
+              'active',
+              false
+            );
+            """)
+        }
+
+        let releaseID = "release_20260613_V79_retention_test"
+        let pipeline = SwiftReleasePipeline(config: SwiftReleasePipelineConfig(
+            projectRoot: root,
+            serverDir: serverDir,
+            releaseRoot: releaseRoot,
+            publicDownloads: publicDownloads,
+            databaseURL: database,
+            releaseID: releaseID,
+            activate: true,
+            buildClientZipIfMissing: false,
+            releaseRetentionPerServer: 2
+        ))
+
+        _ = try pipeline.createRelease()
+
+        #expect(FileManager.default.fileExists(atPath: releaseRoot.appendingPathComponent(releaseID).path))
+        #expect(FileManager.default.fileExists(atPath: releaseRoot.appendingPathComponent("release_20260610_V3_old_retention").path))
+        #expect(!FileManager.default.fileExists(atPath: releaseRoot.appendingPathComponent("release_20260610_V1_old_retention").path))
+        #expect(!FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/release_20260610_V1_old_retention").path))
     }
 
     @Test("phase 7 staging releases use version scoped pack artifacts")
@@ -911,8 +989,6 @@ struct MCPummelchenModServerCoreTests {
         let serverDir = root.appendingPathComponent("server", isDirectory: true)
         try FileManager.default.createDirectory(at: serverDir.appendingPathComponent("client-package/mods"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: serverDir.appendingPathComponent("mods"), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("site/public/data"), withIntermediateDirectories: true)
-        try #"{"updates":[]}"#.write(to: root.appendingPathComponent("site/public/data/tested-updates.json"), atomically: true, encoding: .utf8)
         let artifact = try writeNeoForgeJar(
             root: root,
             fileName: "pummelchen-release-example-2.0.0.jar",
@@ -1042,9 +1118,6 @@ struct MCPummelchenModServerCoreTests {
         let serverDir = root.appendingPathComponent("server", isDirectory: true)
         try FileManager.default.createDirectory(at: serverDir.appendingPathComponent("mods"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: serverDir.appendingPathComponent("client-package/mods"), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("site/public/data"), withIntermediateDirectories: true)
-        try #"{"updates":[]}"#.write(to: root.appendingPathComponent("site/public/data/tested-updates.json"), atomically: true, encoding: .utf8)
-
         let oldJar = try writeNeoForgeJar(root: root, fileName: "example-mod-1.0.0.jar", displayName: "Example Mod", version: "1.0.0", side: "BOTH")
         try FileManager.default.copyItem(at: oldJar, to: serverDir.appendingPathComponent("mods/example-mod-1.0.0.jar"))
         try FileManager.default.copyItem(at: oldJar, to: serverDir.appendingPathComponent("client-package/mods/example-mod-1.0.0.jar"))
@@ -1305,23 +1378,19 @@ struct MCPummelchenModServerCoreTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root.appendingPathComponent("site/public"), withIntermediateDirectories: true)
         try """
-        {
-          "updates": [
-            {
-              "title": "BetterF3",
-              "new_file": "BetterF3-18.0.2-NeoForge-26.1.jar",
-              "version": "18.0.2",
-              "source_url": "https://modrinth.com/mod/betterf3"
-            },
-            {
-              "title": "BetterF3",
-              "new_file": "BetterF3-18.0.2-NeoForge-26.1.jar",
-              "version": "18.0.2",
-              "source_url": "https://www.curseforge.com/minecraft/mc-mods/betterf3"
-            }
-          ]
-        }
-        """.write(to: root.appendingPathComponent("site/public/tested-updates.json"), atomically: true, encoding: .utf8)
+        <script type="application/json" id="serverModsData">[
+          {
+            "name": "BetterF3",
+            "files": "BetterF3-18.0.2-NeoForge-26.1.jar",
+            "sourceUrl": "https://modrinth.com/mod/betterf3"
+          },
+          {
+            "name": "BetterF3",
+            "files": "BetterF3-18.0.2-NeoForge-26.1.jar",
+            "sourceUrl": "https://www.curseforge.com/minecraft/mc-mods/betterf3"
+          }
+        ]</script>
+        """.write(to: root.appendingPathComponent("site/public/index.html"), atomically: true, encoding: .utf8)
 
         let database = root.appendingPathComponent("scanner.duckdb")
         let scanner = ModUpdateScanner(config: ModUpdateScannerConfig(
@@ -1330,7 +1399,7 @@ struct MCPummelchenModServerCoreTests {
             maxURLsPerWindow: 5,
             windowSeconds: 0,
             limit: 0,
-            seedFromTestedUpdates: true
+            seedFromProjectData: true
         ))
         let summary = try scanner.run()
 
@@ -1349,17 +1418,14 @@ struct MCPummelchenModServerCoreTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root.appendingPathComponent("site/public"), withIntermediateDirectories: true)
         try """
-        {
-          "updates": [
-            {
-              "title": "BetterF3",
-              "new_file": "BetterF3-18.0.2-NeoForge-26.1.jar",
-              "version": "18.0.2",
-              "source_url": "https://modrinth.com/mod/betterf3"
-            }
-          ]
-        }
-        """.write(to: root.appendingPathComponent("site/public/tested-updates.json"), atomically: true, encoding: .utf8)
+        <script type="application/json" id="serverModsData">[
+          {
+            "name": "BetterF3",
+            "files": "BetterF3-18.0.2-NeoForge-26.1.jar",
+            "sourceUrl": "https://modrinth.com/mod/betterf3"
+          }
+        ]</script>
+        """.write(to: root.appendingPathComponent("site/public/index.html"), atomically: true, encoding: .utf8)
 
         let database = root.appendingPathComponent("scanner.duckdb")
         _ = try ModUpdateScanner(config: ModUpdateScannerConfig(
@@ -1369,7 +1435,7 @@ struct MCPummelchenModServerCoreTests {
             loaderVersion: "26.1.2.76",
             windowSeconds: 0,
             limit: 0,
-            seedFromTestedUpdates: true
+            seedFromProjectData: true
         )).run()
         _ = try ModUpdateScanner(config: ModUpdateScannerConfig(
             projectRoot: root,
@@ -1378,7 +1444,7 @@ struct MCPummelchenModServerCoreTests {
             loaderVersion: "26.2.0.3-beta",
             windowSeconds: 0,
             limit: 0,
-            seedFromTestedUpdates: true
+            seedFromProjectData: true
         )).run()
 
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources;") == "2")
@@ -1395,17 +1461,14 @@ struct MCPummelchenModServerCoreTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root.appendingPathComponent("Server App/nginx/site/public"), withIntermediateDirectories: true)
         try """
-        {
-          "updates": [
-            {
-              "title": "Advanced Chimneys",
-              "new_file": "adchimneys-26.1.0.0.jar\\nother-unrelated-mod-1.0.0.jar",
-              "version": "26.1.0.0",
-              "source_url": "https://www.curseforge.com/minecraft/mc-mods/advanced-chimneys"
-            }
-          ]
-        }
-        """.write(to: root.appendingPathComponent("Server App/nginx/site/public/tested-updates.json"), atomically: true, encoding: .utf8)
+        <script type="application/json" id="serverModsData">[
+          {
+            "name": "Advanced Chimneys",
+            "files": "adchimneys-26.1.0.0.jar\\nother-unrelated-mod-1.0.0.jar",
+            "sourceUrl": "https://www.curseforge.com/minecraft/mc-mods/advanced-chimneys"
+          }
+        ]</script>
+        """.write(to: root.appendingPathComponent("Server App/nginx/site/public/index.html"), atomically: true, encoding: .utf8)
 
         let database = root.appendingPathComponent("scanner.duckdb")
         let scanner = ModUpdateScanner(config: ModUpdateScannerConfig(
@@ -1413,7 +1476,7 @@ struct MCPummelchenModServerCoreTests {
             databaseURL: database,
             windowSeconds: 0,
             limit: 0,
-            seedFromTestedUpdates: true
+            seedFromProjectData: true
         ))
         let summary = try scanner.run()
 
@@ -1818,30 +1881,6 @@ struct MCPummelchenModServerCoreTests {
         try current.write(to: downloads.appendingPathComponent("current-release.json"), atomically: true, encoding: .utf8)
         try manifest.write(to: releaseDir.appendingPathComponent("client-sync-manifest.tsv"), atomically: true, encoding: .utf8)
         try Data().write(to: downloads.appendingPathComponent("MCPummelchenModClient.dmg"))
-        try """
-        {
-          "generated_at": "2026-06-12T17:04:13+00:00",
-          "total_entries": 1,
-          "cutoff_days": 7,
-          "updates": [
-            {
-              "id": "fixture",
-              "source": "pack_releases",
-              "title": "Fixture Update",
-              "event_type": "release_promotion",
-              "status": "active",
-              "tested_at": "2026-06-12T17:04:13+00:00",
-              "tested_at_display": "2026-06-12 17:04 UTC",
-              "old_file": null,
-              "new_file": "fixture.jar",
-              "source_url": "/downloads/releases/release_20260612_V6_modernarch-refresh/report.html",
-              "test_label": "fixture_test",
-              "notes": "Fixture notes",
-              "mod_id": null
-            }
-          ]
-        }
-        """.write(to: root.appendingPathComponent("site/public/tested-updates.json"), atomically: true, encoding: .utf8)
         try """
         {
           "updated_at": "2026-06-12T17:04:13+00:00",

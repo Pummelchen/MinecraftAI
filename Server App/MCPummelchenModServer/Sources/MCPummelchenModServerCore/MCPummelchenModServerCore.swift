@@ -165,8 +165,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 return try siteModInventory(scope: "client")
             case ("GET", "/api/v1/site/failed-mods"):
                 return try siteFailedMods()
-            case ("GET", "/api/v1/site/tested-updates"):
-                return try siteTestedUpdates()
+            case ("GET", "/api/v1/site/release-history"):
+                return try siteReleaseHistory()
             case ("GET", "/api/v1/site/update-activity"):
                 return try siteJSON(named: "update-activity.json")
             case ("GET", "/api/v1/site/neoforge-version"):
@@ -294,7 +294,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         }
 
         let current = try CurrentReleaseValidator.decode(readCurrentReleaseData())
-        let supportedVersions = supportedMinecraftVersionsForInventory(current: current)
+        let supportedVersions = try supportedMinecraftVersionsForInventory()
         let rows = try siteModInventoryRows(scriptID: scriptID, scope: scope, current: current, supportedVersions: supportedVersions)
         let payload: [String: Any] = [
             "api_version": "v1",
@@ -319,7 +319,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
 
     private func siteMergedModInventory() throws -> HTTPResponse {
         let current = try CurrentReleaseValidator.decode(readCurrentReleaseData())
-        let supportedVersions = supportedMinecraftVersionsForInventory(current: current)
+        let supportedVersions = try supportedMinecraftVersionsForInventory()
         let serverRows = try siteModInventoryRows(
             scriptID: "serverModsData",
             scope: "server",
@@ -360,8 +360,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         current: CurrentRelease,
         supportedVersions: [[String: Any]]
     ) throws -> [[String: Any]] {
-        let liveModSources = liveModSourceInventory(minecraftVersion: current.minecraftVersion ?? "")
-        let versionedModSources = versionedModSourceInventory(supportedVersions: supportedVersions)
+        let liveModSources = try liveModSourceInventory(minecraftVersion: current.minecraftVersion ?? "")
+        let versionedModSources = try versionedModSourceInventory(supportedVersions: supportedVersions)
         let currentManifestFiles = currentReleaseManifestFileRoles(current: current, scope: scope)
         var rows = try readEmbeddedJSONRows(scriptID: scriptID).map {
             annotatedModInventoryRow(
@@ -439,9 +439,6 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     }
 
     private static func isGeneratedDuckDBInventoryRow(_ row: [String: Any]) -> Bool {
-        if (row["type"] as? String) == "Live DuckDB Source" {
-            return true
-        }
         return (row["details"] as? String ?? "").contains("generated from DuckDB")
     }
 
@@ -533,7 +530,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     }
 
     private func siteFailedMods() throws -> HTTPResponse {
-        let csv = try? DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+        let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
         SELECT
           COALESCE(CAST(failed_at AS VARCHAR), '') AS failed_at,
           title,
@@ -554,8 +551,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         WHERE lower(active_status) IN ('failed', 'banned by admin')
         ORDER BY failed_at DESC NULLS LAST, title ASC;
         """)
-        let dbRows = csv.map(Self.parseCSV) ?? []
-        var rows = dbRows.map { row -> [String: Any] in
+        let rows = Self.parseCSV(csv).map { row -> [String: Any] in
             let failedAtRaw = row["failed_at"] ?? ""
             let lastCheckedRaw = row["last_checked_at"] ?? ""
             let failedAt = failedAtRaw.isEmpty ? "" : Self.isoTimestamp(fromDuckDB: failedAtRaw)
@@ -593,9 +589,6 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 "search": search.lowercased()
             ]
         }
-        if rows.isEmpty {
-            rows = try staticFailedModRows()
-        }
         let payload: [String: Any] = [
             "api_version": "v1",
             "generated_at": Self.isoNow(),
@@ -610,36 +603,27 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         ])
     }
 
-    private func supportedMinecraftVersionsForInventory(current: CurrentRelease) -> [[String: Any]] {
-        if let csv = try? DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+    private func supportedMinecraftVersionsForInventory() throws -> [[String: Any]] {
+        let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
         SELECT minecraft_version, loader_version, status, is_live, sort_order
         FROM reporting.v_minecraft_server_versions
         WHERE lower(status) IN ('live', 'staging')
         ORDER BY sort_order, minecraft_version;
-        """) {
-            let rows = Self.parseCSV(csv).compactMap { row -> [String: Any]? in
-                guard let version = row["minecraft_version"], !version.isEmpty else {
-                    return nil
-                }
-                return [
-                    "minecraft_version": version,
-                    "loader_version": row["loader_version"] ?? "",
-                    "status": row["status"] ?? "",
-                    "is_live": Self.duckBool(row["is_live"] ?? ""),
-                    "sort_order": Int(row["sort_order"] ?? "") ?? 100
-                ]
+        """)
+        let rows = Self.parseCSV(csv).compactMap { row -> [String: Any]? in
+            guard let version = row["minecraft_version"], !version.isEmpty else {
+                return nil
             }
-            if !rows.isEmpty {
-                return rows
-            }
+            return [
+                "minecraft_version": version,
+                "loader_version": row["loader_version"] ?? "",
+                "status": row["status"] ?? "",
+                "is_live": Self.duckBool(row["is_live"] ?? ""),
+                "sort_order": Int(row["sort_order"] ?? "") ?? 100
+            ]
         }
-        return [[
-            "minecraft_version": current.minecraftVersion ?? "",
-            "loader_version": current.loaderVersion ?? "",
-            "status": "live",
-            "is_live": true,
-            "sort_order": 10
-        ]]
+        try ContractValidation.require(!rows.isEmpty, "DuckDB supported Minecraft versions view returned no live/staging rows")
+        return rows
     }
 
     private func annotatedModInventoryRow(
@@ -754,13 +738,13 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         return false
     }
 
-    private func versionedModSourceInventory(supportedVersions: [[String: Any]]) -> [String: [String: LiveModSourceInventory]] {
+    private func versionedModSourceInventory(supportedVersions: [[String: Any]]) throws -> [String: [String: LiveModSourceInventory]] {
         let versions = supportedVersions.compactMap { $0["minecraft_version"] as? String }.filter { !$0.isEmpty }
         guard !versions.isEmpty else {
             return [:]
         }
         let versionList = versions.map(Self.sqlLiteral).joined(separator: ", ")
-        guard let csv = try? DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+        let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
               SELECT
                 lower(source_url) AS source_url_key,
                 source_url,
@@ -774,9 +758,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 AND minecraft_version IN (\(versionList))
                 AND COALESCE(installed_file, '') <> ''
               GROUP BY 1, 2, 3, 4, 5;
-              """) else {
-            return [:]
-        }
+              """)
 
         var values: [String: [String: LiveModSourceInventory]] = [:]
         for row in Self.parseCSV(csv) {
@@ -805,9 +787,11 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         return values
     }
 
-    private func liveModSourceInventory(minecraftVersion: String) -> [String: LiveModSourceInventory] {
-        guard !minecraftVersion.isEmpty,
-              let csv = try? DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+    private func liveModSourceInventory(minecraftVersion: String) throws -> [String: LiveModSourceInventory] {
+        guard !minecraftVersion.isEmpty else {
+            return [:]
+        }
+        let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
               SELECT
                 lower(source_url) AS source_url_key,
                 source_url,
@@ -820,9 +804,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 AND minecraft_version = \(Self.sqlLiteral(minecraftVersion))
                 AND COALESCE(installed_file, '') <> ''
               GROUP BY 1, 2, 3, 4;
-              """) else {
-            return [:]
-        }
+              """)
         var values: [String: LiveModSourceInventory] = [:]
         for row in Self.parseCSV(csv) {
             let inventory = LiveModSourceInventory(
@@ -1107,56 +1089,6 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         return rows
     }
 
-    private func staticFailedModRows() throws -> [[String: Any]] {
-        let failedModsURL = config.projectRoot.appendingPathComponent("site/public/failed-mods.html")
-        let html = try String(contentsOf: try safeProjectFile(failedModsURL), encoding: .utf8)
-        let pattern = #"<tr>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*</tr>"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) else {
-            return []
-        }
-        let nsRange = NSRange(html.startIndex..<html.endIndex, in: html)
-        return regex.matches(in: html, range: nsRange).compactMap { match in
-            guard match.numberOfRanges >= 5,
-                  let timestampRange = Range(match.range(at: 1), in: html),
-                  let modRange = Range(match.range(at: 2), in: html),
-                  let reasonRange = Range(match.range(at: 3), in: html),
-                  let detailsRange = Range(match.range(at: 4), in: html) else {
-                return nil
-            }
-            let modHTML = String(html[modRange])
-            let title = Self.htmlText(modHTML)
-            guard !title.isEmpty else { return nil }
-            let sourceURL = Self.firstMatch(pattern: #"href="([^"]+)""#, in: modHTML)?.replacingOccurrences(of: "&amp;", with: "&") ?? ""
-            let details = Self.htmlText(String(html[detailsRange]))
-            let failedAt = Self.isoTimestamp(fromDuckDB: Self.htmlText(String(html[timestampRange])))
-            let search = [
-                title,
-                sourceURL,
-                Self.htmlText(String(html[reasonRange])),
-                details
-            ].joined(separator: " ")
-            return [
-                "failed_at": failedAt,
-                "failed_at_display": Self.displayTimestamp(fromISO: failedAt),
-                "title": title,
-                "source_url": sourceURL,
-                "filename": "",
-                "version": "",
-                "failure_reason": Self.htmlText(String(html[reasonRange])),
-                "details": details,
-                "latest_status": "not_checked",
-                "latest_version": "",
-                "latest_url": "",
-                "last_check_details": "waiting for the next daily mod update scan",
-                "last_checked_at": "",
-                "last_checked_at_display": "",
-                "minecraft_version": "",
-                "loader_version": "",
-                "search": search.lowercased()
-            ]
-        }
-    }
-
     private func minecraftServerVersions() throws -> HTTPResponse {
         let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
         SELECT
@@ -1192,8 +1124,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             ]
         }
         if let current = try? CurrentReleaseValidator.decode(readCurrentReleaseData()) {
-            let serverRows = (try? siteModInventoryRows(scriptID: "serverModsData", scope: "server", current: current, supportedVersions: versions)) ?? []
-            let clientRows = (try? siteModInventoryRows(scriptID: "clientModsData", scope: "client", current: current, supportedVersions: versions)) ?? []
+            let serverRows = try siteModInventoryRows(scriptID: "serverModsData", scope: "server", current: current, supportedVersions: versions)
+            let clientRows = try siteModInventoryRows(scriptID: "clientModsData", scope: "client", current: current, supportedVersions: versions)
             let serverModCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: serverRows)
             let clientModCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: clientRows)
             versions = versions.map { version in
@@ -1233,30 +1165,17 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         return counts
     }
 
-    private func siteTestedUpdates() throws -> HTTPResponse {
-        let fallbackURL = config.projectRoot.appendingPathComponent("site/public/tested-updates.json")
-        var object = (try? Data(contentsOf: fallbackURL))
-            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
-        var updates = object["updates"] as? [[String: Any]] ?? []
-
-        if let releaseUpdates = try? latestReleaseUpdatesFromDuckDB() {
-            var seen = Set(updates.compactMap { $0["id"] as? String })
-            for update in releaseUpdates where !seen.contains(update.id) {
-                updates.append(update.jsonObject)
-                seen.insert(update.id)
-            }
-        }
-
-        updates.sort {
-            let left = ($0["tested_at"] as? String) ?? ""
-            let right = ($1["tested_at"] as? String) ?? ""
-            return left > right
-        }
-        object["generated_at"] = Self.isoNow()
-        object["generated_by"] = "MCPummelchenModServer-duckdb-live"
-        object["cutoff_days"] = object["cutoff_days"] ?? 30
-        object["total_entries"] = updates.count
-        object["updates"] = updates
+    private func siteReleaseHistory() throws -> HTTPResponse {
+        let updates = try latestReleaseUpdatesFromDuckDB().map(\.jsonObject)
+        let object: [String: Any] = [
+            "api_version": "v1",
+            "generated_at": Self.isoNow(),
+            "generated_by": "MCPummelchenModServer-duckdb-live",
+            "source": "duckdb.release.pack_releases",
+            "cutoff_days": 30,
+            "total_entries": updates.count,
+            "updates": updates
+        ]
         let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
         return .json(data, headers: [
             "Cache-Control": "no-store, max-age=0",

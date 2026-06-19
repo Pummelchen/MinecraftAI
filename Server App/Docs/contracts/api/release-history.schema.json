@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pummelchen.local/schemas/release-history.schema.json",
+  "title": "Pummelchen DuckDB Release History API",
+  "type": "object",
+  "required": ["api_version", "generated_at", "generated_by", "source", "cutoff_days", "total_entries", "updates"],
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "type": "string",
+      "const": "v1"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "generated_by": {
+      "type": "string",
+      "const": "MCPummelchenModServer-duckdb-live"
+    },
+    "source": {
+      "type": "string",
+      "const": "duckdb.release.pack_releases"
+    },
+    "cutoff_days": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total_entries": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "updates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "source", "title", "event_type", "status", "tested_at", "source_url", "test_label"],
+        "additionalProperties": true,
+        "properties": {
+          "id": {"type": "string"},
+          "source": {"type": "string", "const": "pack_releases"},
+          "title": {"type": "string"},
+          "event_type": {"type": "string", "const": "release_promotion"},
+          "status": {"type": "string"},
+          "tested_at": {"type": "string"},
+          "tested_at_display": {"type": "string"},
+          "old_file": {"type": "null"},
+          "new_file": {"type": "null"},
+          "source_url": {"type": "string"},
+          "test_label": {"type": "string"},
+          "notes": {"type": "string"},
+          "mod_id": {"type": "null"}
+        }
+      }
+    }
+  }
+}

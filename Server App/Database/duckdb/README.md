@@ -12,6 +12,7 @@ DuckDB is the production database and the only supported project database.
 - `migrations/003_minecraft_versions.sql`: adds supported Minecraft server versions plus version-aware mod source, scan, and client inventory columns/views.
 - `migrations/004_client_inventory_by_version.sql`: creates the canonical version-keyed client inventory table used when clients report multiple supported Minecraft versions.
 - `migrations/005_reporting_status_normalization.sql`: normalizes accepted mod states so reporting treats both `active` and `ok` as live accepted mods.
+- `migrations/006_release_history_source_of_truth.sql`: makes `release.pack_releases` the DuckDB source of truth for release-history reporting and retires the old tested-updates feed table.
 
 ## Apply Migrations
 

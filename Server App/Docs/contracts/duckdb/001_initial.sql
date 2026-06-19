@@ -68,15 +68,6 @@ CREATE TABLE IF NOT EXISTS release.release_health_results (
     details TEXT
 );
 
-CREATE TABLE IF NOT EXISTS release.tested_updates_feed (
-    update_id TEXT PRIMARY KEY,
-    release_id TEXT,
-    tested_at TIMESTAMP,
-    title TEXT,
-    status TEXT,
-    details TEXT
-);
-
 CREATE TABLE IF NOT EXISTS client.client_reports (
     client_id TEXT NOT NULL,
     reported_at TIMESTAMP NOT NULL,
@@ -182,21 +173,6 @@ CREATE TABLE IF NOT EXISTS moddb.mod_files (
     installed_on_server BOOLEAN NOT NULL DEFAULT false,
     included_in_client BOOLEAN NOT NULL DEFAULT false,
     status TEXT
-);
-
-CREATE TABLE IF NOT EXISTS moddb.tested_updates (
-    update_id TEXT PRIMARY KEY,
-    tested_at TIMESTAMP,
-    source TEXT NOT NULL,
-    title TEXT NOT NULL,
-    event_type TEXT NOT NULL,
-    status TEXT NOT NULL,
-    old_file TEXT,
-    new_file TEXT,
-    source_url TEXT,
-    test_label TEXT,
-    notes TEXT,
-    mod_id UBIGINT
 );
 
 CREATE TABLE IF NOT EXISTS world.reset_jobs (

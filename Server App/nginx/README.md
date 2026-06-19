@@ -14,3 +14,5 @@ nginx is the public HTTPS edge for the website, release downloads, status APIs, 
 The global nginx tuning raises worker connection capacity, enables static-file descriptor caching, keeps sendfile/tcp_nopush enabled for large client downloads, and compresses text/json/js/css/svg assets. Large release artifacts remain uncompressed on the fly because ZIP, DMG, MRPACK, and JAR files are already compressed.
 
 Generated release payloads are intentionally not tracked here. DMGs, MRPACKs, release ZIPs, copied mod files, current-release pointers, and full release directories are produced by the Swift server app and live under the VPS runtime downloads directory. Static website deployments must preserve `/opt/pummelchen-swift/runtime/site/public/downloads`.
+
+Current operational tables, release history, mod inventory, failed-mod status, server-version cards, and live stats must come from the Swift API backed by DuckDB. Do not add generated static JSON files as fallbacks for those sections; if the API is unavailable, the browser should show an unavailable state.

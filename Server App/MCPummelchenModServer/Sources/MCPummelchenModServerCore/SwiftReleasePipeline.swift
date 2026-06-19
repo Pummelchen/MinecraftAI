@@ -38,6 +38,7 @@ public struct SwiftReleasePipelineConfig: Sendable {
     public let buildClientZipIfMissing: Bool
     public let restartCommand: String?
     public let healthCommand: String?
+    public let releaseRetentionPerServer: Int
 
     public init(
         projectRoot: URL,
@@ -55,7 +56,8 @@ public struct SwiftReleasePipelineConfig: Sendable {
         activate: Bool = false,
         buildClientZipIfMissing: Bool = true,
         restartCommand: String? = nil,
-        healthCommand: String? = nil
+        healthCommand: String? = nil,
+        releaseRetentionPerServer: Int = 8
     ) {
         self.projectRoot = projectRoot
         self.serverDir = serverDir
@@ -73,6 +75,7 @@ public struct SwiftReleasePipelineConfig: Sendable {
         self.buildClientZipIfMissing = buildClientZipIfMissing
         self.restartCommand = restartCommand
         self.healthCommand = healthCommand
+        self.releaseRetentionPerServer = max(1, releaseRetentionPerServer)
     }
 }
 
@@ -266,7 +269,6 @@ public struct SwiftReleasePipeline: Sendable {
             try (config.releaseID + "\n").write(to: config.publicDownloads.appendingPathComponent("current-release.txt"), atomically: true, encoding: .utf8)
             try publishCurrentDownloadLinks(publicRelease: publicRelease)
         }
-        try publishSiteJSON(from: publicRelease.appendingPathComponent("data/tested-updates.json"), named: "tested-updates.json")
         try executeDuckDB("""
         UPDATE release.pack_releases SET active = false WHERE server_key = \(Self.sqlLiteral(config.serverKey));
         UPDATE release.pack_releases
@@ -275,6 +277,7 @@ public struct SwiftReleasePipeline: Sendable {
         INSERT INTO release.release_events(event_id, release_id, event_at, event_type, status, actor, notes)
         VALUES (\(Self.sqlLiteral(UUID().uuidString)), \(Self.sqlLiteral(config.releaseID)), TIMESTAMP '\(Self.duckTimestamp(Date()))', 'activate', 'ok', \(Self.sqlLiteral(config.actor)), \(Self.sqlLiteral(config.notes)));
         """)
+        try pruneReleaseStorage()
         try runRestartIfConfigured()
     }
 
@@ -334,7 +337,6 @@ public struct SwiftReleasePipeline: Sendable {
         let dmgSHA = fileManager.fileExists(atPath: dmg.path) ? try SHA256Hasher.hashFile(at: dmg) : nil
         let payload = currentReleasePayload(createdAt: createdAt, activatedAt: nil, clientZipSHA: clientZipSHA, mrpackSHA: mrpackSHA, dmgSHA: dmgSHA)
         try JSONEncoder.pummelchenSorted.encode(payload).write(to: publicDir.appendingPathComponent("current-release.json"), options: .atomic)
-        try writeTestedUpdatesCompatibilityFeed(to: publicDir, createdAt: createdAt)
     }
 
     private func currentReleasePayload(createdAt: String, activatedAt: String?, clientZipSHA: String, mrpackSHA: String, dmgSHA: String?) -> CurrentRelease {
@@ -575,14 +577,6 @@ public struct SwiftReleasePipeline: Sendable {
           status VARCHAR NOT NULL,
           details VARCHAR
         );
-        CREATE TABLE IF NOT EXISTS release.tested_updates_feed (
-          update_id VARCHAR PRIMARY KEY,
-          release_id VARCHAR,
-          tested_at TIMESTAMP,
-          title VARCHAR,
-          status VARCHAR,
-          details VARCHAR
-        );
         """)
     }
 
@@ -667,65 +661,6 @@ public struct SwiftReleasePipeline: Sendable {
             "notes": config.notes
         ]
         try JSONEncoder.pummelchenSorted.encode(object).write(to: releaseDir.appendingPathComponent("metadata.json"), options: .atomic)
-    }
-
-    private func writeTestedUpdatesCompatibilityFeed(to publicDir: URL, createdAt: String) throws {
-        let dataDir = publicDir.appendingPathComponent("data", isDirectory: true)
-        try fileManager.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        let target = dataDir.appendingPathComponent("tested-updates.json")
-        let existingCandidates = [
-            config.projectRoot.appendingPathComponent("site/public/data/tested-updates.json"),
-            config.projectRoot.appendingPathComponent("site/public/tested-updates.json")
-        ]
-        for candidate in existingCandidates where fileManager.fileExists(atPath: candidate.path) {
-            let data = try Data(contentsOf: candidate)
-            let object = try updatedTestedUpdatesFeed(from: data, createdAt: createdAt)
-            let next = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
-            try next.write(to: target, options: .atomic)
-            return
-        }
-        let object = try updatedTestedUpdatesFeed(from: Data(#"{"updates":[]}"#.utf8), createdAt: createdAt)
-        let next = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
-        try next.write(to: target, options: .atomic)
-    }
-
-    private func updatedTestedUpdatesFeed(from data: Data, createdAt: String) throws -> [String: Any] {
-        guard var object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw ContractValidationError.invalid("tested updates feed must be a JSON object")
-        }
-        var updates = object["updates"] as? [[String: Any]] ?? object["rows"] as? [[String: Any]] ?? []
-        let releaseRowID = "pr_\(config.releaseID)"
-        updates.removeAll { ($0["id"] as? String) == releaseRowID }
-        updates.insert([
-            "id": releaseRowID,
-            "source": "pack_releases",
-            "title": "Release promoted: \(config.releaseID)",
-            "event_type": "release_promotion",
-            "status": config.activate ? "active" : config.status,
-            "tested_at": createdAt,
-            "tested_at_display": Self.displayTimestamp(createdAt),
-            "old_file": NSNull(),
-            "new_file": NSNull(),
-            "source_url": "/release.html?release=\(config.releaseID)",
-            "test_label": config.releaseID,
-            "notes": config.notes,
-            "mod_id": NSNull()
-        ], at: 0)
-        object["generated_by"] = "pummelchen-swift-release-pipeline"
-        object["generated_at"] = Self.isoNow()
-        object["total_entries"] = updates.count
-        object["updates"] = updates
-        object.removeValue(forKey: "rows")
-        return object
-    }
-
-    private func publishSiteJSON(from source: URL, named name: String) throws {
-        guard fileManager.fileExists(atPath: source.path) else {
-            return
-        }
-        let sitePublic = config.projectRoot.appendingPathComponent("site/public", isDirectory: true)
-        try copyFile(source, to: sitePublic.appendingPathComponent(name))
-        try copyFile(source, to: sitePublic.appendingPathComponent("data/\(name)"))
     }
 
     private func publishCurrentDownloadLinks(publicRelease: URL) throws {
@@ -879,6 +814,52 @@ public struct SwiftReleasePipeline: Sendable {
         try DuckDBDatabase(databaseURL: config.databaseURL).queryCSV(sql)
     }
 
+    private func pruneReleaseStorage() throws {
+        let keepIDs = try retainedReleaseIDs()
+        let releaseRoots = [
+            config.releaseRoot,
+            config.publicDownloads.appendingPathComponent("releases", isDirectory: true)
+        ]
+        for root in releaseRoots where fileManager.fileExists(atPath: root.path) {
+            let children = try fileManager.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+            for child in children {
+                let values = try child.resourceValues(forKeys: [.isDirectoryKey])
+                guard values.isDirectory == true,
+                      child.lastPathComponent.hasPrefix("release_"),
+                      !keepIDs.contains(child.lastPathComponent) else {
+                    continue
+                }
+                try fileManager.removeItem(at: child)
+            }
+        }
+    }
+
+    private func retainedReleaseIDs() throws -> Set<String> {
+        let csv = try queryDuckDB("""
+        WITH ranked AS (
+          SELECT
+            release_id,
+            server_key,
+            COALESCE(active, false) AS active,
+            row_number() OVER (
+              PARTITION BY server_key
+              ORDER BY COALESCE(activated_at, created_at) DESC, release_id DESC
+            ) AS release_rank
+          FROM release.pack_releases
+        )
+        SELECT release_id
+        FROM ranked
+        WHERE active = true OR release_rank <= \(config.releaseRetentionPerServer);
+        """)
+        var ids = Set(Self.parseCSVRows(csv).compactMap { $0["release_id"]?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
+        ids.insert(config.releaseID)
+        return ids
+    }
+
     @discardableResult
     private func runCommand(executable: String, arguments: [String], currentDirectory: URL? = nil) throws -> String {
         let process = Process()
@@ -929,6 +910,53 @@ public struct SwiftReleasePipeline: Sendable {
     private static func sqlLiteral(_ value: String?) -> String {
         guard let value, !value.isEmpty else { return "NULL" }
         return "'\(value.replacingOccurrences(of: "'", with: "''"))'"
+    }
+
+    private static func parseCSVRows(_ csv: String) -> [[String: String]] {
+        let lines = csv.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        guard let headerLine = lines.first else { return [] }
+        let headers = parseCSVLine(headerLine)
+        return lines.dropFirst().map { line in
+            let values = parseCSVLine(line)
+            var row: [String: String] = [:]
+            for (index, header) in headers.enumerated() {
+                row[header] = index < values.count ? values[index] : ""
+            }
+            return row
+        }
+    }
+
+    private static func parseCSVLine(_ line: String) -> [String] {
+        var values: [String] = []
+        var current = ""
+        var inQuotes = false
+        var iterator = line.makeIterator()
+        while let character = iterator.next() {
+            if character == "\"" {
+                if inQuotes, let next = iterator.next() {
+                    if next == "\"" {
+                        current.append("\"")
+                    } else {
+                        inQuotes = false
+                        if next != "," {
+                            current.append(next)
+                        } else {
+                            values.append(current)
+                            current = ""
+                        }
+                    }
+                } else {
+                    inQuotes.toggle()
+                }
+            } else if character == "," && !inQuotes {
+                values.append(current)
+                current = ""
+            } else {
+                current.append(character)
+            }
+        }
+        values.append(current)
+        return values
     }
 
     private static func sqlTimestamp(_ value: String) -> String {

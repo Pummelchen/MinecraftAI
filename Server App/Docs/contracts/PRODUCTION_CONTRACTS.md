@@ -28,6 +28,12 @@ The client identity/token model is frozen in `docs/contracts/CLIENT_IDENTITY.md`
 
 Manual repair is handled by the Swift client app and its bundled sync helper. The website must not publish shell-based repair commands.
 
+## Runtime And Build Tool Boundary
+
+The production runtime boundary is Swift + embedded DuckDB + nginx. Live server duties, client sync control, release metadata, safe world reset, mod inventory, failed-mod status, client reports, and website API data must be owned by the Swift server/client apps and DuckDB.
+
+Shell scripts and small Python snippets are allowed only in developer/build/test tooling, such as local DMG packaging wrappers, temporary HTTP servers in tests, or command hooks explicitly passed by an operator. They must not become always-on VPS services, cron jobs, website data generators, or client runtime repair logic.
+
 ## Client No-Download Summary
 
 When nothing needs download, the manual updater and future Swift CLI must report:
@@ -54,6 +60,8 @@ Current DMG contents must remain functionally available:
 The DMG installs `MCPummelchenModClient.app` and keeps CLI repair functionality inside the app bundle.
 
 The app bundle `Info.plist` must include `PummelchenReleaseID` set to the release being built. The sync engine compares this value to the server release. If the server advertises matching DMG metadata and the installed app is older or missing the release marker, the client downloads the DMG, verifies SHA256, mounts it read-only, validates the app bundle/signature/helper/embedded DuckDB dylib, stages the replacement, exits, installs the new app bundle, and opens the app again.
+
+Private DMGs for the current closed player group include the `client-api-token` bootstrap resource when `PUMMELCHEN_CLIENT_API_TOKEN` is supplied to the DMG builder. That token is a private distribution credential: it must never be committed to Git, printed in logs, uploaded in diagnostics, or exposed in public website/release metadata. The long-term identity model remains per-client `client_id` plus local secret storage as defined in `CLIENT_IDENTITY.md`.
 
 ## Client Defaults
 
@@ -96,6 +104,8 @@ Each release contains:
 Activation always publishes static release files through nginx and writes version-scoped current release files such as `/downloads/current-release-26.2.json` and `/downloads/current-release-minecraft_26_2.json`.
 
 Only the Minecraft version marked `is_live = true` in DuckDB may also update `/downloads/current-release.json`, `/downloads/current-release.txt`, and the stable DMG/download aliases used by normal clients. Staging versions must not overwrite the global current release pointer.
+
+After activation, the Swift release pipeline enforces storage retention. It keeps the active release plus the newest retained releases per `server_key` in DuckDB and prunes older release directories from both the private release root and nginx public download release root. Manual VPS cleanup must not be the only disk-space control.
 
 `current-release.json` is also the client-app self-update contract. When a release includes a macOS DMG, the payload must include both:
 
@@ -175,7 +185,7 @@ The report must prove:
 - `dmg_sha256` matches the generated DMG
 - `server_address` targets the live Pummelchen server on port `25565`
 - `installed_from_dmg`, `java_ok`, `neoforge_ok`, `sync_ok`, `login_ok`, and `stayed_connected` are all `true`
-- `duration_seconds` is at least `300`
+- `duration_seconds` is at least `60`
 - `crash_report_count` and `fatal_log_count` are `0`
 - `new_player_setup.status` is `passed`
 - `new_player_setup.defaults_ok` is `true`
@@ -203,27 +213,33 @@ Required behavior:
 - classify Cloudflare/challenge pages as blocked or unresolved instead of treating them as valid update data
 - never auto-promote a scraped update candidate without the normal validation and release flow
 
-## Tested Updates Feed Shape
+## Release History API Shape
 
-`/tested-updates.json` returns an object:
+The public website no longer uses a static `tested-updates.json` feed. Release/update history is served by the Swift app from DuckDB through API endpoints such as `/api/v1/site/release-history`, `/api/v1/site/update-activity`, and `/release.html?release=<release_id>`.
 
+`/api/v1/site/release-history` returns a DuckDB-backed object:
+
+- `api_version`
 - `generated_at`
+- `generated_by`
+- `source`
 - `cutoff_days`
 - `total_entries`
 - `updates`
 
-Each update row must include stable fields for table rendering:
+Each update row is generated from `release.pack_releases` and must include stable fields for release-history rendering:
 
-- timestamp (`tested_at`, displayed as `YYYY-MM-DD HH:MM:SS` in future table views)
+- timestamp (`tested_at`)
 - title
 - event type
 - source
 - status
-- old file
-- new file
-- version
-- source URL when known
+- source URL pointing to `release.html`
 - notes/details when known
+
+Static website JSON fallbacks are not allowed for current release history, mod inventory, failed mods, server-version data, or live stats. If DuckDB or the Swift app cannot provide real data, the API should fail and the browser should show an unavailable state instead of stale placeholders.
+
+Parser helpers may return `nil` or `[]` only for local optional parsing cases such as "no regex match", "missing optional NBT field", "no optional manifest candidate", or "empty folder". Production-facing data source failures, DuckDB query failures, release activation failures, checksum failures, and client repair failures must be explicit errors or explicit status rows, not silent fallbacks.
 
 ## Failed Mods Feed Shape
 

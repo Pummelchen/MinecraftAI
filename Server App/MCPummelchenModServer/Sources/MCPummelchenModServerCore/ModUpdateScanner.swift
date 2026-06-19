@@ -28,7 +28,7 @@ public struct ModUpdateScannerConfig: Sendable {
     public let maxURLsPerWindow: Int
     public let windowSeconds: TimeInterval
     public let limit: Int?
-    public let seedFromTestedUpdates: Bool
+    public let seedFromProjectData: Bool
     public let dryRun: Bool
 
     public init(
@@ -40,7 +40,7 @@ public struct ModUpdateScannerConfig: Sendable {
         maxURLsPerWindow: Int = 5,
         windowSeconds: TimeInterval = 10,
         limit: Int? = nil,
-        seedFromTestedUpdates: Bool = false,
+        seedFromProjectData: Bool = false,
         dryRun: Bool = false
     ) {
         self.projectRoot = projectRoot
@@ -51,7 +51,7 @@ public struct ModUpdateScannerConfig: Sendable {
         self.maxURLsPerWindow = maxURLsPerWindow
         self.windowSeconds = windowSeconds
         self.limit = limit
-        self.seedFromTestedUpdates = seedFromTestedUpdates
+        self.seedFromProjectData = seedFromProjectData
         self.dryRun = dryRun
     }
 }
@@ -93,7 +93,7 @@ public struct ModUpdateScanner: Sendable {
 
     public func run() throws -> ModUpdateScanSummary {
         try initializeDatabase()
-        let seeded = config.seedFromTestedUpdates ? try seedSourcesFromProjectData() : 0
+        let seeded = config.seedFromProjectData ? try seedSourcesFromProjectData() : 0
         let scanID = "scan_\(Self.compactTimestamp())_\(UUID().uuidString.prefix(8))"
         let startedAt = Self.duckTimestamp(Date())
         if !config.dryRun {
@@ -322,58 +322,10 @@ public struct ModUpdateScanner: Sendable {
 
     private func seedSourcesFromProjectData() throws -> Int {
         var seeded = 0
-        seeded += try seedSourcesFromTestedUpdates()
         seeded += try seedSourcesFromSiteInventory()
         seeded += try seedSourcesFromReleaseManifests()
         seeded += try seedFailedModsFromStaticPage()
         return seeded
-    }
-
-    private func seedSourcesFromTestedUpdates() throws -> Int {
-        let candidates = [
-            config.projectRoot.appendingPathComponent("site/public/tested-updates.json"),
-            config.projectRoot.appendingPathComponent("site/public/data/tested-updates.json"),
-            config.projectRoot.appendingPathComponent("Server App/nginx/site/public/tested-updates.json"),
-            config.projectRoot.appendingPathComponent("Server App/nginx/site/public/data/tested-updates.json")
-        ]
-        guard let sourceFile = candidates.first(where: { fileManager.fileExists(atPath: $0.path) }) else {
-            return 0
-        }
-        let data = try Data(contentsOf: sourceFile)
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return 0
-        }
-        let updates = object["updates"] as? [[String: Any]] ?? object["rows"] as? [[String: Any]] ?? []
-        var seededSourceIDs = Set<String>()
-        var sources: [ModSourceRecord] = []
-        for row in updates {
-            guard let sourceURL = row["source_url"] as? String,
-                  sourceURL.hasPrefix("http://") || sourceURL.hasPrefix("https://") else {
-                continue
-            }
-            let title = (row["title"] as? String) ?? "Unknown Mod"
-            let version = row["version"] as? String
-            let files = Self.files(from: row["new_file"] as? String)
-            let fileList = files.count == 1 ? files.map(Optional.some) : [nil]
-            for installedFile in fileList {
-                let displayName = title.trimmingCharacters(in: .whitespacesAndNewlines)
-                let modKey = Self.modKey(displayName: displayName, installedFile: installedFile, sourceURL: sourceURL)
-                let installedVersion = version ?? installedFile.flatMap(Self.versionFromFilename)
-                let source = ModSourceRecord(
-                    sourceID: Self.versionedSourceID(Self.stableID("\(modKey)|\(sourceURL)|\(installedFile ?? "")"), minecraftVersion: config.minecraftVersion),
-                    modKey: modKey,
-                    displayName: displayName,
-                    installedFile: installedFile,
-                    installedVersion: installedVersion,
-                    provider: Self.provider(for: sourceURL),
-                    sourceURL: sourceURL
-                )
-                sources.append(source)
-                seededSourceIDs.insert(source.sourceID)
-            }
-        }
-        try upsert(sources: sources)
-        return seededSourceIDs.count
     }
 
     private func seedSourcesFromSiteInventory() throws -> Int {
@@ -902,6 +854,7 @@ public struct ModUpdateScanner: Sendable {
         value
             .replacingOccurrences(of: " + ", with: ",")
             .replacingOccurrences(of: ";", with: ",")
+            .replacingOccurrences(of: "\n", with: ",")
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && ($0.hasSuffix(".jar") || $0.hasSuffix(".zip")) }

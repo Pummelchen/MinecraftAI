@@ -239,12 +239,12 @@ func requireReportingFields(duckdb: DuckDB) throws {
         try duckdb.queryCSV(
             """
             SELECT COUNT(*)
-            FROM reporting.v_tested_updates_table
+            FROM reporting.v_release_history_table
             WHERE tested_at IS NULL OR title IS NULL OR event_type IS NULL OR status IS NULL;
             """
         )
     )
-    try requireCheck(testedMissing == "0", "tested updates reporting view has rows missing required timestamp/title/type/status")
+    try requireCheck(testedMissing == "0", "release history reporting view has rows missing required timestamp/title/type/status")
 }
 
 func health(args: Arguments) throws {
@@ -302,7 +302,7 @@ func exportParquet(args: Arguments) throws {
     try FileManager.default.createDirectory(atPath: outputDir, withIntermediateDirectories: true, attributes: nil)
 
     let views = [
-        "v_tested_updates_table",
+        "v_release_history_table",
         "v_failed_mods_table",
         "v_release_health_latest",
         "v_client_sync_status",
@@ -343,7 +343,7 @@ func verifyParquet(args: Arguments) throws {
     let duckdb = DuckDB(databasePath: try args.require("--duckdb"))
     let inputDir = try args.require("--input-dir")
     let views = [
-        "v_tested_updates_table",
+        "v_release_history_table",
         "v_failed_mods_table",
         "v_release_health_latest",
         "v_client_sync_status",

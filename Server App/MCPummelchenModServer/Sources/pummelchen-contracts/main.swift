@@ -43,7 +43,7 @@ func run(arguments: [String]) throws {
         print("current_release_valid=true release_id=\(release.releaseID)")
     case "duckdb-reporting-smoke":
         let client = DuckDBReportingClient(databasePath: path)
-        let tested = try client.countRows(inReportingView: "v_tested_updates_table")
+        let tested = try client.countRows(inReportingView: "v_release_history_table")
         let failed = try client.countRows(inReportingView: "v_failed_mods_table")
         let health = try client.countRows(inReportingView: "v_release_health_latest")
         print("duckdb_reporting_smoke=ok tested_updates=\(tested) failed_mods=\(failed) release_health=\(health)")
