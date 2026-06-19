@@ -1088,6 +1088,14 @@
     function compatibilityClass(value) {
       return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unknown';
     }
+    function sourcePlatformLabel(sourceUrl, sourceHost) {
+      const value = `${sourceUrl || ''} ${sourceHost || ''}`.toLowerCase();
+      if (value.includes('curseforge.com')) return 'CurseForge';
+      if (value.includes('modrinth.com')) return 'Modrinth';
+      if (value.includes('github.com')) return 'GitHub';
+      if (value.includes('release manifest')) return 'Release Manifest';
+      return sourceHost || 'Source';
+    }
     function modInventoryColumns(supportedVersions = []) {
       const baseColumns = [
         { title: 'Name', field: 'name', minWidth: 240, frozen: true, formatter: cell => {
@@ -1099,8 +1107,9 @@
         { title: 'Files', field: 'files', minWidth: 320 },
         { title: 'Source', field: 'sourceHost', minWidth: 140, formatter: cell => {
           const data = cell.getRow().getData();
-          if (!data.sourceUrl) return escapeHTML(data.sourceHost || '');
-          return `<a href="${escapeHTML(data.sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHTML(data.sourceHost || 'Source')}</a>`;
+          const label = sourcePlatformLabel(data.sourceUrl, data.sourceHost);
+          if (!data.sourceUrl) return escapeHTML(label);
+          return `<a href="${escapeHTML(data.sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHTML(label)}</a>`;
         } },
         { title: 'Details', field: 'details', minWidth: 520 },
       ];

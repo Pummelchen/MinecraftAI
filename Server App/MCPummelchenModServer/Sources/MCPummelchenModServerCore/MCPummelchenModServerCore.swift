@@ -508,8 +508,12 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             annotated["files"] = live.installedFiles
             annotated["versionFile"] = live.installedFiles
             annotated["installed_version"] = live.installedVersions
+            if !live.sourceURL.isEmpty {
+                annotated["sourceUrl"] = live.sourceURL
+                annotated["sourceHost"] = URL(string: live.sourceURL)?.host ?? live.sourceURL
+            }
             let existingSearch = annotated["search"] as? String ?? ""
-            annotated["search"] = "\(existingSearch) \(live.installedFiles) \(live.installedVersions)"
+            annotated["search"] = "\(existingSearch) \(live.installedFiles) \(live.installedVersions) \(live.sourceURL)"
         }
         annotated["compatibility"] = compatibility
         annotated["_has_inventory_evidence"] = inCurrentManifest || !sourceByVersion.isEmpty
@@ -610,6 +614,12 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             if let name = row["name_key"], !name.isEmpty {
                 values["name:\(name.trimmingCharacters(in: CharacterSet(charactersIn: "-")))", default: [:]][minecraftVersion] = inventory
             }
+            for fileName in Self.splitInventoryFileList(inventory.installedFiles) {
+                let key = URL(fileURLWithPath: fileName).lastPathComponent.lowercased()
+                if !key.isEmpty {
+                    values["file:\(key)", default: [:]][minecraftVersion] = inventory
+                }
+            }
         }
         return values
     }
@@ -645,6 +655,12 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             }
             if let name = row["name_key"], !name.isEmpty {
                 values["name:\(name.trimmingCharacters(in: CharacterSet(charactersIn: "-")))"] = inventory
+            }
+            for fileName in Self.splitInventoryFileList(inventory.installedFiles) {
+                let key = URL(fileURLWithPath: fileName).lastPathComponent.lowercased()
+                if !key.isEmpty {
+                    values["file:\(key)"] = inventory
+                }
             }
         }
         return values
@@ -766,8 +782,14 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         if let sourceURL = (row["sourceUrl"] as? String)?.lowercased(), let value = liveModSources["url:\(sourceURL)"] {
             return value
         }
-        if let name = row["name"] as? String {
-            return liveModSources["name:\(Self.normalizedModInventoryKey(name))"]
+        if let name = row["name"] as? String,
+           let value = liveModSources["name:\(Self.normalizedModInventoryKey(name))"] {
+            return value
+        }
+        for fileName in Self.inventoryFileNames(for: row) {
+            if let value = liveModSources["file:\(fileName)"] {
+                return value
+            }
         }
         return nil
     }
@@ -779,10 +801,24 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         if let sourceURL = (row["sourceUrl"] as? String)?.lowercased(), let value = versionedModSources["url:\(sourceURL)"] {
             return value
         }
-        if let name = row["name"] as? String {
-            return versionedModSources["name:\(Self.normalizedModInventoryKey(name))"]
+        if let name = row["name"] as? String,
+           let value = versionedModSources["name:\(Self.normalizedModInventoryKey(name))"] {
+            return value
+        }
+        for fileName in Self.inventoryFileNames(for: row) {
+            if let value = versionedModSources["file:\(fileName)"] {
+                return value
+            }
         }
         return nil
+    }
+
+    private static func inventoryFileNames(for row: [String: Any]) -> [String] {
+        [row["files"] as? String, row["versionFile"] as? String]
+            .compactMap { $0 }
+            .flatMap(splitInventoryFileList)
+            .map { URL(fileURLWithPath: $0).lastPathComponent.lowercased() }
+            .filter { !$0.isEmpty }
     }
 
     private static func modInventoryText(_ text: String, mentionsMinecraftVersion version: String) -> Bool {

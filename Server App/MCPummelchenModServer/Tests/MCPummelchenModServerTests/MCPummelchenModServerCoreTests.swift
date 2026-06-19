@@ -291,6 +291,8 @@ struct MCPummelchenModServerCoreTests {
         #expect(serverRows.first?["files"] as? String == "server-26.1.2.jar")
         #expect(clientObject?["scope"] as? String == "client")
         #expect(clientRows.first?["name"] as? String == "Fixture Client Mod")
+        #expect(clientRows.first?["sourceUrl"] as? String == "https://fixture.local/client")
+        #expect(clientRows.first?["sourceHost"] as? String == "fixture.local")
         #expect(clientCompatibility["26.1.2"] == "Active")
         #expect(clientCompatibility["26.2"] == "Needs test")
     }
