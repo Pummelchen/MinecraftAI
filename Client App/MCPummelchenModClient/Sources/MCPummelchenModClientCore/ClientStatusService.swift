@@ -531,12 +531,17 @@ public struct ClientStatusService: Sendable {
     }
 
     private func fetchControlEventsProbe(token: String) async throws -> ControlEventBatch {
-        var components = URLComponents(url: configuration.serverURL.appendingPathComponent("api/v1/control/events"), resolvingAgainstBaseURL: false)!
+        guard var components = URLComponents(url: configuration.serverURL.appendingPathComponent("api/v1/control/events"), resolvingAgainstBaseURL: false) else {
+            throw URLError(.badURL)
+        }
         components.queryItems = [
             URLQueryItem(name: "client_id", value: Self.validClientID(configuration.clientID ?? Host.current().localizedName)),
             URLQueryItem(name: "limit", value: "1")
         ]
-        var request = URLRequest(url: components.url!)
+        guard let requestURL = components.url else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: requestURL)
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(Self.validClientID(configuration.clientID ?? Host.current().localizedName), forHTTPHeaderField: "X-Pummelchen-Client-ID")

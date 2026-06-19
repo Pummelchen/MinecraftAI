@@ -36,7 +36,9 @@ public struct ClientControlChannel: Sendable {
     }
 
     public func fetchEvents(afterEventID: String? = nil, limit: Int = 50, waitSeconds: Int = 0) async throws -> ControlEventBatch {
-        var components = URLComponents(url: configuration.serverURL.appendingPathComponent("api/v1/control/events"), resolvingAgainstBaseURL: false)!
+        guard var components = URLComponents(url: configuration.serverURL.appendingPathComponent("api/v1/control/events"), resolvingAgainstBaseURL: false) else {
+            throw URLError(.badURL)
+        }
         var query = [
             URLQueryItem(name: "client_id", value: configuration.clientID),
             URLQueryItem(name: "limit", value: String(limit))
@@ -48,7 +50,10 @@ public struct ClientControlChannel: Sendable {
             query.append(URLQueryItem(name: "wait_seconds", value: String(min(waitSeconds, 30))))
         }
         components.queryItems = query
-        var request = URLRequest(url: components.url!)
+        guard let url = components.url else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "GET"
         addAuthHeaders(to: &request)
         let data = try await http.send(request)
