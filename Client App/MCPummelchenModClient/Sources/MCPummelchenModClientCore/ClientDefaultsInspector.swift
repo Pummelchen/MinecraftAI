@@ -105,11 +105,11 @@ public enum ClientDefaultsInspector {
         let servers = readServerList(minecraftDirectory.appendingPathComponent("servers.dat"))
 
         var rows: [ClientDefaultHealthRow] = []
-        rows.append(shaderHealth(defaults: defaults, iris: iris, shaderOptions: shaderOptions))
-        rows.append(resourcePackHealth(defaults: defaults, options: options))
-        rows.append(memoryHealth(defaults: defaults, launcherProfiles: launcherProfiles))
         rows.append(javaHealth(defaults: defaults, launcherProfiles: launcherProfiles))
         rows.append(serverEntryHealth(defaults: defaults, servers: servers))
+        rows.append(memoryHealth(defaults: defaults, launcherProfiles: launcherProfiles))
+        rows.append(shaderHealth(defaults: defaults, iris: iris, shaderOptions: shaderOptions))
+        rows.append(resourcePackHealth(defaults: defaults, options: options))
         rows.append(physicsMobFracturingHealth(defaults: defaults, minecraftDirectory: minecraftDirectory))
         rows.append(contentsOf: configHealth(defaults: defaults, minecraftDirectory: minecraftDirectory))
         return rows

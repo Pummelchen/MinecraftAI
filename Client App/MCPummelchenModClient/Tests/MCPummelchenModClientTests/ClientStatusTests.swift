@@ -98,6 +98,23 @@ struct ClientStatusTests {
         #expect((try? FileManager.default.contentsOfDirectory(atPath: root.path))?.isEmpty == true)
     }
 
+    @Test("default inspector returns player-visible rows in priority order")
+    func defaultInspectorReturnsPriorityOrder() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-client-status-order-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let rows = ClientDefaultsInspector.inspect(minecraftDirectory: root)
+        #expect(rows.prefix(5).map(\.label) == [
+            "Java Runtime",
+            "Server Entries",
+            "Memory",
+            "Shaders",
+            "Resource Packs"
+        ])
+    }
+
     @Test("status audit detects corrupt installed release files")
     func statusAuditDetectsCorruptManagedFiles() async throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
