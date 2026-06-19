@@ -942,8 +942,10 @@ struct MCPummelchenModServerCoreTests {
         for serverDir in [server261, server262] {
             try FileManager.default.createDirectory(at: serverDir.appendingPathComponent("mods"), withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: serverDir.appendingPathComponent("client-package/mods"), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: serverDir.appendingPathComponent("config/cristellib/ocean_lily_pad_village"), withIntermediateDirectories: true)
             try "bad".write(to: serverDir.appendingPathComponent("mods/ocean_lily_pad_village-1.0.0 Neoforge 26.1.2.jar"), atomically: true, encoding: .utf8)
             try "bad-client".write(to: serverDir.appendingPathComponent("client-package/mods/ocean_lily_pad_village-1.0.0 Neoforge 26.1.2.jar"), atomically: true, encoding: .utf8)
+            try "config".write(to: serverDir.appendingPathComponent("config/cristellib/ocean_lily_pad_village/settings.json"), atomically: true, encoding: .utf8)
             try "keep".write(to: serverDir.appendingPathComponent("mods/other-structure.jar"), atomically: true, encoding: .utf8)
         }
 
@@ -1000,11 +1002,12 @@ struct MCPummelchenModServerCoreTests {
             dryRun: false
         )).run()
 
-        #expect(result.removals.count == 4)
+        #expect(result.removals.count == 6)
         #expect(result.removals.allSatisfy { $0.removed })
         for serverDir in [server261, server262] {
             #expect(!FileManager.default.fileExists(atPath: serverDir.appendingPathComponent("mods/ocean_lily_pad_village-1.0.0 Neoforge 26.1.2.jar").path))
             #expect(!FileManager.default.fileExists(atPath: serverDir.appendingPathComponent("client-package/mods/ocean_lily_pad_village-1.0.0 Neoforge 26.1.2.jar").path))
+            #expect(!FileManager.default.fileExists(atPath: serverDir.appendingPathComponent("config/cristellib/ocean_lily_pad_village").path))
             #expect(FileManager.default.fileExists(atPath: serverDir.appendingPathComponent("mods/other-structure.jar").path))
         }
         #expect(try duckDBScalar(database: database, sql: "SELECT active_status FROM core.mods WHERE canonical_key = 'ocean-lily-pad-village';") == "Banned by Admin")

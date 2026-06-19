@@ -80,13 +80,15 @@ public struct ModBanPipeline: Sendable {
         for version in versions {
             for root in [
                 version.serverDir.appendingPathComponent("mods", isDirectory: true),
-                version.serverDir.appendingPathComponent("client-package/mods", isDirectory: true)
+                version.serverDir.appendingPathComponent("client-package/mods", isDirectory: true),
+                version.serverDir.appendingPathComponent("config", isDirectory: true),
+                version.serverDir.appendingPathComponent("client-package/config", isDirectory: true)
             ] {
-                for file in try matchingFiles(in: root, patterns: patterns) {
-                    let didRemove = try remove(file)
+                for item in try matchingItems(in: root, patterns: patterns) {
+                    let didRemove = try remove(item)
                     removals.append(ModBanRemoval(
                         minecraftVersion: version.minecraftVersion,
-                        path: file.path,
+                        path: item.path,
                         removed: didRemove
                     ))
                 }
@@ -128,21 +130,33 @@ public struct ModBanPipeline: Sendable {
             .filter { $0.isLetter || $0.isNumber }
     }
 
-    private func matchingFiles(in directory: URL, patterns: [String]) throws -> [URL] {
+    private func matchingItems(in directory: URL, patterns: [String]) throws -> [URL] {
         guard fileManager.fileExists(atPath: directory.path) else {
             return []
         }
-        return try fileManager.contentsOfDirectory(
+        guard let enumerator = fileManager.enumerator(
             at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
             options: [.skipsHiddenFiles]
-        ).filter { file in
-            guard (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
-                return false
-            }
-            let normalizedName = Self.normalizedPattern(file.lastPathComponent)
-            return patterns.contains { normalizedName.contains($0) }
+        ) else {
+            return []
         }
+        var matches: [URL] = []
+        for case let item as URL in enumerator {
+            let values = try? item.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey])
+            let isDirectory = values?.isDirectory == true
+            guard values?.isRegularFile == true || isDirectory else {
+                continue
+            }
+            let normalizedName = Self.normalizedPattern(item.lastPathComponent)
+            if patterns.contains(where: { normalizedName.contains($0) }) {
+                matches.append(item)
+                if isDirectory {
+                    enumerator.skipDescendants()
+                }
+            }
+        }
+        return matches
     }
 
     private func ensureTables() throws {
