@@ -1016,6 +1016,10 @@
         grid.innerHTML = '<p class="note">No supported Minecraft server versions are published yet.</p>';
         return;
       }
+      const formatCount = value => {
+        const number = Number(value);
+        return Number.isFinite(number) ? String(number) : '-';
+      };
       grid.innerHTML = versions.map(version => `
         <article class="version-card">
           <h3>${escapeHTML(version.server_name || `Pummelchen Server ${version.minecraft_version || ''}`)}</h3>
@@ -1023,6 +1027,8 @@
             <div><dt>Status</dt><dd>${escapeHTML(version.status || '-')}</dd></div>
             <div><dt>Minecraft</dt><dd>${escapeHTML(version.minecraft_version || '-')}</dd></div>
             <div><dt>NeoForge</dt><dd>${escapeHTML(version.loader_version || '-')}</dd></div>
+            <div><dt>Server Mods</dt><dd>${escapeHTML(formatCount(version.server_mod_count))}</dd></div>
+            <div><dt>Client Mods</dt><dd>${escapeHTML(formatCount(version.client_mod_count))}</dd></div>
             <div><dt>Address</dt><dd>${escapeHTML(version.server_address || '-')}</dd></div>
           </dl>
           <div class="version-actions">

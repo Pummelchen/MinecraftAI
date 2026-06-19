@@ -293,6 +293,34 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
 
         let current = try CurrentReleaseValidator.decode(readCurrentReleaseData())
         let supportedVersions = supportedMinecraftVersionsForInventory(current: current)
+        let rows = try siteModInventoryRows(scriptID: scriptID, scope: scope, current: current, supportedVersions: supportedVersions)
+        let payload: [String: Any] = [
+            "api_version": "v1",
+            "generated_at": Self.isoNow(),
+            "generated_by": "MCPummelchenModServer-site-inventory",
+            "scope": scope,
+            "release_id": current.releaseID,
+            "server_key": current.serverKey,
+            "minecraft_version": current.minecraftVersion ?? "",
+            "loader_version": current.loaderVersion ?? "",
+            "status": "live",
+            "supported_versions": supportedVersions,
+            "total_entries": rows.count,
+            "rows": rows
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        return .json(data, headers: [
+            "Cache-Control": "no-store, max-age=0",
+            "X-Pummelchen-Stats-Source": "swift-server-site-inventory"
+        ])
+    }
+
+    private func siteModInventoryRows(
+        scriptID: String,
+        scope: String,
+        current: CurrentRelease,
+        supportedVersions: [[String: Any]]
+    ) throws -> [[String: Any]] {
         let liveModSources = liveModSourceInventory(minecraftVersion: current.minecraftVersion ?? "")
         let versionedModSources = versionedModSourceInventory(supportedVersions: supportedVersions)
         let currentManifestFiles = currentReleaseManifestFileRoles(current: current, scope: scope)
@@ -325,30 +353,11 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             liveModSources: liveModSources,
             versionedModSources: versionedModSources
         ))
-        rows = rows.map {
+        return rows.map {
             var row = $0
             row.removeValue(forKey: "_has_inventory_evidence")
             return row
         }
-        let payload: [String: Any] = [
-            "api_version": "v1",
-            "generated_at": Self.isoNow(),
-            "generated_by": "MCPummelchenModServer-site-inventory",
-            "scope": scope,
-            "release_id": current.releaseID,
-            "server_key": current.serverKey,
-            "minecraft_version": current.minecraftVersion ?? "",
-            "loader_version": current.loaderVersion ?? "",
-            "status": "live",
-            "supported_versions": supportedVersions,
-            "total_entries": rows.count,
-            "rows": rows
-        ]
-        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
-        return .json(data, headers: [
-            "Cache-Control": "no-store, max-age=0",
-            "X-Pummelchen-Stats-Source": "swift-server-site-inventory"
-        ])
     }
 
     private func siteFailedMods() throws -> HTTPResponse {
@@ -941,7 +950,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         FROM reporting.v_minecraft_server_versions
         ORDER BY sort_order, minecraft_version;
         """)
-        let versions = Self.parseCSV(csv).map { row -> [String: Any] in
+        var versions = Self.parseCSV(csv).map { row -> [String: Any] in
             let minecraftVersion = row["minecraft_version"] ?? ""
             return [
                 "minecraft_version": minecraftVersion,
@@ -958,6 +967,19 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 "notes": row["notes"] ?? ""
             ]
         }
+        if let current = try? CurrentReleaseValidator.decode(readCurrentReleaseData()) {
+            let serverRows = (try? siteModInventoryRows(scriptID: "serverModsData", scope: "server", current: current, supportedVersions: versions)) ?? []
+            let clientRows = (try? siteModInventoryRows(scriptID: "clientModsData", scope: "client", current: current, supportedVersions: versions)) ?? []
+            let serverModCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: serverRows)
+            let clientModCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: clientRows)
+            versions = versions.map { version in
+                var enriched = version
+                let minecraftVersion = version["minecraft_version"] as? String ?? ""
+                enriched["server_mod_count"] = serverModCounts[minecraftVersion] ?? 0
+                enriched["client_mod_count"] = clientModCounts[minecraftVersion] ?? 0
+                return enriched
+            }
+        }
         let payload: [String: Any] = [
             "api_version": "v1",
             "generated_at": Self.isoNow(),
@@ -969,6 +991,22 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             "Cache-Control": "no-store, max-age=0",
             "X-Pummelchen-Stats-Source": "swift-server-duckdb"
         ])
+    }
+
+    private static func compatibleInventoryCountsByMinecraftVersion(rows: [[String: Any]]) -> [String: Int] {
+        let compatibleStatuses: Set<String> = ["active", "staged", "compatible", "compatible by file"]
+        var counts: [String: Int] = [:]
+        for row in rows {
+            guard let compatibility = row["compatibility"] as? [String: String] else {
+                continue
+            }
+            for (minecraftVersion, status) in compatibility {
+                if compatibleStatuses.contains(status.lowercased()) {
+                    counts[minecraftVersion, default: 0] += 1
+                }
+            }
+        }
+        return counts
     }
 
     private func siteTestedUpdates() throws -> HTTPResponse {
