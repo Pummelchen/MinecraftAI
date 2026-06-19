@@ -61,7 +61,7 @@ The DMG installs `MCPummelchenModClient.app` and keeps CLI repair functionality 
 
 The app bundle `Info.plist` must include `PummelchenReleaseID` set to the release being built. The sync engine compares this value to the server release. If the server advertises matching DMG metadata and the installed app is older or missing the release marker, the client downloads the DMG, verifies SHA256, mounts it read-only, validates the app bundle/signature/helper/embedded DuckDB dylib, stages the replacement, exits, installs the new app bundle, and opens the app again.
 
-Private DMGs for the current closed player group include the `client-api-token` bootstrap resource when `PUMMELCHEN_CLIENT_API_TOKEN` is supplied to the DMG builder. That token is a private distribution credential: it must never be committed to Git, printed in logs, uploaded in diagnostics, or exposed in public website/release metadata. The long-term identity model remains per-client `client_id` plus local secret storage as defined in `CLIENT_IDENTITY.md`.
+Private DMGs for the current closed player group include the `client-api-token` bootstrap resource when `PUMMELCHEN_CLIENT_API_TOKEN` is supplied to the DMG builder. That token is a private distribution credential: it must never be committed to Git, printed in logs, uploaded in diagnostics, exposed in public website/release metadata, or passed through process command-line arguments. Build and validation tools must use environment variables or private resource files for token handoff. The long-term identity model remains per-client `client_id` plus local secret storage as defined in `CLIENT_IDENTITY.md`.
 
 ## Client Defaults
 

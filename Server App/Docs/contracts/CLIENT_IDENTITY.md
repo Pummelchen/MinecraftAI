@@ -22,6 +22,7 @@ Private build bootstrap:
 
 - A private DMG build may include a `client-api-token` resource when `PUMMELCHEN_CLIENT_API_TOKEN` is provided during packaging.
 - The token resource is a bootstrap credential for the private player group and must not be committed to Git, printed in logs, included in diagnostics, or written to public release metadata.
+- Build and validation tools must pass bootstrap tokens through environment variables or private resource files, never as command-line arguments that can be exposed through process listings.
 - The packaged token resource must be owner read/write only inside the staged app bundle before signing.
 - Environment and Info.plist token values override the bundled resource for operator tests and emergency repair builds.
 
@@ -67,4 +68,5 @@ When a sync event is received, the client fetches the current release metadata, 
 - No direct access from clients to the server-side DuckDB database.
 - No unauthenticated client write APIs.
 - No token values in Git, public website assets, public release metadata, logs, or diagnostics.
+- No token values in process command-line arguments.
 - No large file downloads through the authenticated control API.

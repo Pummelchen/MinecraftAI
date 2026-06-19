@@ -449,12 +449,13 @@ struct HeadlessSoakRunner {
             "--client-id", "headless-soak-\(config.releaseID)",
             "--allow-while-running"
         ]
+        var environment: [String: String] = [:]
         if let token = config.clientAPIToken, !token.isEmpty {
-            args.append(contentsOf: ["--client-api-token", token])
+            environment["PUMMELCHEN_CLIENT_API_TOKEN"] = token
         } else {
             args.append(contentsOf: ["--no-client-api-token", "--no-report"])
         }
-        return try runProcess(executable: syncBinary.path, arguments: args, timeoutSeconds: 900, environment: [:])
+        return try runProcess(executable: syncBinary.path, arguments: args, timeoutSeconds: 900, environment: environment)
     }
 
     private func managedJavaExecutable(pummelchenHome: URL) throws -> URL {

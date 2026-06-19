@@ -77,16 +77,16 @@ PY
         --pummelchen-home "$work/home" \
         --db "$work/home/client.duckdb" \
         --client-id "$client_id" \
-        --client-api-token "$CLIENT_API_TOKEN" \
         --max-cycles 3 \
         --allow-while-running \
         --no-report \
         --skip-java-repair
     )
+    local watch_env=(PUMMELCHEN_CLIENT_API_TOKEN="$CLIENT_API_TOKEN")
     if [[ -n "$after_event_id" ]]; then
         watch_args+=(--after-event-id "$after_event_id")
     fi
-    "$MACOS_DIR/pummelchen-client-sync" "${watch_args[@]}" > "$BUILD_DIR/nginx-control-live-test.log" &
+    env "${watch_env[@]}" "$MACOS_DIR/pummelchen-client-sync" "${watch_args[@]}" > "$BUILD_DIR/nginx-control-live-test.log" &
     local watch_pid=$!
     local elapsed=0
     while kill -0 "$watch_pid" 2>/dev/null && [[ "$elapsed" -lt 45 ]]; do
