@@ -86,6 +86,69 @@ struct ClientStatusTests {
         #expect(server.observedValue == "Pummelchen Servers Ready")
     }
 
+
+    @Test("endpoint status reports live-update credentials state")
+    func endpointStatusReportsLiveUpdateCredentialsState() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-client-endpoint-state-\(UUID().uuidString)", isDirectory: true)
+        let site = root.appendingPathComponent("site", isDirectory: true)
+        let minecraft = root.appendingPathComponent("minecraft", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let releaseID = "release_20260619_V1_endpoint_state"
+        let releaseDir = site.appendingPathComponent("downloads/releases/\(releaseID)", isDirectory: true)
+        try FileManager.default.createDirectory(at: releaseDir, withIntermediateDirectories: true)
+        try "".write(to: releaseDir.appendingPathComponent("client-sync-manifest.tsv"), atomically: true, encoding: .utf8)
+        try currentReleaseJSON(releaseID: releaseID, manifestURL: "/downloads/releases/\(releaseID)/client-sync-manifest.tsv")
+            .write(to: site.appendingPathComponent("downloads/current-release.json"), atomically: true, encoding: .utf8)
+
+        let server = try LocalHTTPServer(root: site)
+        try server.start()
+        defer { server.stop() }
+
+        let service = ClientStatusService(configuration: ClientStatusConfiguration(
+            serverURL: URL(string: "http://127.0.0.1:\(server.port)")!,
+            minecraftDirectory: minecraft,
+            pummelchenHome: home,
+            databaseURL: home.appendingPathComponent("client.duckdb"),
+            retryPolicy: ClientHTTPRetryPolicy(maxAttempts: 1, requestTimeoutSeconds: 2, baseDelayNanoseconds: 0),
+            clientAPIToken: nil,
+            manageRuntimeChecks: false,
+            probeEndpointLatency: true
+        ))
+
+        let statuses = await service.endpointStatuses()
+        #expect(statuses.downloadServer.state == .connected)
+        #expect(statuses.updateServer.state == .degraded)
+        #expect(statuses.updateServer.message == "client credentials unavailable")
+    }
+
+    @Test("endpoint status falls back to cannot-connect when servers are unreachable")
+    func endpointStatusFallsBackWhenEndpointsUnavailable() async {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-client-endpoint-unreachable-\(UUID().uuidString)", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let minecraft = root.appendingPathComponent("minecraft", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let service = ClientStatusService(configuration: ClientStatusConfiguration(
+            serverURL: URL(string: "http://127.0.0.1:1")!,
+            minecraftDirectory: minecraft,
+            pummelchenHome: home,
+            databaseURL: home.appendingPathComponent("client.duckdb"),
+            retryPolicy: ClientHTTPRetryPolicy(maxAttempts: 1, requestTimeoutSeconds: 1, baseDelayNanoseconds: 0),
+            clientAPIToken: "token",
+            manageRuntimeChecks: false,
+            probeEndpointLatency: true
+        ))
+
+        let statuses = await service.endpointStatuses()
+        #expect(statuses.downloadServer.state == .cannotConnect)
+        #expect(statuses.updateServer.state == .cannotConnect)
+    }
+
+
     @Test("default inspector detects missing read-only defaults without mutating files")
     func defaultInspectorDetectsMissingDefaults() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -254,8 +317,9 @@ struct ClientStatusTests {
         #endif
     }
 
-    private func currentReleaseJSON(releaseID: String) -> String {
-        """
+    private func currentReleaseJSON(releaseID: String, manifestURL: String? = nil) -> String {
+        let manifestPath = manifestURL ?? "/downloads/releases/\(releaseID)/client-sync-manifest.tsv"
+        return """
         {
           "release_id": "\(releaseID)",
           "created_at": "2026-06-13T00:00:00+00:00",
@@ -264,7 +328,7 @@ struct ClientStatusTests {
           "minecraft_version": "26.1.2",
           "loader_version": "26.1.2.76",
           "server_key": "minecraft_26_1_2",
-          "manifest_url": "/downloads/releases/\(releaseID)/client-sync-manifest.tsv",
+          "manifest_url": "\(manifestPath)",
           "client_zip_url": "/downloads/releases/\(releaseID)/client.zip",
           "client_zip_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "mrpack_url": "/downloads/releases/\(releaseID)/pack.mrpack",
