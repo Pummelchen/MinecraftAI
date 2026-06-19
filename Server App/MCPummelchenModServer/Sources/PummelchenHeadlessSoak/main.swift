@@ -757,7 +757,19 @@ struct HeadlessSoakRunner {
             "fullscreen": "false",
             "renderDistance": "6",
             "simulationDistance": "5",
-            "maxFps": "60"
+            "maxFps": "60",
+            "soundCategory_master": "0.0",
+            "soundCategory_music": "0.0",
+            "soundCategory_record": "0.0",
+            "soundCategory_weather": "0.0",
+            "soundCategory_block": "0.0",
+            "soundCategory_blocks": "0.0",
+            "soundCategory_hostile": "0.0",
+            "soundCategory_neutral": "0.0",
+            "soundCategory_player": "0.0",
+            "soundCategory_players": "0.0",
+            "soundCategory_ambient": "0.0",
+            "soundCategory_voice": "0.0"
         ].forEach { values[$0.key] = $0.value }
         try values
             .keys

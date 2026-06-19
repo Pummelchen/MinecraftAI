@@ -356,9 +356,9 @@ public struct MinecraftServerDefaults: Equatable, Sendable {
 
     public init(
         physicsCollapseEnabled: Bool = false,
-        gameMode: String = "survival",
+        gameMode: String = "creative",
         difficulty: String = "hard",
-        forceGameMode: Bool = true,
+        forceGameMode: Bool = false,
         hardcore: Bool = false
     ) {
         self.physicsCollapseEnabled = physicsCollapseEnabled

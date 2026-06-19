@@ -36,9 +36,9 @@ struct CoreUtilityTests {
         #expect(rootObject["maxCollapseObjects"] as? Int == 100)
 
         let properties = try String(contentsOf: root.appendingPathComponent("server.properties"), encoding: .utf8)
-        #expect(properties.contains("gamemode=survival"))
+        #expect(properties.contains("gamemode=creative"))
         #expect(properties.contains("difficulty=hard"))
-        #expect(properties.contains("force-gamemode=true"))
+        #expect(properties.contains("force-gamemode=false"))
         #expect(properties.contains("hardcore=false"))
         #expect(properties.contains("white-list=false"))
     }

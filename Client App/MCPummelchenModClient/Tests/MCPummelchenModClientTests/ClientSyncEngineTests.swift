@@ -164,6 +164,49 @@ struct ClientSyncEngineTests {
         #endif
     }
 
+    @Test("sync creates required managed directories on first launch")
+    func createsManagedDirectoriesOnFirstLaunch() async throws {
+        #if os(Linux)
+        return
+        #else
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-swift-sync-empty-\(UUID().uuidString)", isDirectory: true)
+        let site = root.appendingPathComponent("site", isDirectory: true)
+        let minecraft = root.appendingPathComponent("minecraft", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let releaseID = "release_20260619_V1_empty_sync"
+        let releaseDir = site.appendingPathComponent("downloads/releases/\(releaseID)", isDirectory: true)
+        try FileManager.default.createDirectory(at: releaseDir, withIntermediateDirectories: true)
+        try "".write(to: releaseDir.appendingPathComponent("client-sync-manifest.tsv"), atomically: true, encoding: .utf8)
+        try currentReleaseJSON(releaseID: releaseID, manifestURL: "/downloads/releases/\(releaseID)/client-sync-manifest.tsv")
+            .write(to: site.appendingPathComponent("downloads/current-release.json"), atomically: true, encoding: .utf8)
+
+        let server = try LocalHTTPServer(root: site)
+        try server.start()
+        defer { server.stop() }
+
+        let engine = ClientSyncEngine(configuration: ClientSyncConfiguration(
+            serverURL: URL(string: "http://127.0.0.1:\(server.port)")!,
+            minecraftDirectory: minecraft,
+            pummelchenHome: home,
+            databaseURL: home.appendingPathComponent("client.duckdb"),
+            allowWhileMinecraftRunning: true,
+            reportToServer: false,
+            manageJavaRuntime: false
+        ))
+
+        let result = try await engine.sync(force: true)
+        #expect(result.result == "ok")
+        #expect(FileManager.default.fileExists(atPath: minecraft.appendingPathComponent("mods").path))
+        #expect(FileManager.default.fileExists(atPath: minecraft.appendingPathComponent("resourcepacks").path))
+        #expect(FileManager.default.fileExists(atPath: minecraft.appendingPathComponent("shaderpacks").path))
+        #expect(FileManager.default.fileExists(atPath: minecraft.appendingPathComponent("config").path))
+        #expect(FileManager.default.fileExists(atPath: minecraft.appendingPathComponent(".pummelchen").path))
+        #endif
+    }
+
     private func currentReleaseJSON(releaseID: String, manifestURL: String) -> String {
         """
         {

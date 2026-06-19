@@ -210,6 +210,24 @@ public struct ClientStatusService: Sendable {
     public func check(rowIDsToRepair: Set<String>? = nil, retryTracker: DefaultsRetryTracker? = nil) async -> ClientStatusSnapshot {
         let checkedAt = Self.isoNow()
         let localRelease = readInstalledRelease()
+        let syncConfiguration = ClientSyncConfiguration(
+            serverURL: configuration.serverURL,
+            minecraftDirectory: configuration.minecraftDirectory,
+            pummelchenHome: configuration.pummelchenHome,
+            databaseURL: configuration.databaseURL,
+            clientID: configuration.clientID,
+            clientAPIToken: configuration.clientAPIToken,
+            retryPolicy: configuration.retryPolicy
+        )
+        let environmentError: String? = {
+            do {
+                try ClientSyncEngine(configuration: syncConfiguration).prepareManagedEnvironment()
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
+        }()
+
         let clientIP = Self.currentLocalIPAddress()
         let defaults = await defaultsForStatus()
         let inspectedDefaults = ClientDefaultsInspector.inspect(minecraftDirectory: configuration.minecraftDirectory, defaults: defaults)
@@ -273,6 +291,9 @@ public struct ClientStatusService: Sendable {
             if !defaultsHealth.allSatisfy({ $0.status.isHealthy }) {
                 state = .repairNeeded
                 errorMessage = "managed defaults need repair"
+            } else if let environmentError {
+                state = .repairNeeded
+                errorMessage = "managed environment not ready: \(environmentError)"
             } else if state == .synced {
                 do {
                     let manifest = try await fetchManifest(for: serverRelease)

@@ -409,6 +409,8 @@ public struct SwiftWorldResetPipeline: Sendable {
             "level-name": worldName,
             "level-seed": config.seed,
             "bonus-chest": "true",
+            "gamemode": "creative",
+            "force-gamemode": "false",
             "white-list": "false",
             "enforce-whitelist": "false"
         ]

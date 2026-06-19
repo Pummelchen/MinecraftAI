@@ -131,6 +131,10 @@ public struct ClientSyncEngine: Sendable {
         self.http = ClientHTTPClient(retryPolicy: configuration.retryPolicy)
     }
 
+    public func prepareManagedEnvironment() throws {
+        try createManagedDirectories()
+    }
+
     public func sync(force: Bool = false) async throws -> ClientSyncResult {
         let started = Date()
         let runID = UUID().uuidString
@@ -140,9 +144,9 @@ public struct ClientSyncEngine: Sendable {
                 throw ClientSyncError.minecraftRunning
             }
 
+            try prepareManagedEnvironment()
             let release = try await fetchCurrentRelease()
             let manifest = try await fetchManifest(for: release)
-            try createManagedDirectories()
 
             let staleRemoved = try removeStaleManagedFiles(current: manifest)
             let unmanagedMoved = try quarantineUnmanagedFiles(current: manifest)
@@ -419,6 +423,20 @@ public struct ClientSyncEngine: Sendable {
     }
 
     private func createManagedDirectories() throws {
+        let extraDirectories: [String] = [
+            "mods",
+            "resourcepacks",
+            "shaderpacks",
+            "config",
+            ".pummelchen"
+        ]
+        for name in extraDirectories where ManagedClientSection(rawValue: name) == nil {
+            try FileManager.default.createDirectory(
+                at: configuration.minecraftDirectory.appendingPathComponent(name, isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+
         for section in ManagedClientSection.allCases {
             try FileManager.default.createDirectory(at: try directory(for: section.rawValue), withIntermediateDirectories: true)
         }

@@ -1690,6 +1690,8 @@ struct MCPummelchenModServerCoreTests {
         let properties = try String(contentsOf: fixture.serverDir.appendingPathComponent("server.properties"), encoding: .utf8)
         #expect(properties.contains("level-seed=178127232016679900"))
         #expect(properties.contains("bonus-chest=true"))
+        #expect(properties.contains("gamemode=creative"))
+        #expect(properties.contains("force-gamemode=false"))
         #expect(properties.contains("white-list=false"))
         #expect(properties.contains("enforce-whitelist=false"))
         let status = try duckDBScalar(database: database, sql: "SELECT status FROM world.reset_jobs WHERE job_id = '\(result.jobID)';")
