@@ -1936,6 +1936,9 @@ struct MCPummelchenModServerCoreTests {
             try "{}\n".write(to: fileURL, atomically: true, encoding: .utf8)
         }
         try runZip(arguments: ["-q", "-r", destination.path, "pack.mcmeta"], currentDirectory: workDir)
+        if FileManager.default.fileExists(atPath: workDir.appendingPathComponent("TROPICAL_WORLDGEN.md").path) {
+            try runZip(arguments: ["-q", "-r", destination.path, "TROPICAL_WORLDGEN.md"], currentDirectory: workDir)
+        }
         try runZip(arguments: ["-q", "-r", destination.path, "data"], currentDirectory: workDir)
     }
 
@@ -1949,6 +1952,17 @@ struct MCPummelchenModServerCoreTests {
             ]
         case "pummelchen-tropical-worldgen.zip":
             [
+                "TROPICAL_WORLDGEN.md",
+                "data/pummelchen/worldgen/structure_set/village_cluster_01.json",
+                "data/pummelchen/worldgen/structure_set/village_cluster_02.json",
+                "data/pummelchen/worldgen/structure_set/village_cluster_03.json",
+                "data/pummelchen/worldgen/structure_set/village_cluster_04.json",
+                "data/pummelchen/worldgen/structure_set/village_cluster_05.json",
+                "data/pummelchen/worldgen/structure_set/village_cluster_06.json",
+                "data/pummelchen/worldgen/structure_set/village_cluster_07.json",
+                "data/pummelchen/worldgen/structure_set/village_cluster_08.json",
+                "data/pummelchen/worldgen/structure_set/village_cluster_09.json",
+                "data/pummelchen/worldgen/structure_set/village_cluster_10.json",
                 "data/minecraft/worldgen/multi_noise_biome_source_parameter_list/overworld.json"
             ]
         case "pummelchen-rich-ores.zip":

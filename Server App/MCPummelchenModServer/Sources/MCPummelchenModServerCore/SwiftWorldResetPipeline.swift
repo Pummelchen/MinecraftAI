@@ -139,6 +139,17 @@ public struct SwiftWorldResetPipeline: Sendable {
             "data/minecraft/loot_table/chests/spawn_bonus_chest.json"
         ],
         "pummelchen-tropical-worldgen.zip": [
+            "TROPICAL_WORLDGEN.md",
+            "data/pummelchen/worldgen/structure_set/village_cluster_01.json",
+            "data/pummelchen/worldgen/structure_set/village_cluster_02.json",
+            "data/pummelchen/worldgen/structure_set/village_cluster_03.json",
+            "data/pummelchen/worldgen/structure_set/village_cluster_04.json",
+            "data/pummelchen/worldgen/structure_set/village_cluster_05.json",
+            "data/pummelchen/worldgen/structure_set/village_cluster_06.json",
+            "data/pummelchen/worldgen/structure_set/village_cluster_07.json",
+            "data/pummelchen/worldgen/structure_set/village_cluster_08.json",
+            "data/pummelchen/worldgen/structure_set/village_cluster_09.json",
+            "data/pummelchen/worldgen/structure_set/village_cluster_10.json",
             "data/minecraft/worldgen/multi_noise_biome_source_parameter_list/overworld.json"
         ],
         "pummelchen-rich-ores.zip": [
