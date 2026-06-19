@@ -379,7 +379,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
           COALESCE(loader_version, '') AS loader_version,
           active_status
         FROM core.failed_mod_update_status
-        WHERE active_status = 'failed'
+        WHERE lower(active_status) IN ('failed', 'banned by admin')
         ORDER BY failed_at DESC NULLS LAST, title ASC;
         """)
         let dbRows = csv.map(Self.parseCSV) ?? []

@@ -341,7 +341,7 @@ SELECT
 FROM core.mods m
 LEFT JOIN core.mod_server_files msf ON msf.mod_id = m.id
 LEFT JOIN core.mod_files mf ON mf.mod_id = m.id
-WHERE lower(m.active_status) = 'failed';
+WHERE lower(m.active_status) IN ('failed', 'banned by admin');
 
 CREATE OR REPLACE VIEW reporting.v_release_health_latest AS
 SELECT

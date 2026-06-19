@@ -930,6 +930,88 @@ struct MCPummelchenModServerCoreTests {
         #expect(sourceRows == "1")
     }
 
+    @Test("ban-mod removes matching jars from all supported server and client packages")
+    func banModRemovesMatchingJarsFromAllSupportedPackages() throws {
+        try requireDuckDB()
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-ban-mod-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let server261 = root.appendingPathComponent("minecraft-26.1.2", isDirectory: true)
+        let server262 = root.appendingPathComponent("minecraft-26.2", isDirectory: true)
+        for serverDir in [server261, server262] {
+            try FileManager.default.createDirectory(at: serverDir.appendingPathComponent("mods"), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: serverDir.appendingPathComponent("client-package/mods"), withIntermediateDirectories: true)
+            try "bad".write(to: serverDir.appendingPathComponent("mods/ocean_lily_pad_village-1.0.0 Neoforge 26.1.2.jar"), atomically: true, encoding: .utf8)
+            try "bad-client".write(to: serverDir.appendingPathComponent("client-package/mods/ocean_lily_pad_village-1.0.0 Neoforge 26.1.2.jar"), atomically: true, encoding: .utf8)
+            try "keep".write(to: serverDir.appendingPathComponent("mods/other-structure.jar"), atomically: true, encoding: .utf8)
+        }
+
+        let database = root.appendingPathComponent("ban.duckdb")
+        try DuckDBDatabase(databaseURL: database).execute("""
+        CREATE SCHEMA IF NOT EXISTS core;
+        CREATE TABLE core.minecraft_server_versions(
+          minecraft_version VARCHAR PRIMARY KEY,
+          loader VARCHAR,
+          loader_version VARCHAR,
+          server_name VARCHAR,
+          server_address VARCHAR,
+          server_dir VARCHAR,
+          status VARCHAR,
+          is_live BOOLEAN,
+          sort_order INTEGER,
+          created_at TIMESTAMP DEFAULT now(),
+          updated_at TIMESTAMP DEFAULT now(),
+          notes VARCHAR
+        );
+        INSERT INTO core.minecraft_server_versions VALUES
+          ('26.1.2', 'neoforge', '26.1.2.76', 'Pummelchen Server 26.1.2', '127.0.0.1:25565', \(sqlLiteral(server261.path)), 'live', true, 10, now(), now(), 'test'),
+          ('26.2', 'neoforge', '26.2.0.3-beta', 'Pummelchen Server 26.2', '127.0.0.1:25566', \(sqlLiteral(server262.path)), 'staging', false, 20, now(), now(), 'test');
+        CREATE TABLE core.mod_sources(
+          source_id VARCHAR PRIMARY KEY,
+          mod_key VARCHAR,
+          display_name VARCHAR,
+          installed_file VARCHAR,
+          installed_version VARCHAR,
+          provider VARCHAR,
+          source_url VARCHAR,
+          priority INTEGER,
+          active BOOLEAN,
+          created_at TIMESTAMP DEFAULT now(),
+          updated_at TIMESTAMP DEFAULT now(),
+          minecraft_version VARCHAR,
+          loader VARCHAR,
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mod_sources(
+          source_id, mod_key, display_name, installed_file, installed_version,
+          provider, source_url, priority, active, minecraft_version, loader, loader_version
+        ) VALUES
+          ('ocean_lily_261', 'ocean-lily-pad-village', 'Ocean Lily Pad Village', 'ocean_lily_pad_village-1.0.0 Neoforge 26.1.2.jar', '1.0.0', 'curseforge', 'https://www.curseforge.com/minecraft/mc-mods/ocean-lily-pad-village', 100, true, '26.1.2', 'neoforge', '26.1.2.76'),
+          ('ocean_lily_262', 'ocean-lily-pad-village', 'Ocean Lily Pad Village', 'ocean_lily_pad_village-1.0.0 Neoforge 26.1.2.jar', '1.0.0', 'curseforge', 'https://www.curseforge.com/minecraft/mc-mods/ocean-lily-pad-village', 100, true, '26.2', 'neoforge', '26.2.0.3-beta');
+        """)
+
+        let result = try ModBanPipeline(config: ModBanPipelineConfig(
+            projectRoot: root,
+            databaseURL: database,
+            displayName: "Ocean Lily Pad Village",
+            filePatterns: ["ocean_lily_pad_village"],
+            sourceURL: "https://www.curseforge.com/minecraft/mc-mods/ocean-lily-pad-village",
+            dryRun: false
+        )).run()
+
+        #expect(result.removals.count == 4)
+        #expect(result.removals.allSatisfy { $0.removed })
+        for serverDir in [server261, server262] {
+            #expect(!FileManager.default.fileExists(atPath: serverDir.appendingPathComponent("mods/ocean_lily_pad_village-1.0.0 Neoforge 26.1.2.jar").path))
+            #expect(!FileManager.default.fileExists(atPath: serverDir.appendingPathComponent("client-package/mods/ocean_lily_pad_village-1.0.0 Neoforge 26.1.2.jar").path))
+            #expect(FileManager.default.fileExists(atPath: serverDir.appendingPathComponent("mods/other-structure.jar").path))
+        }
+        #expect(try duckDBScalar(database: database, sql: "SELECT active_status FROM core.mods WHERE canonical_key = 'ocean-lily-pad-village';") == "Banned by Admin")
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources WHERE active = false;") == "2")
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.failed_mod_update_status WHERE failure_reason = 'Banned by Admin' AND active_status = 'Banned by Admin';") == "2")
+    }
+
     @Test("mod update apply replaces old jars and creates a live release")
     func modUpdateApplyReplacesOldJarsAndCreatesLiveRelease() throws {
         try requireDuckDB()

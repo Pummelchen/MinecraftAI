@@ -24,6 +24,7 @@ enum ServerCommandError: Error, CustomStringConvertible {
               MCPummelchenModServer release-create --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id> [--activate true] [--restart-command <shell>] [--health-command <shell>]
               MCPummelchenModServer release-validate --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id>
               MCPummelchenModServer add-mod --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --url <curseforge-or-modrinth-url> --release-id <id> [--local-artifact <jar>] [--install-scope auto|server|client|both] [--activate true] [--dry-run false] [--server-test-command <shell>] [--build-dmg-command <shell>] [--restart-command <shell>] [--health-command <shell>]
+              MCPummelchenModServer ban-mod --project-root <repo> --duckdb <file> --name <display-name> --file-pattern <jar-name-or-pattern> [--source-url <url>] [--reason "Banned by Admin"] [--dry-run true]
               MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--all-supported true] [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-tested-updates true] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
               MCPummelchenModServer mod-update-apply --project-root <repo> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id-prefix <id> [--all-supported true] [--minecraft-version 26.1.2] [--dry-run true] [--activate-live true] [--server-test-command <shell>] [--build-dmg-command <shell>] [--restart-command <shell>] [--health-command <shell>]
               MCPummelchenModServer client-force-update --project-root <repo> --duckdb <file> [--release-id <id>] [--target-client-id <id>]
@@ -329,6 +330,16 @@ func run(arguments: [String]) throws {
         for step in result.steps {
             print("mod_add_step=\(step)")
         }
+    case "ban-mod":
+        let pipeline = try banModPipeline(args: args, projectRoot: projectRoot)
+        let result = try pipeline.run()
+        print("mod_ban_name=\(result.displayName)")
+        print("mod_ban_reason=\(result.reason)")
+        print("mod_ban_dry_run=\(result.dryRun)")
+        print("mod_ban_removals=\(result.removals.count)")
+        for removal in result.removals {
+            print("mod_ban_removed=\(removal.removed) minecraft_version=\(removal.minecraftVersion) path=\(removal.path)")
+        }
     case "mod-update-scan":
         if optionBool(args.options["--all-supported"]) {
             let summaries = try runAllSupportedModUpdateScans(args: args, projectRoot: projectRoot)
@@ -522,6 +533,24 @@ private func addModPipeline(args: Arguments, projectRoot: URL) throws -> ModAddP
         ?? defaultServerTestCommand,
         restartCommand: args.options["--restart-command"],
         healthCommand: args.options["--health-command"]
+    ))
+}
+
+private func banModPipeline(args: Arguments, projectRoot: URL) throws -> ModBanPipeline {
+    let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
+    let filePattern = try args.require("--file-pattern")
+    let extraPatterns = (args.options["--extra-file-patterns"] ?? "")
+        .split(separator: ",")
+        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+    return ModBanPipeline(config: ModBanPipelineConfig(
+        projectRoot: projectRoot,
+        databaseURL: duckDB,
+        displayName: try args.require("--name"),
+        filePatterns: [filePattern] + extraPatterns,
+        sourceURL: args.options["--source-url"],
+        reason: args.options["--reason"] ?? "Banned by Admin",
+        dryRun: args.options["--dry-run"] != "false"
     ))
 }
 
