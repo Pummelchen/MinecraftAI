@@ -741,7 +741,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 let displayName = Self.displayNameFromManifestFile(fileName)
                 let row: [String: Any] = [
                     "name": displayName,
-                    "type": Self.typeLabel(forManifestRole: role),
+                    "type": Self.typeLabel(forManifestRole: role, fileName: fileName),
                     "files": fileName,
                     "versionFile": fileName,
                     "sourceUrl": "",
@@ -760,15 +760,67 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             }
     }
 
-    private static func typeLabel(forManifestRole role: String) -> String {
+    private static func typeLabel(forManifestRole role: String, fileName: String = "") -> String {
         switch role {
         case "server_mod": return "Server Mod"
-        case "client_mods": return "Client Mod"
-        case "client_resourcepacks": return "Resource Pack"
-        case "client_shaderpacks": return "Shader Pack"
-        case "client_tools": return "Configuration"
+        case "mods", "client_mods": return clientModTypeLabel(for: fileName)
+        case "resourcepacks", "client_resourcepacks": return "Resource Pack"
+        case "shaderpacks", "client_shaderpacks": return fileName.lowercased().hasSuffix(".txt") ? "Shader Configuration" : "Shader Pack"
+        case "tools", "client_tools": return "Configuration"
         default: return "Release Manifest"
         }
+    }
+
+    private static func clientModTypeLabel(for fileName: String) -> String {
+        let value = fileName.lowercased()
+        if value.isEmpty {
+            return "Gameplay"
+        }
+        if containsAny(value, [
+            "architectury", "balm", "bookshelf", "catalogue", "citadel", "cloth-config", "collective",
+            "configured", "cupboard", "framework", "geckolib", "glitchcore", "kotlin", "lithostitched",
+            "moonlight", "mru", "playeranimation", "prickle", "puzzleslib", "resourcefulconfig",
+            "resourcefullib", "smartbrainlib", "terrablender", "yungsapi"
+        ]) {
+            return "Libraries and Dependencies"
+        }
+        if containsAny(value, [
+            "ai-improvements", "alternate_current", "cull", "dynamic-fps", "embeddium", "entityculling",
+            "ferritecore", "immediatelyfast", "low-latency", "modernfix", "noisium", "sodium", "spark"
+        ]) {
+            return "Performance"
+        }
+        if containsAny(value, [
+            "ambient", "betterf3", "camera", "emf", "entity_model", "entity_texture", "etf", "iris",
+            "lambdynamiclights", "light", "model", "modernarch", "panorama", "physics", "shader",
+            "sound-physics", "texture", "visual"
+        ]) {
+            return "Client Visuals"
+        }
+        if containsAny(value, [
+            "biome", "dungeon", "explor", "geophilic", "structure", "tectonic", "terrain", "terralith",
+            "town", "village", "worldgen"
+        ]) {
+            return "World Generation"
+        }
+        if containsAny(value, [
+            "animal", "duck", "fauna", "fish", "giraffe", "goose", "mob", "naturalist", "pet",
+            "phantom", "wildlife"
+        ]) {
+            return "Mobs and Wildlife"
+        }
+        if containsAny(value, [
+            "building", "chipped", "chimney", "comforts", "decor", "display", "door", "fence",
+            "furniture", "handcrafted", "lantern", "light", "macaw", "paint", "refurbished",
+            "rechiseled", "roof", "stoneworks", "storage", "window"
+        ]) {
+            return "Building and Decor"
+        }
+        return "Gameplay"
+    }
+
+    private static func containsAny(_ value: String, _ needles: [String]) -> Bool {
+        needles.contains { value.contains($0) }
     }
 
     private static func displayNameFromManifestFile(_ fileName: String) -> String {

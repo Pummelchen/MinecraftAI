@@ -262,6 +262,18 @@ struct MCPummelchenModServerCoreTests {
           ('fixture-server-26-2', 'fixture-server-mod', 'Fixture Server Mod', 'server-26.2.jar', '2.0.0', 'fixture', 'https://fixture.local/server', true, '26.2', 'neoforge', '26.2.0.3-beta'),
           ('fixture-client-26-1-2', 'fixture-client-mod', 'Fixture Client Mod', 'client.jar', '1.0.0', 'fixture', 'https://fixture.local/client', true, '26.1.2', 'neoforge', '26.1.2.76');
         """)
+        let manifestDir = fixture.root.appendingPathComponent(
+            "site/public/downloads/releases/release_20260612_V6_modernarch-refresh/manifests",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: manifestDir, withIntermediateDirectories: true)
+        try """
+        role	relative_path
+        client_mods	client-files/mods/example-mod.jar
+        client_resourcepacks	client-files/resourcepacks/ModernArch v2.8.2 [26.1] [128x].zip
+        client_shaderpacks	client-files/shaderpacks/BSL_v10.0.zip
+        client_shaderpacks	client-files/shaderpacks/BSL_v10.0.zip.txt
+        """.write(to: manifestDir.appendingPathComponent("client-package.tsv"), atomically: true, encoding: .utf8)
 
         let api = makeAPI(fixture: fixture)
         let serverMods = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/mod-inventory/server"))
@@ -295,6 +307,12 @@ struct MCPummelchenModServerCoreTests {
         #expect(clientRows.first?["sourceHost"] as? String == "fixture.local")
         #expect(clientCompatibility["26.1.2"] == "Active")
         #expect(clientCompatibility["26.2"] == "Needs test")
+        let clientTypes = Set(clientRows.compactMap { $0["type"] as? String })
+        #expect(!clientTypes.contains("Client Mod"))
+        #expect(clientTypes.contains("Gameplay"))
+        #expect(clientTypes.contains("Resource Pack"))
+        #expect(clientTypes.contains("Shader Pack"))
+        #expect(clientTypes.contains("Shader Configuration"))
     }
 
     @Test("serves supported Minecraft server versions from DuckDB")
