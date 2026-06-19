@@ -2,7 +2,8 @@
 
 Web Monitor of the Live Minecraft Server
 
-<img width="1336" height="1723" alt="image" src="https://github.com/user-attachments/assets/05f64b08-ea67-4c79-a5b2-9d5efd1d69ef" />
+<img width="1360" height="1646" alt="image" src="https://github.com/user-attachments/assets/6396c290-6f26-4cee-8e6a-996cd6bd9b54" />
+
 
 
 
