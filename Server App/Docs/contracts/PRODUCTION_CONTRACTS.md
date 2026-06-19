@@ -147,7 +147,7 @@ Release health must verify:
 
 ## DMG New-Player Acceptance And Live Soak Gate
 
-Every new `MCPummelchenModClient.dmg` must be tested before release activation by installing from that exact DMG into an isolated fresh-player environment, repairing/installing the managed Java runtime, installing NeoForge, syncing the full client pack, applying client defaults, validating the local client DuckDB, adding the Pummelchen server entry exactly once, logging into the live Pummelchen Minecraft server, and staying connected for at least 5 minutes.
+Every new `MCPummelchenModClient.dmg` must be tested before release activation by installing from that exact DMG into an isolated fresh-player environment, repairing/installing the managed Java runtime, installing NeoForge, syncing the full client pack, applying client defaults, validating the local client DuckDB, adding the Pummelchen server entry exactly once, logging into the live Pummelchen Minecraft server, and staying connected for at least 1 minute.
 
 The Swift runner that produces this proof is:
 

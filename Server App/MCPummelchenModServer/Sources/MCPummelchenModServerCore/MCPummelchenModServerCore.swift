@@ -869,7 +869,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             }
             let row: [String: Any] = [
                 "name": source.displayName.isEmpty ? source.installedFiles : source.displayName,
-                "type": "Live DuckDB Source",
+                "type": Self.clientModTypeLabel(for: source.installedFiles),
                 "files": source.installedFiles,
                 "versionFile": source.installedFiles,
                 "installed_version": source.installedVersions,

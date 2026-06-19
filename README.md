@@ -7,7 +7,7 @@ Web Monitor of the Live Minecraft Server
 
 
 
-# Minecraft AI Server/Client Mod Updater
+# Minecraft Automatic Server/Client Mod Updater
 
 An AI-assisted system for automatically managing Minecraft server and clients with 300+ mods.
 
@@ -15,7 +15,7 @@ This project uses AI environments like OpenCode/Codex/Qoder as a natural-languag
 
 "Add mod Biomes O' Plenty"
 
-The Minecraft runtime starts with a vanilla server and adds the managed mod pack through NeoForge. The same release flow also handles client-side shader packs, resource packs, and configuration scripts, keeping the server and macOS clients aligned through nginx-served HTTPS release downloads plus authenticated HTTPS live update control APIs.
+The Minecraft runtime starts with a vanilla server and adds the managed mod pack through NeoForge. The same release flow also handles client-side shader packs, resource packs, and configuration files, keeping the server and macOS clients aligned through nginx-served HTTPS release downloads plus authenticated HTTPS live update control APIs.
 
 `add-mod` is now a full pipeline command: when you call `MCPummelchenModServer add-mod` without `--dry-run true`, it resolves dependencies, applies compatibility checks, runs a server smoke test, builds a full release, runs the DMG build + 1-minute headless live soak, and publishes a DMG-backed release for download.
 

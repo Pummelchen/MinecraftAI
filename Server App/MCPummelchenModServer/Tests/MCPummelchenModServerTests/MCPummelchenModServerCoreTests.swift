@@ -313,6 +313,7 @@ struct MCPummelchenModServerCoreTests {
         #expect(serverCompatibility["26.1.2"] == "Active")
         #expect(serverCompatibility["26.2"] == "Staged")
         #expect(serverRows.first?["files"] as? String == "server-26.1.2.jar")
+        #expect(serverRows.allSatisfy { ($0["type"] as? String) != "Live DuckDB Source" })
         #expect(clientObject?["scope"] as? String == "client")
         #expect(clientRows.first?["name"] as? String == "Fixture Client Mod")
         #expect(clientRows.first?["sourceUrl"] as? String == "https://fixture.local/client")

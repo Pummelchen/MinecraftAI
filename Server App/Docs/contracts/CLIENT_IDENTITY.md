@@ -13,16 +13,17 @@ Each installed client has:
 
 ## Storage
 
-Preferred final storage:
+Preferred storage:
 
 - `client_id` in local app configuration.
 - `client_secret` in macOS Keychain.
 
-Allowed during early private test builds:
+Private build bootstrap:
 
-- locked-down local token file under the Pummelchen app support directory.
-- file permissions must be owner read/write only.
-- the token file must never be included in the DMG, release ZIP, Git, logs, or diagnostics.
+- A private DMG build may include a `client-api-token` resource when `PUMMELCHEN_CLIENT_API_TOKEN` is provided during packaging.
+- The token resource is a bootstrap credential for the private player group and must not be committed to Git, printed in logs, included in diagnostics, or written to public release metadata.
+- The packaged token resource must be owner read/write only inside the staged app bundle before signing.
+- Environment and Info.plist token values override the bundled resource for operator tests and emergency repair builds.
 
 ## Transport And Request Authentication
 
@@ -57,13 +58,13 @@ When a sync event is received, the client fetches the current release metadata, 
 ## Rotation And Revocation
 
 - Server can mark a client token as revoked.
-- Client must generate a new token only through an explicit repair/re-enrollment path.
-- Diagnostics uploads must redact `client_secret`.
-- Server logs may retain `client_id`, but not `client_secret`.
+- Client must rotate away from a token only through an explicit repair/re-enrollment path.
+- Diagnostics uploads must redact `client_secret`, bootstrap tokens, and authorization headers.
+- Server logs may retain `client_id`, but not `client_secret`, bootstrap tokens, or authorization headers.
 
 ## Non-Goals
 
 - No direct access from clients to the server-side DuckDB database.
 - No unauthenticated client write APIs.
-- No shared global client token for production.
+- No token values in Git, public website assets, public release metadata, logs, or diagnostics.
 - No large file downloads through the authenticated control API.

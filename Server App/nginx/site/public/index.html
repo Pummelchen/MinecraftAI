@@ -1224,10 +1224,7 @@
       return normalizeModInventoryRows(Array.isArray(rows) ? rows : []);
     }
     function fallbackRowsForModInventory(config) {
-      if (Array.isArray(config.dataIds) && config.dataIds.includes('serverModsData') && config.dataIds.includes('clientModsData')) {
-        return mergeModInventoryRows(readJSONScript('serverModsData'), readJSONScript('clientModsData'));
-      }
-      return readJSONScript(config.dataId);
+      return [];
     }
     function applyModInventoryRows(config, rows, metadata = {}) {
       const input = document.getElementById(config.searchId);
@@ -1295,16 +1292,19 @@
       modInventoryConfigs.forEach(wireModInventoryTable);
     }
     async function refreshModInventoryTable(config) {
-      const fallbackRows = fallbackRowsForModInventory(config);
       try {
         const response = await fetch(config.endpoint, { cache: 'no-store' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const payload = await response.json();
-        applyModInventoryRows(config, rowsFromInventoryPayload(payload, fallbackRows), metadataFromInventoryPayload(payload));
-      } catch {
+        applyModInventoryRows(config, rowsFromInventoryPayload(payload, []), metadataFromInventoryPayload(payload));
+      } catch (error) {
         const state = modInventoryTableState[config.gridId];
         if (!state) {
-          applyModInventoryRows(config, normalizeModInventoryRows(fallbackRows));
+          applyModInventoryRows(config, []);
+        }
+        const count = document.getElementById(config.countId);
+        if (count) {
+          count.textContent = `Live data unavailable: ${error.message}`;
         }
       }
     }
@@ -1393,11 +1393,11 @@
     window.setInterval(refreshLiveStats, 5000);
     refreshServerVersions();
     window.setInterval(refreshServerVersions, 5000);
+    wireModInventoryTables();
     refreshModInventoryTables();
     window.setInterval(refreshModInventoryTables, 15000);
     window.addEventListener('resize', refreshLiveStats);
     wireSnippetCopyButtons();
-    wireModInventoryTables();
   </script>
 </body>
 </html>

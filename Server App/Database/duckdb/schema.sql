@@ -5,3 +5,4 @@
 .read database/duckdb/migrations/002_operational_schemas_and_indexes.sql
 .read database/duckdb/migrations/003_minecraft_versions.sql
 .read database/duckdb/migrations/004_client_inventory_by_version.sql
+.read database/duckdb/migrations/005_reporting_status_normalization.sql
