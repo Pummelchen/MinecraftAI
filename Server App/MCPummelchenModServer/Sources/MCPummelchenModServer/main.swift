@@ -26,6 +26,7 @@ enum ServerCommandError: Error, CustomStringConvertible {
               MCPummelchenModServer add-mod --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --url <curseforge-or-modrinth-url> --release-id <id> [--local-artifact <jar>] [--install-scope auto|server|client|both] [--activate true] [--dry-run false] [--server-test-command <shell>] [--build-dmg-command <shell>] [--restart-command <shell>] [--health-command <shell>]
               MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--all-supported true] [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-tested-updates true] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
               MCPummelchenModServer mod-update-apply --project-root <repo> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id-prefix <id> [--all-supported true] [--minecraft-version 26.1.2] [--dry-run true] [--activate-live true] [--server-test-command <shell>] [--build-dmg-command <shell>] [--restart-command <shell>] [--health-command <shell>]
+              MCPummelchenModServer client-force-update --project-root <repo> --duckdb <file> [--release-id <id>] [--target-client-id <id>]
               MCPummelchenModServer world-reset --project-root <repo> --server-dir <dir> --duckdb <file> --seed <seed> [--dry-run true] [--yes true] [--radius-blocks 1000] [--delete-backup-after-success true] [--stop-command <shell>] [--start-command <shell>] [--gamerule-command <shell>] [--pregenerate-command <shell>] [--verify-forceloads-command <shell>] [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>] [--pregeneration-batch-size 384]
               MCPummelchenModServer rcon-command --project-root <repo> --server-dir <dir> --command <minecraft command> [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>]
             """
@@ -362,6 +363,13 @@ func run(arguments: [String]) throws {
                 print("mod_update_applied=\(version.minecraftVersion) old=\(update.oldFiles.joined(separator: "|")) new=\(update.newFile) latest=\(update.latestVersion) sha256=\(update.sha256)")
             }
         }
+    case "client-force-update":
+        let event = try runClientForceUpdate(args: args, projectRoot: projectRoot)
+        print("client_force_update=ok")
+        print("event_id=\(event.eventID)")
+        print("event_type=\(event.eventType.rawValue)")
+        print("release_id=\(event.releaseID ?? "")")
+        print("target_client_id=\(event.targetClientID ?? "all")")
     case "world-reset":
         let pipeline = try worldResetPipeline(args: args, projectRoot: projectRoot)
         let result = try pipeline.run()
@@ -382,6 +390,39 @@ func run(arguments: [String]) throws {
     default:
         throw ServerCommandError.usage
     }
+}
+
+private func runClientForceUpdate(args: Arguments, projectRoot: URL) throws -> ControlEvent {
+    let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
+    let releaseID = try args.options["--release-id"] ?? currentReleaseID(projectRoot: projectRoot)
+    let targetClientID = args.options["--target-client-id"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let request = ControlEventCreateRequest(
+        eventType: .releaseAvailable,
+        targetClientID: targetClientID?.isEmpty == false ? targetClientID : nil,
+        releaseID: releaseID,
+        priority: "critical",
+        title: "Client app update required",
+        message: "A validated Pummelchen client app release is available. Sync now and self-update if your app bundle is older.",
+        payload: [
+            "action": "sync",
+            "reason": "operator_forced_client_app_update",
+            "release_id": releaseID
+        ]
+    )
+    return try ControlEventStore(databaseURL: duckDB).create(request)
+}
+
+private func currentReleaseID(projectRoot: URL) throws -> String {
+    let candidates = [
+        projectRoot.appendingPathComponent("site/public/downloads/current-release.json"),
+        projectRoot.appendingPathComponent("downloads/current-release.json")
+    ]
+    for url in candidates where FileManager.default.fileExists(atPath: url.path) {
+        let release = try CurrentReleaseValidator.decode(Data(contentsOf: url))
+        try CurrentReleaseValidator.validate(release)
+        return release.releaseID
+    }
+    throw ServerCommandError.missingValue("--release-id")
 }
 
 private func runRCONCommand(args: Arguments) throws -> String {

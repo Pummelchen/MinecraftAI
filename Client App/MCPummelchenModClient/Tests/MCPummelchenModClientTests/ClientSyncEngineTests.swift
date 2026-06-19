@@ -255,7 +255,6 @@ final class LocalHTTPServer {
                 killer.waitUntilExit()
             }
         }
-        process.waitUntilExit()
         self.process = nil
     }
 

@@ -1467,6 +1467,51 @@ struct MCPummelchenModServerCoreTests {
         #expect(elapsed < 4.5)
     }
 
+    @Test("phase 8 broadcast release events remain pending per client")
+    func phase8BroadcastReleaseEventsRemainPendingPerClient() throws {
+        try requireDuckDB()
+        let fixture = try makeProjectFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let api = makeAPI(fixture: fixture, token: "phase8-token")
+        let clientA = "client-broadcast-a"
+        let clientB = "client-broadcast-b"
+        let headersA = authHeaders(token: "phase8-token", clientID: clientA)
+        let headersB = authHeaders(token: "phase8-token", clientID: clientB)
+        let eventRequest = ControlEventCreateRequest(
+            eventType: .releaseAvailable,
+            targetClientID: nil,
+            releaseID: "release_20260619_V41_mod_updates_mc_26_1_2",
+            priority: "critical",
+            title: "Client app update required",
+            message: "Sync now and self-update if needed.",
+            payload: ["action": "sync", "reason": "test_broadcast"]
+        )
+        let create = api.response(for: HTTPRequest(
+            method: "POST",
+            path: "/api/v1/control/events",
+            headers: headersA,
+            body: try JSONEncoder().encode(eventRequest)
+        ))
+        #expect(create.statusCode == 201)
+        let event = try JSONDecoder().decode(ControlEvent.self, from: create.body)
+        #expect(event.targetClientID == nil)
+
+        let fetchA = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/control/events?client_id=\(clientA)", headers: headersA))
+        let batchA = try JSONDecoder().decode(ControlEventBatch.self, from: fetchA.body)
+        #expect(batchA.events.map(\.eventID) == [event.eventID])
+
+        let ackA = ControlEventAck(clientID: clientA, eventID: event.eventID, receivedAt: "2026-06-19T00:00:00+00:00")
+        #expect(api.response(for: HTTPRequest(method: "POST", path: "/api/v1/control/acks", headers: headersA, body: try JSONEncoder().encode(ackA))).statusCode == 200)
+
+        let afterAckA = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/control/events?client_id=\(clientA)", headers: headersA))
+        #expect(try JSONDecoder().decode(ControlEventBatch.self, from: afterAckA.body).events.isEmpty)
+
+        let fetchB = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/control/events?client_id=\(clientB)", headers: headersB))
+        let batchB = try JSONDecoder().decode(ControlEventBatch.self, from: fetchB.body)
+        #expect(batchB.events.map(\.eventID) == [event.eventID])
+    }
+
     @Test("phase 8 client fetches and acknowledges control events over nginx HTTPS")
     func phase8ClientUsesNginxHTTPSControlChannel() async throws {
         try requireDuckDB()
@@ -2026,7 +2071,6 @@ final class LocalHTTPServer {
                 killer.waitUntilExit()
             }
         }
-        process.waitUntilExit()
         self.process = nil
     }
 
