@@ -382,7 +382,7 @@ html[data-theme="glass2"] body::after {
     0 0 46px rgba(255, 226, 140, 0.2);
   opacity: 0.68;
   transform: translate3d(0, 0, 0);
-  animation: glass2-sun-arch 3600s ease-in-out infinite;
+  animation: glass2-sun-arch 60s ease-in-out infinite;
 }
 
 html[data-theme="glass2"] header,
@@ -417,7 +417,7 @@ html[data-theme="glass2"] .sheet-grid {
     0 26px 70px rgba(0, 0, 0, 0.34),
     inset 0 1px 0 rgba(255, 255, 255, 0.24),
     inset 0 -1px 0 rgba(255, 255, 255, 0.08);
-  animation: glass2-solar-shadow 3600s ease-in-out infinite;
+  animation: glass2-solar-shadow 60s ease-in-out infinite;
 }
 
 html[data-theme="glass2"] header > *,
