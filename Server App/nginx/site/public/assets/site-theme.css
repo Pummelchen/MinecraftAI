@@ -350,10 +350,10 @@
 
 html[data-theme="glass2"] {
   --glass2-edge: rgba(203, 241, 255, 0.5);
-  --glass2-edge-hot: rgba(158, 255, 209, 0.88);
+  --glass2-edge-hot: rgba(255, 245, 185, 0.95);
   --glass2-sheen: rgba(255, 255, 255, 0.32);
-  --glass2-glow: rgba(151, 231, 255, 0.28);
-  --glass2-flash: rgba(159, 255, 209, 0.38);
+  --glass2-solar-edge: rgba(255, 239, 183, 0.22);
+  --glass2-solar-shadow: rgba(0, 0, 0, 0.34);
   --chart-bg: rgba(5, 8, 12, 0.48);
   --chart-grid: rgba(255, 255, 255, 0.18);
   --chart-line: #b6f6ff;
@@ -364,6 +364,32 @@ html[data-theme="glass2"] body {
     linear-gradient(180deg, rgba(4, 6, 10, 0.52), rgba(3, 5, 8, 0.84)),
     url("minecraft-spring26-bw-bg.jpg") center / cover fixed no-repeat,
     #030507;
+}
+
+html[data-theme="glass2"] body::after {
+  content: "";
+  position: fixed;
+  top: 22vh;
+  left: 7vw;
+  z-index: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(255, 252, 218, 0.98) 0 28%, rgba(255, 218, 121, 0.86) 42%, rgba(255, 218, 121, 0.16) 68%, transparent 72%);
+  box-shadow:
+    0 0 14px rgba(255, 226, 140, 0.42),
+    0 0 46px rgba(255, 226, 140, 0.2);
+  opacity: 0.68;
+  transform: translate3d(0, 0, 0);
+  animation: glass2-sun-arch 3600s ease-in-out infinite;
+}
+
+html[data-theme="glass2"] header,
+html[data-theme="glass2"] main,
+html[data-theme="glass2"] footer {
+  position: relative;
+  z-index: 1;
 }
 
 html[data-theme="glass2"] header,
@@ -385,12 +411,13 @@ html[data-theme="glass2"] .sheet-grid {
   isolation: isolate;
   border-color: rgba(225, 245, 255, 0.28);
   background:
-    radial-gradient(420px circle at var(--mouse-x, 50%) var(--mouse-y, 0%), var(--glass2-glow), transparent 42%),
+    linear-gradient(115deg, var(--glass2-solar-edge), transparent 34%, rgba(255, 255, 255, 0.08) 68%),
     linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.07));
   box-shadow:
     0 26px 70px rgba(0, 0, 0, 0.34),
     inset 0 1px 0 rgba(255, 255, 255, 0.24),
     inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+  animation: glass2-solar-shadow 3600s ease-in-out infinite;
 }
 
 html[data-theme="glass2"] header > *,
@@ -435,17 +462,19 @@ html[data-theme="glass2"] .sheet-grid::before {
   background:
     conic-gradient(from var(--glass2-spark-angle, 0deg),
       transparent 0deg,
-      transparent 48deg,
-      var(--glass2-edge-hot) 54deg,
-      var(--glass2-edge) 62deg,
-      transparent 72deg,
+      transparent 352deg,
+      rgba(255, 255, 255, 0.16) 354deg,
+      var(--glass2-edge-hot) 356deg,
+      var(--glass2-edge) 358deg,
+      transparent 360deg,
       transparent 360deg);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
-  opacity: 0.72;
-  animation: glass2-border-spark 60s linear infinite;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 5px rgba(255, 239, 183, 0.52));
+  animation: glass2-border-spark 120s linear infinite;
 }
 
 html[data-theme="glass2"] header::after,
@@ -482,6 +511,7 @@ html[data-theme="glass2"] .sheet-grid::after {
 
 html[data-theme="glass2"] .theme-switcher {
   gap: 4px;
+  z-index: 10000;
   border-color: rgba(225, 245, 255, 0.28);
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.23), rgba(255, 255, 255, 0.09));
@@ -515,13 +545,7 @@ html[data-theme="glass2"] .sheet-grid .tabulator-page.active {
 }
 
 html[data-theme="glass2"] .search {
-  background:
-    radial-gradient(280px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(151, 231, 255, 0.2), transparent 50%),
-    rgba(8, 12, 16, 0.48);
-}
-
-html[data-theme="glass2"] .live-update-flash {
-  animation: glass2-live-flash 1050ms ease-out;
+  background: rgba(8, 12, 16, 0.48);
 }
 
 @property --glass2-spark-angle {
@@ -530,8 +554,53 @@ html[data-theme="glass2"] .live-update-flash {
   initial-value: 0deg;
 }
 
+@property --glass2-solar-edge {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: rgba(255, 239, 183, 0.22);
+}
+
 @keyframes glass2-border-spark {
   to { --glass2-spark-angle: 360deg; }
+}
+
+@keyframes glass2-sun-arch {
+  0% {
+    transform: translate3d(0, 0, 0) scale(0.82);
+    opacity: 0.42;
+  }
+  50% {
+    transform: translate3d(43vw, -18vh, 0) scale(1);
+    opacity: 0.78;
+  }
+  100% {
+    transform: translate3d(86vw, 0, 0) scale(0.82);
+    opacity: 0.42;
+  }
+}
+
+@keyframes glass2-solar-shadow {
+  0% {
+    --glass2-solar-edge: rgba(255, 226, 140, 0.14);
+    box-shadow:
+      28px 24px 76px var(--glass2-solar-shadow),
+      inset 1px 1px 0 rgba(255, 244, 202, 0.18),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.07);
+  }
+  50% {
+    --glass2-solar-edge: rgba(255, 246, 210, 0.26);
+    box-shadow:
+      0 30px 82px rgba(0, 0, 0, 0.32),
+      inset 0 1px 0 rgba(255, 255, 255, 0.26),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.09);
+  }
+  100% {
+    --glass2-solar-edge: rgba(176, 230, 255, 0.18);
+    box-shadow:
+      -28px 24px 76px var(--glass2-solar-shadow),
+      inset -1px 1px 0 rgba(213, 240, 255, 0.16),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.07);
+  }
 }
 
 @keyframes glass2-sheen {
@@ -539,18 +608,16 @@ html[data-theme="glass2"] .live-update-flash {
   86%, 100% { transform: translateX(130%); }
 }
 
-@keyframes glass2-live-flash {
-  0% {
-    background-color: var(--glass2-flash);
-    text-shadow: 0 0 18px rgba(159, 255, 209, 0.64);
-  }
-  100% {
-    background-color: transparent;
-    text-shadow: none;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
+  html[data-theme="glass2"] body::after,
+  html[data-theme="glass2"] header,
+  html[data-theme="glass2"] main > section,
+  html[data-theme="glass2"] .stat,
+  html[data-theme="glass2"] .chart-card,
+  html[data-theme="glass2"] .version-card,
+  html[data-theme="glass2"] .download,
+  html[data-theme="glass2"] .table-shell,
+  html[data-theme="glass2"] .sheet-grid,
   html[data-theme="glass2"] header::before,
   html[data-theme="glass2"] header::after,
   html[data-theme="glass2"] main > section::before,
@@ -566,8 +633,7 @@ html[data-theme="glass2"] .live-update-flash {
   html[data-theme="glass2"] .table-shell::before,
   html[data-theme="glass2"] .table-shell::after,
   html[data-theme="glass2"] .sheet-grid::before,
-  html[data-theme="glass2"] .sheet-grid::after,
-  html[data-theme="glass2"] .live-update-flash {
+  html[data-theme="glass2"] .sheet-grid::after {
     animation: none;
   }
 }
