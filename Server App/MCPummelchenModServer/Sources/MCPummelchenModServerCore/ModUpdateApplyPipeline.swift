@@ -390,34 +390,31 @@ public struct ModUpdateApplyPipeline: Sendable {
     }
 
     private func recordUpdateActivity(version: VersionTarget, status: String, message: String) throws {
-        let timestamp = Self.displayTimestamp(Date())
-        let publicDir = config.projectRoot.appendingPathComponent("site/public", isDirectory: true)
-        let existing = publicDir.appendingPathComponent("update-activity.json")
-        var entries: [[String: Any]] = []
-        if fileManager.fileExists(atPath: existing.path),
-           let data = try? Data(contentsOf: existing),
-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            entries = object["entries"] as? [[String: Any]] ?? []
-        }
-        entries.insert([
-            "timestamp": timestamp,
-            "stage": "apply",
-            "status": status,
-            "message": message,
-            "minecraft_version": version.minecraftVersion
-        ], at: 0)
-        if entries.count > 25 {
-            entries = Array(entries.prefix(25))
-        }
-        let feed: [String: Any] = [
-            "updated_at": timestamp,
-            "entry_count": entries.count,
-            "entries": entries
-        ]
-        let data = try JSONSerialization.data(withJSONObject: feed, options: [.prettyPrinted, .sortedKeys])
-        try fileManager.createDirectory(at: publicDir.appendingPathComponent("data", isDirectory: true), withIntermediateDirectories: true)
-        try data.write(to: publicDir.appendingPathComponent("update-activity.json"), options: .atomic)
-        try data.write(to: publicDir.appendingPathComponent("data/update-activity.json"), options: .atomic)
+        let database = DuckDBDatabase(databaseURL: config.databaseURL)
+        try database.execute("""
+        CREATE SCHEMA IF NOT EXISTS release;
+        CREATE TABLE IF NOT EXISTS release.release_events (
+          event_id VARCHAR PRIMARY KEY,
+          release_id VARCHAR,
+          event_at TIMESTAMP NOT NULL,
+          event_type VARCHAR NOT NULL,
+          status VARCHAR NOT NULL,
+          actor VARCHAR,
+          notes VARCHAR
+        );
+        """)
+        try database.execute("""
+        INSERT INTO release.release_events(event_id, release_id, event_at, event_type, status, actor, notes)
+        VALUES (
+          \(Self.sqlLiteral(UUID().uuidString)),
+          NULL,
+          TIMESTAMP '\(Self.displayTimestamp(Date()))',
+          'mod_update_apply',
+          \(Self.sqlLiteral(status)),
+          'MCPummelchenModServer mod-update-apply',
+          \(Self.sqlLiteral("Minecraft \(version.minecraftVersion): \(message)"))
+        );
+        """)
     }
 
     private func releaseID(for version: VersionTarget) -> String {

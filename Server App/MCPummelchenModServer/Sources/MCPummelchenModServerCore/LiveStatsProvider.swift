@@ -65,14 +65,16 @@ final class LiveStatsProvider: @unchecked Sendable {
     }
 
     private let projectRoot: URL
+    private let duckDBURL: URL
     private let lock = NSLock()
     private var previousCPU: CPUTimes?
     private var previousNetwork: NetworkCounters?
     private var history: [LiveMetricSample] = []
     private var cachedPayload: (createdAt: Date, payload: LiveStatsPayload)?
 
-    init(projectRoot: URL) {
+    init(projectRoot: URL, duckDBURL: URL? = nil) {
         self.projectRoot = projectRoot
+        self.duckDBURL = duckDBURL ?? projectRoot.appendingPathComponent("data/pummelchen.duckdb")
     }
 
     func payload() throws -> LiveStatsPayload {
@@ -366,9 +368,16 @@ final class LiveStatsProvider: @unchecked Sendable {
     }
 
     private func failedModCount() -> Int {
-        let html = projectRoot.appendingPathComponent("site/public/failed-mods.html")
-        guard let data = try? String(contentsOf: html, encoding: .utf8) else { return 0 }
-        return data.components(separatedBy: "<tr><td class=\"timestamp-cell\">").count - 1
+        guard FileManager.default.fileExists(atPath: duckDBURL.path),
+              let value = try? DuckDBDatabase(databaseURL: duckDBURL, readOnly: true).queryScalar("""
+              SELECT COUNT(*)
+              FROM core.failed_mod_update_status
+              WHERE lower(active_status) IN ('failed', 'banned by admin');
+              """),
+              let count = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return 0
+        }
+        return count
     }
 
     private func macInstallerDMGURL(release: CurrentRelease?) -> String {
@@ -383,12 +392,7 @@ final class LiveStatsProvider: @unchecked Sendable {
         if let seed = serverProperty("level-seed"), !seed.isEmpty {
             return seed
         }
-        let liveStats = projectRoot.appendingPathComponent("site/public/live-stats.json")
-        guard let data = try? Data(contentsOf: liveStats),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
-        }
-        return object["world_seed"] as? String
+        return nil
     }
 
     private func serverProperty(_ key: String) -> String? {

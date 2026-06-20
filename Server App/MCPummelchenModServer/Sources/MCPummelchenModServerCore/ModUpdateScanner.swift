@@ -152,7 +152,6 @@ public struct ModUpdateScanner: Sendable {
                 notes = \(Self.sqlLiteral("seeded_sources=\(seeded) throttle=\(config.maxURLsPerWindow)/\(Int(config.windowSeconds))s"))
             WHERE scan_id = \(Self.sqlLiteral(scanID));
             """)
-            try publishUpdateActivity(scanID: scanID, checked: checked, candidates: candidates, unresolved: unresolved, seeded: seeded)
         }
         return ModUpdateScanSummary(scanID: scanID, sourcesChecked: checked, candidatesFound: candidates, unresolved: unresolved, seededSources: seeded)
     }
@@ -668,28 +667,6 @@ public struct ModUpdateScanner: Sendable {
                 updated_at = now()
             WHERE failed_mod_id = \(Self.sqlLiteral(String(result.source.sourceID.dropFirst("failed_".count))));
             """)
-        }
-    }
-
-    private func publishUpdateActivity(scanID: String, checked: Int, candidates: Int, unresolved: Int, seeded: Int) throws {
-        let timestamp = Self.displayTimestamp(Date())
-        let feed: [String: Any] = [
-            "updated_at": timestamp,
-            "entry_count": 1,
-            "entries": [[
-                "timestamp": timestamp,
-                "stage": "scan",
-                "status": unresolved == 0 ? "ok" : "warning",
-                "message": "Mod source scan \(scanID): checked \(checked) URL(s), found \(candidates) candidate(s), unresolved \(unresolved), seeded \(seeded) source row(s)."
-            ]]
-        ]
-        let data = try JSONSerialization.data(withJSONObject: feed, options: [.prettyPrinted, .sortedKeys])
-        for target in [
-            config.projectRoot.appendingPathComponent("site/public/update-activity.json"),
-            config.projectRoot.appendingPathComponent("site/public/data/update-activity.json")
-        ] {
-            try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: target, options: .atomic)
         }
     }
 

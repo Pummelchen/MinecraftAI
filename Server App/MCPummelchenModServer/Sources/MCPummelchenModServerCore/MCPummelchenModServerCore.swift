@@ -140,7 +140,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         self.decoder = JSONDecoder()
         self.store = ServerClientReportStore(databaseURL: config.duckDBURL)
         self.controlStore = ControlEventStore(databaseURL: config.duckDBURL)
-        self.liveStats = LiveStatsProvider(projectRoot: config.projectRoot)
+        self.liveStats = LiveStatsProvider(projectRoot: config.projectRoot, duckDBURL: config.duckDBURL)
     }
 
     public func response(for request: HTTPRequest) -> HTTPResponse {
@@ -168,9 +168,11 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             case ("GET", "/api/v1/site/release-history"):
                 return try siteReleaseHistory()
             case ("GET", "/api/v1/site/update-activity"):
-                return try siteJSON(named: "update-activity.json")
+                return try siteUpdateActivity()
             case ("GET", "/api/v1/site/neoforge-version"):
-                return try siteJSON(named: "neoforge-version.json")
+                return try siteNeoForgeVersion()
+            case ("GET", "/api/v1/site/release-health"):
+                return try siteReleaseHealth()
             case ("GET", "/api/v1/control/info"):
                 return try controlInfo()
             case ("POST", "/api/v1/control/events"):
@@ -269,19 +271,6 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         )
     }
 
-    private func siteJSON(named filename: String) throws -> HTTPResponse {
-        guard filename.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "." }),
-              filename.hasSuffix(".json") else {
-            throw MCPummelchenModServerError.badRequest("invalid site JSON filename")
-        }
-        let data = try Data(contentsOf: config.projectRoot.appendingPathComponent("site/public/\(filename)"))
-        _ = try JSONSerialization.jsonObject(with: data)
-        return .json(data, headers: [
-            "Cache-Control": "no-store, max-age=0",
-            "X-Pummelchen-Stats-Source": "swift-server"
-        ])
-    }
-
     private func siteModInventory(scope: String) throws -> HTTPResponse {
         let scriptID: String
         switch scope {
@@ -362,7 +351,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     ) throws -> [[String: Any]] {
         let liveModSources = try liveModSourceInventory(minecraftVersion: current.minecraftVersion ?? "")
         let versionedModSources = try versionedModSourceInventory(supportedVersions: supportedVersions)
-        let currentManifestFiles = currentReleaseManifestFileRoles(current: current, scope: scope)
+        let currentManifestFiles = try currentReleaseManifestFileRoles(current: current, scope: scope)
         var rows = try readEmbeddedJSONRows(scriptID: scriptID).map {
             annotatedModInventoryRow(
                 $0,
@@ -685,18 +674,17 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         return annotated
     }
 
-    private func currentReleaseManifestFileRoles(current: CurrentRelease, scope: String) -> [String: String] {
+    private func currentReleaseManifestFileRoles(current: CurrentRelease, scope: String) throws -> [String: String] {
         let manifestName = scope == "server" ? "server-files.tsv" : "client-package.tsv"
         let candidates = [
             config.projectRoot.appendingPathComponent("releases/\(current.releaseID)/manifests/\(manifestName)"),
             config.projectRoot.appendingPathComponent("site/public/downloads/releases/\(current.releaseID)/manifests/\(manifestName)")
         ]
         for candidate in candidates where FileManager.default.fileExists(atPath: candidate.path) {
-            if let text = try? String(contentsOf: candidate, encoding: .utf8) {
-                return Self.parseManifestFileRoles(text, scope: scope)
-            }
+            let text = try String(contentsOf: try safeProjectFile(candidate), encoding: .utf8)
+            return Self.parseManifestFileRoles(text, scope: scope)
         }
-        return [:]
+        throw MCPummelchenModServerError.notFound("current release \(manifestName) for \(current.releaseID)")
     }
 
     private static func parseManifestFileRoles(_ text: String, scope: String) -> [String: String] {
@@ -1123,18 +1111,17 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 "notes": row["notes"] ?? ""
             ]
         }
-        if let current = try? CurrentReleaseValidator.decode(readCurrentReleaseData()) {
-            let serverRows = try siteModInventoryRows(scriptID: "serverModsData", scope: "server", current: current, supportedVersions: versions)
-            let clientRows = try siteModInventoryRows(scriptID: "clientModsData", scope: "client", current: current, supportedVersions: versions)
-            let serverModCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: serverRows)
-            let clientModCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: clientRows)
-            versions = versions.map { version in
-                var enriched = version
-                let minecraftVersion = version["minecraft_version"] as? String ?? ""
-                enriched["server_mod_count"] = serverModCounts[minecraftVersion] ?? 0
-                enriched["client_mod_count"] = clientModCounts[minecraftVersion] ?? 0
-                return enriched
-            }
+        let current = try CurrentReleaseValidator.decode(readCurrentReleaseData())
+        let serverRows = try siteModInventoryRows(scriptID: "serverModsData", scope: "server", current: current, supportedVersions: versions)
+        let clientRows = try siteModInventoryRows(scriptID: "clientModsData", scope: "client", current: current, supportedVersions: versions)
+        let serverModCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: serverRows)
+        let clientModCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: clientRows)
+        versions = versions.map { version in
+            var enriched = version
+            let minecraftVersion = version["minecraft_version"] as? String ?? ""
+            enriched["server_mod_count"] = serverModCounts[minecraftVersion] ?? 0
+            enriched["client_mod_count"] = clientModCounts[minecraftVersion] ?? 0
+            return enriched
         }
         let payload: [String: Any] = [
             "api_version": "v1",
@@ -1163,6 +1150,183 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             }
         }
         return counts
+    }
+
+    private func siteUpdateActivity() throws -> HTTPResponse {
+        let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+        WITH activity AS (
+          SELECT
+            event_at AS timestamp,
+            event_type AS stage,
+            status,
+            COALESCE(notes, release_id, '') AS message,
+            release_id,
+            NULL AS minecraft_version
+          FROM release.release_events
+          WHERE event_at >= now() - INTERVAL 14 DAYS
+
+          UNION ALL
+
+          SELECT
+            COALESCE(finished_at, started_at) AS timestamp,
+            'mod_update_scan' AS stage,
+            status,
+            'Mod update scan ' || scan_id || ': checked ' || CAST(urls_checked AS VARCHAR)
+              || ' URL(s), found ' || CAST(candidates_found AS VARCHAR)
+              || ' candidate(s), unresolved ' || CAST(unresolved AS VARCHAR) AS message,
+            NULL AS release_id,
+            minecraft_version
+          FROM core.mod_update_scans
+          WHERE COALESCE(finished_at, started_at) >= now() - INTERVAL 14 DAYS
+
+          UNION ALL
+
+          SELECT
+            checked_at AS timestamp,
+            'release_health' AS stage,
+            status,
+            COALESCE(details, release_id, '') AS message,
+            release_id,
+            NULL AS minecraft_version
+          FROM release.release_health_results
+          WHERE checked_at >= now() - INTERVAL 14 DAYS
+        )
+        SELECT
+          CAST(timestamp AS VARCHAR) AS timestamp,
+          stage,
+          status,
+          message,
+          COALESCE(release_id, '') AS release_id,
+          COALESCE(minecraft_version, '') AS minecraft_version
+        FROM activity
+        WHERE timestamp IS NOT NULL
+        ORDER BY timestamp DESC
+        LIMIT 50;
+        """)
+        let entries = Self.parseCSV(csv).map { row -> [String: Any] in
+            let timestamp = Self.isoTimestamp(fromDuckDB: row["timestamp"] ?? "")
+            return [
+                "timestamp": Self.displayTimestamp(fromISO: timestamp),
+                "timestamp_iso": timestamp,
+                "stage": row["stage"] ?? "",
+                "status": row["status"] ?? "",
+                "message": row["message"] ?? "",
+                "release_id": row["release_id"] ?? "",
+                "minecraft_version": row["minecraft_version"] ?? ""
+            ]
+        }
+        let payload: [String: Any] = [
+            "api_version": "v1",
+            "updated_at": Self.displayTimestamp(fromISO: Self.isoNow()),
+            "generated_at": Self.isoNow(),
+            "generated_by": "MCPummelchenModServer-duckdb-update-activity",
+            "source": "duckdb.release_events_mod_scans_release_health",
+            "entry_count": entries.count,
+            "entries": entries
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        return .json(data, headers: [
+            "Cache-Control": "no-store, max-age=0",
+            "X-Pummelchen-Stats-Source": "swift-server-duckdb"
+        ])
+    }
+
+    private func siteNeoForgeVersion() throws -> HTTPResponse {
+        let current = try CurrentReleaseValidator.decode(readCurrentReleaseData())
+        let minecraftVersion = current.minecraftVersion ?? "26.1.2"
+        let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+        SELECT
+          minecraft_version,
+          loader,
+          loader_version,
+          status,
+          CAST(updated_at AS VARCHAR) AS checked_at
+        FROM reporting.v_minecraft_server_versions
+        WHERE minecraft_version = \(Self.sqlLiteral(minecraftVersion))
+        LIMIT 1;
+        """)
+        guard let row = Self.parseCSV(csv).first else {
+            throw MCPummelchenModServerError.notFound("DuckDB Minecraft server version \(minecraftVersion)")
+        }
+        let currentLoaderVersion = current.loaderVersion ?? ""
+        let latestLoaderVersion = row["loader_version"] ?? currentLoaderVersion
+        let updateAvailable = !currentLoaderVersion.isEmpty && !latestLoaderVersion.isEmpty && currentLoaderVersion != latestLoaderVersion
+        let checkedAt = Self.isoTimestamp(fromDuckDB: row["checked_at"] ?? "")
+        let status = updateAvailable ? "update_available" : "current"
+        let message: String
+        if updateAvailable {
+            message = "NeoForge \(latestLoaderVersion) is configured for Minecraft \(minecraftVersion); current release uses \(currentLoaderVersion)"
+        } else {
+            message = "NeoForge \(currentLoaderVersion.isEmpty ? latestLoaderVersion : currentLoaderVersion) is current for Minecraft \(minecraftVersion)"
+        }
+        let payload: [String: Any] = [
+            "api_version": "v1",
+            "checked_at": checkedAt.isEmpty ? Self.isoNow() : checkedAt,
+            "generated_by": "MCPummelchenModServer-duckdb-neoforge-version",
+            "current_neoforge_version": currentLoaderVersion,
+            "latest_neoforge_version": latestLoaderVersion,
+            "minecraft_version": minecraftVersion,
+            "loader": row["loader"] ?? "neoforge",
+            "server_version_status": row["status"] ?? "",
+            "official_url": "https://neoforged.net/",
+            "metadata_url": "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml",
+            "status": status,
+            "update_available": updateAvailable,
+            "message": message
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        return .json(data, headers: [
+            "Cache-Control": "no-store, max-age=0",
+            "X-Pummelchen-Stats-Source": "swift-server-duckdb"
+        ])
+    }
+
+    private func siteReleaseHealth() throws -> HTTPResponse {
+        let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+        SELECT
+          release_id,
+          CAST(checked_at AS VARCHAR) AS checked_at,
+          status,
+          COALESCE(details, '') AS details
+        FROM release.release_health_results
+        ORDER BY checked_at DESC
+        LIMIT 50;
+        """)
+        let findings = Self.parseCSV(csv).map { row -> [String: Any] in
+            let checkedAt = Self.isoTimestamp(fromDuckDB: row["checked_at"] ?? "")
+            return [
+                "release_id": row["release_id"] ?? "",
+                "checked_at": checkedAt,
+                "checked_at_display": Self.displayTimestamp(fromISO: checkedAt),
+                "level": row["status"] ?? "",
+                "check": row["release_id"] ?? "",
+                "detail": row["details"] ?? ""
+            ]
+        }
+        let statuses = findings.compactMap { ($0["level"] as? String)?.lowercased() }
+        let overall: String
+        if statuses.contains(where: { ["error", "failed", "failure"].contains($0) }) {
+            overall = "error"
+        } else if statuses.contains(where: { ["warning", "warn"].contains($0) }) {
+            overall = "warning"
+        } else {
+            overall = findings.isEmpty ? "unknown" : "healthy"
+        }
+        let payload: [String: Any] = [
+            "api_version": "v1",
+            "checked_at": Self.isoNow(),
+            "generated_by": "MCPummelchenModServer-duckdb-release-health",
+            "overall": overall,
+            "ok_count": statuses.filter { ["ok", "passed", "healthy"].contains($0) }.count,
+            "warn_count": statuses.filter { ["warning", "warn"].contains($0) }.count,
+            "error_count": statuses.filter { ["error", "failed", "failure"].contains($0) }.count,
+            "findings": findings
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        return .json(data, headers: [
+            "Cache-Control": "no-store, max-age=0",
+            "X-Pummelchen-Stats-Source": "swift-server-duckdb"
+        ])
     }
 
     private func siteReleaseHistory() throws -> HTTPResponse {

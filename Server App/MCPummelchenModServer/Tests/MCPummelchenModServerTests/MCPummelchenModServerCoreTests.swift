@@ -156,8 +156,10 @@ struct MCPummelchenModServerCoreTests {
 
     @Test("serves site JSON feeds through Swift API")
     func servesSiteJSONFeeds() throws {
+        try requireDuckDB()
         let fixture = try makeProjectFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
+        try seedLiveSiteAPIDatabase(at: fixture.root.appendingPathComponent("data/test-phase6.duckdb"))
 
         let api = makeAPI(fixture: fixture)
         let updateActivity = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/update-activity"))
@@ -170,9 +172,11 @@ struct MCPummelchenModServerCoreTests {
 
         let activityObject = try JSONSerialization.jsonObject(with: updateActivity.body) as? [String: Any]
         let neoForgeObject = try JSONSerialization.jsonObject(with: neoForgeVersion.body) as? [String: Any]
-        #expect((activityObject?["entries"] as? [[String: Any]])?.count == 1)
+        #expect(activityObject?["source"] as? String == "duckdb.release_events_mod_scans_release_health")
+        #expect((activityObject?["entries"] as? [[String: Any]])?.isEmpty == false)
         #expect(neoForgeObject?["official_url"] as? String == "https://neoforged.net/")
         #expect(neoForgeObject?["latest_neoforge_version"] as? String == "26.1.2.76")
+        #expect(neoForgeObject?["generated_by"] as? String == "MCPummelchenModServer-duckdb-neoforge-version")
     }
 
     @Test("serves failed mods with DuckDB scan status")
@@ -196,7 +200,7 @@ struct MCPummelchenModServerCoreTests {
             limit: 0,
             seedFromProjectData: true
         )).run()
-        #expect(summary.seededSources == 1)
+        #expect(summary.seededSources == 3)
         try DuckDBDatabase(databaseURL: database).execute("""
         UPDATE core.failed_mod_update_status
         SET latest_status = 'unresolved',
@@ -418,12 +422,12 @@ struct MCPummelchenModServerCoreTests {
         #expect(versions.first?["minecraft_version"] as? String == "26.1.2")
         #expect(versions.first?["is_live"] as? Bool == true)
         #expect(versions.first?["page_url"] as? String == "server-26.1.2.html")
-        #expect(versions.first?["server_mod_count"] as? Int == 2)
-        #expect(versions.first?["client_mod_count"] as? Int == 1)
+        #expect(versions.first?["server_mod_count"] as? Int == 4)
+        #expect(versions.first?["client_mod_count"] as? Int == 4)
         #expect(versions.last?["minecraft_version"] as? String == "26.2")
         #expect(versions.last?["status"] as? String == "staging")
         #expect(versions.last?["page_url"] as? String == "server-26.2.html")
-        #expect(versions.last?["server_mod_count"] as? Int == 1)
+        #expect(versions.last?["server_mod_count"] as? Int == 2)
         #expect(versions.last?["client_mod_count"] as? Int == 0)
     }
 
@@ -1877,7 +1881,8 @@ struct MCPummelchenModServerCoreTests {
         let releaseID = "release_20260612_V6_modernarch-refresh"
         let downloads = root.appendingPathComponent("site/public/downloads", isDirectory: true)
         let releaseDir = downloads.appendingPathComponent("releases/\(releaseID)", isDirectory: true)
-        try FileManager.default.createDirectory(at: releaseDir, withIntermediateDirectories: true)
+        let manifestsDir = releaseDir.appendingPathComponent("manifests", isDirectory: true)
+        try FileManager.default.createDirectory(at: manifestsDir, withIntermediateDirectories: true)
 
         let currentURL = try #require(Bundle.module.url(forResource: "current-release", withExtension: "json", subdirectory: "Fixtures"))
         let manifestURL = try #require(Bundle.module.url(forResource: "client-sync-manifest", withExtension: "tsv", subdirectory: "Fixtures"))
@@ -1886,34 +1891,18 @@ struct MCPummelchenModServerCoreTests {
 
         try current.write(to: downloads.appendingPathComponent("current-release.json"), atomically: true, encoding: .utf8)
         try manifest.write(to: releaseDir.appendingPathComponent("client-sync-manifest.tsv"), atomically: true, encoding: .utf8)
+        try """
+        # role\trelative_path\tsize\tsha256
+        server_mod\tmods/server-26.2.jar\t10\tsha256:1111111111111111111111111111111111111111111111111111111111111111
+        server_mod\tmods/shared.jar\t10\tsha256:2222222222222222222222222222222222222222222222222222222222222222
+        """.write(to: manifestsDir.appendingPathComponent("server-files.tsv"), atomically: true, encoding: .utf8)
+        try """
+        # role\trelative_path\tsize\tsha256
+        client_mod\tmods/example-mod.jar\t10\tsha256:3333333333333333333333333333333333333333333333333333333333333333
+        resourcepack\tresourcepacks/ModernArch v2.8.2 [26.1] [128x].zip\t10\tsha256:4444444444444444444444444444444444444444444444444444444444444444
+        shaderpack\tshaderpacks/BSL_v10.0.zip\t10\tsha256:5555555555555555555555555555555555555555555555555555555555555555
+        """.write(to: manifestsDir.appendingPathComponent("client-package.tsv"), atomically: true, encoding: .utf8)
         try Data().write(to: downloads.appendingPathComponent("MCPummelchenModClient.dmg"))
-        try """
-        {
-          "updated_at": "2026-06-12T17:04:13+00:00",
-          "entry_count": 1,
-          "entries": [
-            {
-              "timestamp": "2026-06-12 17:04:13",
-              "stage": "health",
-              "status": "ok",
-              "message": "Fixture update check passed"
-            }
-          ]
-        }
-        """.write(to: root.appendingPathComponent("site/public/update-activity.json"), atomically: true, encoding: .utf8)
-        try """
-        {
-          "checked_at": "2026-06-12T17:04:13+00:00",
-          "current_neoforge_version": "26.1.2.75",
-          "latest_neoforge_version": "26.1.2.76",
-          "message": "Newer NeoForge 26.1.2.76 is available for Minecraft 26.1.2",
-          "metadata_url": "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml",
-          "official_url": "https://neoforged.net/",
-          "minecraft_version": "26.1.2",
-          "status": "update_available",
-          "update_available": true
-        }
-        """.write(to: root.appendingPathComponent("site/public/neoforge-version.json"), atomically: true, encoding: .utf8)
         try """
         <!doctype html>
         <html>
@@ -1959,6 +1948,108 @@ struct MCPummelchenModServerCoreTests {
         }
 
         return try operation()
+    }
+
+    private func seedLiveSiteAPIDatabase(at databaseURL: URL) throws {
+        let database = DuckDBDatabase(databaseURL: databaseURL)
+        try database.execute("""
+        CREATE SCHEMA IF NOT EXISTS core;
+        CREATE SCHEMA IF NOT EXISTS release;
+        CREATE SCHEMA IF NOT EXISTS reporting;
+
+        CREATE TABLE IF NOT EXISTS core.minecraft_server_versions (
+          minecraft_version VARCHAR PRIMARY KEY,
+          loader VARCHAR NOT NULL,
+          loader_version VARCHAR NOT NULL,
+          server_name VARCHAR NOT NULL,
+          server_address VARCHAR NOT NULL,
+          server_dir VARCHAR,
+          status VARCHAR NOT NULL,
+          is_live BOOLEAN NOT NULL,
+          sort_order INTEGER NOT NULL,
+          updated_at TIMESTAMP NOT NULL,
+          notes VARCHAR
+        );
+        INSERT OR REPLACE INTO core.minecraft_server_versions VALUES (
+          '26.1.2',
+          'neoforge',
+          '26.1.2.76',
+          'Pummelchen Server 26.1.2',
+          '91.99.176.243:25565',
+          '/tmp/minecraft',
+          'live',
+          true,
+          10,
+          TIMESTAMP '2026-06-12 17:04:13',
+          'fixture'
+        );
+        CREATE OR REPLACE VIEW reporting.v_minecraft_server_versions AS
+        SELECT
+          minecraft_version, loader, loader_version, server_name, server_address,
+          server_dir, status, is_live, sort_order, updated_at, notes
+        FROM core.minecraft_server_versions;
+
+        CREATE TABLE IF NOT EXISTS release.release_events (
+          event_id VARCHAR PRIMARY KEY,
+          release_id VARCHAR,
+          event_at TIMESTAMP NOT NULL,
+          event_type VARCHAR NOT NULL,
+          status VARCHAR NOT NULL,
+          actor VARCHAR,
+          notes VARCHAR
+        );
+        INSERT OR REPLACE INTO release.release_events VALUES (
+          'fixture-event-1',
+          'release_20260612_V6_modernarch-refresh',
+          TIMESTAMP '2026-06-12 17:04:13',
+          'health',
+          'ok',
+          'test',
+          'Fixture update check passed'
+        );
+
+        CREATE TABLE IF NOT EXISTS core.mod_update_scans (
+          scan_id VARCHAR PRIMARY KEY,
+          started_at TIMESTAMP NOT NULL,
+          finished_at TIMESTAMP,
+          status VARCHAR NOT NULL,
+          urls_checked INTEGER NOT NULL,
+          candidates_found INTEGER NOT NULL,
+          unresolved INTEGER NOT NULL,
+          notes VARCHAR,
+          minecraft_version VARCHAR,
+          loader VARCHAR,
+          loader_version VARCHAR
+        );
+        INSERT OR REPLACE INTO core.mod_update_scans VALUES (
+          'fixture-scan-1',
+          TIMESTAMP '2026-06-12 17:02:00',
+          TIMESTAMP '2026-06-12 17:03:00',
+          'completed',
+          2,
+          1,
+          0,
+          'fixture',
+          '26.1.2',
+          'neoforge',
+          '26.1.2.76'
+        );
+
+        CREATE TABLE IF NOT EXISTS release.release_health_results (
+          result_id VARCHAR PRIMARY KEY,
+          release_id VARCHAR NOT NULL,
+          checked_at TIMESTAMP NOT NULL,
+          status VARCHAR NOT NULL,
+          details VARCHAR
+        );
+        INSERT OR REPLACE INTO release.release_health_results VALUES (
+          'fixture-health-1',
+          'release_20260612_V6_modernarch-refresh',
+          TIMESTAMP '2026-06-12 17:04:30',
+          'ok',
+          'fixture health passed'
+        );
+        """)
     }
 
     private func makeAPI(
