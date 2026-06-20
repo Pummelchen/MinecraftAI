@@ -66,7 +66,17 @@ struct MCPummelchenModServerCoreTests {
             "PUMMELCHEN_MINECRAFT_START_COMMAND": "./run.sh nogui",
             "PUMMELCHEN_MINECRAFT_HOST": "127.0.0.1",
             "PUMMELCHEN_MINECRAFT_PORT": "25566",
-            "PUMMELCHEN_MINECRAFT_LOG": "/opt/pummelchen-swift/runtime/logs/minecraft-live.log"
+            "PUMMELCHEN_MINECRAFT_LOG": "/opt/pummelchen-swift/runtime/logs/minecraft-live.log",
+            "PUMMELCHEN_MINECRAFT_WATCHDOG": "true",
+            "PUMMELCHEN_MINECRAFT_WATCHDOG_STARTUP_GRACE_SECONDS": "180",
+            "PUMMELCHEN_MINECRAFT_WATCHDOG_INTERVAL_SECONDS": "30",
+            "PUMMELCHEN_MINECRAFT_WATCHDOG_FAILURE_THRESHOLD": "2",
+            "PUMMELCHEN_MINECRAFT_WATCHDOG_COMMAND_TIMEOUT_SECONDS": "4",
+            "PUMMELCHEN_MINECRAFT_WATCHDOG_COMMAND": "list",
+            "PUMMELCHEN_MINECRAFT_GRACEFUL_STOP_TIMEOUT_SECONDS": "45",
+            "PUMMELCHEN_MINECRAFT_RCON_HOST": "127.0.0.1",
+            "PUMMELCHEN_MINECRAFT_RCON_PORT": "25575",
+            "PUMMELCHEN_MINECRAFT_RCON_PASSWORD": "test-password"
         ]))
 
         #expect(config.enabled)
@@ -75,6 +85,16 @@ struct MCPummelchenModServerCoreTests {
         #expect(config.host == "127.0.0.1")
         #expect(config.port == 25566)
         #expect(config.logFile.path == "/opt/pummelchen-swift/runtime/logs/minecraft-live.log")
+        #expect(config.watchdogEnabled)
+        #expect(config.watchdogStartupGraceSeconds == 180)
+        #expect(config.watchdogIntervalSeconds == 30)
+        #expect(config.watchdogFailureThreshold == 2)
+        #expect(config.watchdogCommandTimeoutSeconds == 4)
+        #expect(config.watchdogCommand == "list")
+        #expect(config.gracefulStopTimeoutSeconds == 45)
+        #expect(config.rconHost == "127.0.0.1")
+        #expect(config.rconPort == 25575)
+        #expect(config.rconPassword == "test-password")
     }
 
     @Test("serves live site stats from Swift API")
