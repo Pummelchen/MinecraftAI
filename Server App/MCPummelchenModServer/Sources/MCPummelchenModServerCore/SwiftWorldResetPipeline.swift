@@ -47,6 +47,7 @@ public struct SwiftWorldResetConfig: Sendable {
     public let rconHost: String
     public let rconPort: Int
     public let rconPassword: String?
+    public let rconReadyTimeoutSeconds: TimeInterval
     public let pregenerationBatchSize: Int
 
     public init(
@@ -64,6 +65,7 @@ public struct SwiftWorldResetConfig: Sendable {
         rconHost: String = "127.0.0.1",
         rconPort: Int = 25575,
         rconPassword: String? = nil,
+        rconReadyTimeoutSeconds: TimeInterval = 600,
         pregenerationBatchSize: Int = 384
     ) {
         self.projectRoot = projectRoot
@@ -80,6 +82,7 @@ public struct SwiftWorldResetConfig: Sendable {
         self.rconHost = rconHost
         self.rconPort = rconPort
         self.rconPassword = rconPassword
+        self.rconReadyTimeoutSeconds = max(1, rconReadyTimeoutSeconds)
         self.pregenerationBatchSize = pregenerationBatchSize
     }
 }
@@ -223,6 +226,7 @@ public struct SwiftWorldResetPipeline: Sendable {
             try writeServerProperties(worldName: worldName)
             try installRequiredDatapacks(worldDir: worldDir)
             try runServerServiceControl(phase: "start")
+            try waitForRCONReady(timeoutSeconds: config.rconReadyTimeoutSeconds)
             try applySafetyGamerules()
 
             let spawn = readLevelSpawn(worldDir: worldDir) ?? (0, 0, 0)
@@ -518,8 +522,10 @@ public struct SwiftWorldResetPipeline: Sendable {
         guard let systemctl = resolvedSystemTool("systemctl") else {
             return nil
         }
-        let enabledOutput = try runCommand(executable: systemctl, arguments: ["is-enabled", normalized]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let activeOutput = try runCommand(executable: systemctl, arguments: ["is-active", normalized]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let enabledResult = try runCommandResult(executable: systemctl, arguments: ["is-enabled", normalized])
+        let activeResult = try runCommandResult(executable: systemctl, arguments: ["is-active", normalized])
+        let enabledOutput = enabledResult.output.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let activeOutput = activeResult.output.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let enabled = ["enabled", "static", "indirect", "preset"].contains(enabledOutput)
         let active = activeOutput == "active"
         return MCPServiceStatus(isActive: active, isEnabled: enabled)
@@ -560,6 +566,22 @@ public struct SwiftWorldResetPipeline: Sendable {
         for response in responses where isCommandFailure(response) {
             throw SwiftWorldResetError.commandFailed("RCON gamerule failed: \(response)")
         }
+    }
+
+    private func waitForRCONReady(timeoutSeconds: TimeInterval) throws {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        var lastError: Error?
+        while Date() < deadline {
+            do {
+                _ = try executeRCONCommand(command: "time query gametime")
+                return
+            } catch {
+                lastError = error
+                Thread.sleep(forTimeInterval: 5)
+            }
+        }
+        let detail = lastError.map { ": \(Self.redactSecrets(String(describing: $0)))" } ?? ""
+        throw SwiftWorldResetError.commandFailed("RCON endpoint did not become ready within \(Int(timeoutSeconds)) seconds\(detail)")
     }
 
     private func pregenerateWorld(segments: [(startX: Int, z: Int, endX: Int, count: Int)]) throws {
@@ -749,6 +771,21 @@ public struct SwiftWorldResetPipeline: Sendable {
     @discardableResult
     private func runCommand(executable: String, arguments: [String], currentDirectory: URL? = nil, environment: [String: String]? = nil) throws -> String {
         String(decoding: try runCommandData(executable: executable, arguments: arguments, currentDirectory: currentDirectory, environment: environment), as: UTF8.self)
+    }
+
+    private func runCommandResult(executable: String, arguments: [String], currentDirectory: URL? = nil, environment: [String: String]? = nil) throws -> (status: Int32, output: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        process.currentDirectoryURL = currentDirectory
+        process.environment = environment
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        process.waitUntilExit()
+        let output = pipe.fileHandleForReading.readDataToEndOfFile()
+        return (process.terminationStatus, String(decoding: output, as: UTF8.self))
     }
 
     private func runCommandData(executable: String, arguments: [String], currentDirectory: URL? = nil, environment: [String: String]? = nil) throws -> Data {

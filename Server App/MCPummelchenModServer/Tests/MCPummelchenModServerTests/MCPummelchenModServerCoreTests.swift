@@ -1861,7 +1861,8 @@ struct MCPummelchenModServerCoreTests {
                 dryRun: false,
                 confirmDestructive: true,
                 deleteBackupAfterSuccess: true,
-                rconPassword: "test-rcon-password"
+                rconPassword: "test-rcon-password",
+                rconReadyTimeoutSeconds: 1
             ))
             #expect(throws: SwiftWorldResetError.self) {
                 _ = try pipeline.run()

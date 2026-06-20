@@ -29,7 +29,7 @@ enum ServerCommandError: Error, CustomStringConvertible {
               MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--all-supported true] [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-project-data true] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
               MCPummelchenModServer mod-update-apply --project-root <repo> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id-prefix <id> [--server-package <dir>] [--all-supported true] [--minecraft-version 26.1.2] [--dry-run true] [--activate-live true] [--service <systemd-unit>] [--client-api-token <token>] [--require-client-token true|false]
               MCPummelchenModServer client-force-update --project-root <repo> --duckdb <file> [--release-id <id>] [--target-client-id <id>]
-              MCPummelchenModServer world-reset --project-root <repo> --server-dir <dir> --duckdb <file> --seed <seed> [--dry-run true] [--yes true] [--service <systemd-unit>] [--radius-blocks 1000] [--delete-backup-after-success true] [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>] [--pregeneration-batch-size 384]
+              MCPummelchenModServer world-reset --project-root <repo> --server-dir <dir> --duckdb <file> --seed <seed> [--dry-run true] [--yes true] [--service <systemd-unit>] [--radius-blocks 1000] [--delete-backup-after-success true] [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>] [--rcon-ready-timeout-seconds 600] [--pregeneration-batch-size 384]
               MCPummelchenModServer rcon-command --project-root <repo> --server-dir <dir> --command <minecraft command> [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>]
             """
         case .missingValue(let option):
@@ -748,6 +748,7 @@ private func worldResetPipeline(args: Arguments, projectRoot: URL) throws -> Swi
     let radius = Int(args.options["--radius-blocks"] ?? "1000") ?? 1000
     let shape = PregenerationShape(rawValue: args.options["--shape"] ?? "circle") ?? .circle
     let rconPort = Int(args.options["--rcon-port"] ?? "25575") ?? 25575
+    let rconReadyTimeout = TimeInterval(args.options["--rcon-ready-timeout-seconds"] ?? "600") ?? 600
     let batchSize = Int(args.options["--pregeneration-batch-size"] ?? "384") ?? 384
     let config = SwiftWorldResetConfig(
         projectRoot: projectRoot,
@@ -764,6 +765,7 @@ private func worldResetPipeline(args: Arguments, projectRoot: URL) throws -> Swi
         rconHost: args.options["--rcon-host"] ?? "127.0.0.1",
         rconPort: rconPort,
         rconPassword: args.options["--rcon-password"],
+        rconReadyTimeoutSeconds: rconReadyTimeout,
         pregenerationBatchSize: batchSize
     )
     return SwiftWorldResetPipeline(config: config)

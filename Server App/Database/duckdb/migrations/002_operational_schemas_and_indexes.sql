@@ -152,6 +152,19 @@ CREATE TABLE IF NOT EXISTS world.reset_jobs (
   error VARCHAR
 );
 
+CREATE OR REPLACE VIEW reporting.v_world_reset_history AS
+SELECT
+  requested_at,
+  completed_at,
+  status,
+  seed,
+  radius_blocks,
+  old_world_path,
+  backup_path,
+  COALESCE(error, result_json::VARCHAR) AS notes
+FROM world.reset_jobs
+ORDER BY COALESCE(completed_at, requested_at) DESC;
+
 CREATE INDEX IF NOT EXISTS idx_core_pack_releases_active_server_time
   ON core.pack_releases(server_key, active, activated_at);
 CREATE INDEX IF NOT EXISTS idx_core_update_events_site_status_time
