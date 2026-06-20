@@ -1,18 +1,19 @@
 (function () {
   const storageKey = 'pummelchen-site-theme';
+  const defaultTheme = 'glass';
   const validThemes = new Set(['current', 'glass']);
 
   function storedTheme() {
     try {
       const value = window.localStorage.getItem(storageKey);
-      return validThemes.has(value) ? value : 'current';
+      return validThemes.has(value) ? value : defaultTheme;
     } catch {
-      return 'current';
+      return defaultTheme;
     }
   }
 
   function applyTheme(theme) {
-    const next = validThemes.has(theme) ? theme : 'current';
+    const next = validThemes.has(theme) ? theme : defaultTheme;
     document.documentElement.dataset.theme = next;
     try {
       window.localStorage.setItem(storageKey, next);
