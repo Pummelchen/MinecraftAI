@@ -9,7 +9,7 @@ public struct ClientControlChannelConfiguration: Sendable {
     public let clientID: String
     public let clientAPIToken: String
 
-    public init(serverURL: URL = URL(string: "https://pummelchen.91.99.176.243.nip.io")!, clientID: String, clientAPIToken: String) {
+    public init(serverURL: URL = PummelchenNetworkDefaults.primaryServerURL, clientID: String, clientAPIToken: String) {
         self.serverURL = serverURL
         self.clientID = clientID
         self.clientAPIToken = clientAPIToken

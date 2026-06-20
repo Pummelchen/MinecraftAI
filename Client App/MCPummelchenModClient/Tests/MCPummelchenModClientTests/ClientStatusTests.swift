@@ -5,6 +5,26 @@ import Testing
 
 @Suite("Client read-only status")
 struct ClientStatusTests {
+    @Test("HTTP client prefers HTTP3 and exposes IPv6 fallback candidate")
+    func httpClientPrefersHTTP3AndBuildsIPv6Fallback() {
+        let primary = PummelchenNetworkDefaults.primaryServerURL
+            .appendingPathComponent("downloads/current-release.json")
+        let candidates = ClientHTTPClient.fallbackCandidateURLs(for: primary)
+
+        #expect(candidates.first?.host(percentEncoded: false) == "pummelchen.91.99.176.243.nip.io")
+        #expect(candidates.count == 2)
+        #expect(candidates[1].host(percentEncoded: false) == "pummelchen.2a01-4f8-c17-ecab--1.nip.io")
+        #expect(candidates[1].path == primary.path)
+
+        let custom = URL(string: "https://example.com/downloads/current-release.json")!
+        #expect(ClientHTTPClient.fallbackCandidateURLs(for: custom) == [custom])
+
+        #if os(macOS)
+        let request = ClientHTTPClient.request(url: primary, timeout: 5)
+        #expect(request.assumesHTTP3Capable)
+        #endif
+    }
+
     @Test("client API token resolves from environment, app plist, or bundled resource")
     func clientAPITokenResolutionUsesBundledFallbacks() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())

@@ -21,6 +21,15 @@ public actor ClientHTTPProtocolRecorder {
     }
 }
 
+public enum PummelchenNetworkDefaults {
+    public static let primaryServerURL = URL(string: "https://pummelchen.91.99.176.243.nip.io")!
+    public static let ipv6ServerURL = URL(string: "https://pummelchen.2a01-4f8-c17-ecab--1.nip.io")!
+
+    public static let fallbackHosts: [String: [String]] = [
+        "pummelchen.91.99.176.243.nip.io": ["pummelchen.2a01-4f8-c17-ecab--1.nip.io"]
+    ]
+}
+
 #if os(macOS)
 private final class ClientHTTPMetricsDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     private let recorder: ClientHTTPProtocolRecorder
@@ -75,13 +84,18 @@ public struct ClientHTTPClient: Sendable {
     public let retryPolicy: ClientHTTPRetryPolicy
     private let session: URLSession
     private let protocolRecorder: ClientHTTPProtocolRecorder
+    private let fallbackHosts: [String: [String]]
     #if os(macOS)
     private let metricsDelegate: ClientHTTPMetricsDelegate
     #endif
 
-    public init(retryPolicy: ClientHTTPRetryPolicy = ClientHTTPRetryPolicy()) {
+    public init(
+        retryPolicy: ClientHTTPRetryPolicy = ClientHTTPRetryPolicy(),
+        fallbackHosts: [String: [String]] = PummelchenNetworkDefaults.fallbackHosts
+    ) {
         self.retryPolicy = retryPolicy
         self.protocolRecorder = ClientHTTPProtocolRecorder()
+        self.fallbackHosts = fallbackHosts
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = retryPolicy.requestTimeoutSeconds
         configuration.timeoutIntervalForResource = max(retryPolicy.requestTimeoutSeconds, 900)
@@ -100,57 +114,96 @@ public struct ClientHTTPClient: Sendable {
     }
 
     public func data(from url: URL, headers: [String: String] = [:]) async throws -> Data {
-        try await retrying {
-            var request = Self.request(url: url, timeout: retryPolicy.requestTimeoutSeconds)
+        try await retryingCandidates(for: url) { candidateURL in
+            var request = Self.request(url: candidateURL, timeout: retryPolicy.requestTimeoutSeconds)
             for (key, value) in headers {
                 request.setValue(value, forHTTPHeaderField: key)
             }
             let (data, response) = try await session.data(for: request)
-            try Self.requireSuccess(response: response, url: url)
+            try Self.requireSuccess(response: response, url: candidateURL)
             return data
         }
     }
 
     public func download(from url: URL, headers: [String: String] = [:]) async throws -> URL {
-        try await retrying {
-            var request = Self.request(url: url, timeout: retryPolicy.requestTimeoutSeconds)
+        try await retryingCandidates(for: url) { candidateURL in
+            var request = Self.request(url: candidateURL, timeout: retryPolicy.requestTimeoutSeconds)
             for (key, value) in headers {
                 request.setValue(value, forHTTPHeaderField: key)
             }
             let (file, response) = try await session.download(for: request)
-            try Self.requireSuccess(response: response, url: url)
+            try Self.requireSuccess(response: response, url: candidateURL)
             let size = ((try? FileManager.default.attributesOfItem(atPath: file.path)[.size]) as? NSNumber)?.int64Value ?? 0
             guard size > 0 else {
-                throw ClientHTTPError.emptyDownload(url)
+                throw ClientHTTPError.emptyDownload(candidateURL)
             }
             return file
         }
     }
 
     public func send(_ request: URLRequest) async throws -> Data {
-        try await retrying {
+        try await retryingCandidates(for: request.url ?? URL(fileURLWithPath: "/")) { candidateURL in
             var next = request
+            next.url = candidateURL
             next.timeoutInterval = retryPolicy.requestTimeoutSeconds
+            Self.configureTransportPreferences(&next)
             let (data, response) = try await session.data(for: next)
             try Self.requireSuccess(response: response, url: next.url ?? URL(fileURLWithPath: "/"))
             return data
         }
     }
 
-    private static func request(url: URL, timeout: TimeInterval) -> URLRequest {
-        URLRequest(url: url, timeoutInterval: timeout)
+    static func request(url: URL, timeout: TimeInterval) -> URLRequest {
+        var request = URLRequest(url: url, timeoutInterval: timeout)
+        configureTransportPreferences(&request)
+        return request
     }
 
-    private func retrying<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+    static func configureTransportPreferences(_ request: inout URLRequest) {
+        #if os(macOS)
+        request.assumesHTTP3Capable = true
+        #endif
+    }
+
+    public func fallbackCandidateURLs(for url: URL) -> [URL] {
+        Self.fallbackCandidateURLs(for: url, fallbackHosts: fallbackHosts)
+    }
+
+    public static func fallbackCandidateURLs(for url: URL, fallbackHosts: [String: [String]] = PummelchenNetworkDefaults.fallbackHosts) -> [URL] {
+        guard let host = url.host(percentEncoded: false), let fallbackHostnames = fallbackHosts[host], !fallbackHostnames.isEmpty else {
+            return [url]
+        }
+        var candidates = [url]
+        for fallbackHost in fallbackHostnames where fallbackHost != host {
+            guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                continue
+            }
+            components.host = fallbackHost
+            if let fallbackURL = components.url, !candidates.contains(fallbackURL) {
+                candidates.append(fallbackURL)
+            }
+        }
+        return candidates
+    }
+
+    private func retryingCandidates<T: Sendable>(
+        for url: URL,
+        _ operation: @escaping @Sendable (URL) async throws -> T
+    ) async throws -> T {
         var lastError: Error?
+        let candidates = fallbackCandidateURLs(for: url)
         for attempt in 1...retryPolicy.maxAttempts {
-            do {
-                return try await operation()
-            } catch {
-                lastError = error
-                if attempt >= retryPolicy.maxAttempts || !Self.isRetryable(error) {
-                    throw error
+            for candidate in candidates {
+                do {
+                    return try await operation(candidate)
+                } catch {
+                    lastError = error
+                    if !Self.isRetryable(error) {
+                        throw error
+                    }
                 }
+            }
+            if attempt < retryPolicy.maxAttempts {
                 let multiplier = UInt64(1 << min(attempt - 1, 4))
                 try await Task.sleep(nanoseconds: retryPolicy.baseDelayNanoseconds * multiplier)
             }

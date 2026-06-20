@@ -17,7 +17,7 @@ public struct ClientSyncConfiguration: Sendable {
     public let retryPolicy: ClientHTTPRetryPolicy
 
     public init(
-        serverURL: URL = URL(string: "https://pummelchen.91.99.176.243.nip.io")!,
+        serverURL: URL = PummelchenNetworkDefaults.primaryServerURL,
         minecraftDirectory: URL,
         pummelchenHome: URL,
         databaseURL: URL,
