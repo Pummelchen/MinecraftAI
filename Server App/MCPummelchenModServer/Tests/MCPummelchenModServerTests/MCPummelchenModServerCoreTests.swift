@@ -2140,8 +2140,10 @@ struct MCPummelchenModServerCoreTests {
         case "pummelchen-rich-ores.zip":
             [
                 "data/minecraft/worldgen/configured_feature/ore_iron.json",
+                "data/minecraft/worldgen/configured_feature/ore_iron_small.json",
                 "data/minecraft/worldgen/configured_feature/ore_gold.json",
-                "data/minecraft/worldgen/configured_feature/ore_diamond_large.json"
+                "data/minecraft/worldgen/configured_feature/ore_diamond_large.json",
+                "data/minecraft/worldgen/configured_feature/ore_diamond_small.json"
             ]
         default:
             []
