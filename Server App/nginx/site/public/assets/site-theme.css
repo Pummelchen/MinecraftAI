@@ -43,16 +43,16 @@
 
 html[data-theme="glass"] {
   color-scheme: dark;
-  --bg: #05080d;
+  --bg: #05070a;
   --ink: #f6fbff;
   --text: #f6fbff;
-  --muted: #b7c8d7;
-  --line: rgba(191, 224, 255, 0.2);
-  --panel: rgba(10, 18, 29, 0.56);
-  --panel-strong: rgba(19, 32, 49, 0.68);
-  --panel-2: rgba(22, 38, 58, 0.7);
-  --green: #7df5b3;
-  --green-strong: #64e7a2;
+  --muted: rgba(226, 235, 242, 0.76);
+  --line: rgba(255, 255, 255, 0.22);
+  --panel: rgba(230, 237, 244, 0.12);
+  --panel-strong: rgba(232, 239, 246, 0.18);
+  --panel-2: rgba(232, 239, 246, 0.2);
+  --green: #9fffd1;
+  --green-strong: rgba(159, 255, 209, 0.86);
   --lime: #b7f38a;
   --amber: #ffd37a;
   --stone: #e7f1fa;
@@ -60,18 +60,17 @@ html[data-theme="glass"] {
   --accent: #8df8c5;
   --red: #ffaaa6;
   --danger: #ff8585;
-  --shadow: rgba(0, 0, 0, 0.52);
-  --chart-bg: rgba(5, 10, 18, 0.62);
-  --chart-grid: rgba(190, 224, 255, 0.16);
-  --chart-line: #88f7c4;
+  --shadow: rgba(0, 0, 0, 0.38);
+  --chart-bg: rgba(6, 10, 16, 0.36);
+  --chart-grid: rgba(255, 255, 255, 0.16);
+  --chart-line: #9fffd1;
 }
 
 html[data-theme="glass"] body {
   background:
-    radial-gradient(circle at 16% 10%, rgba(95, 210, 134, 0.2) 0, rgba(95, 210, 134, 0.02) 26rem, transparent 42rem),
-    radial-gradient(circle at 86% 6%, rgba(143, 199, 255, 0.22) 0, rgba(143, 199, 255, 0.04) 28rem, transparent 46rem),
-    radial-gradient(circle at 50% 98%, rgba(168, 214, 109, 0.12) 0, rgba(168, 214, 109, 0.02) 26rem, transparent 42rem),
-    linear-gradient(135deg, #03050a 0%, #08101b 46%, #04100c 100%) fixed;
+    linear-gradient(180deg, rgba(5, 8, 12, 0.64), rgba(5, 8, 12, 0.82)),
+    url("minecraft-spring26-bw-bg.jpg") center / cover fixed no-repeat,
+    #05070a;
 }
 
 html[data-theme="glass"] body::before {
@@ -81,17 +80,28 @@ html[data-theme="glass"] body::before {
   z-index: -1;
   pointer-events: none;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.78), transparent 76%);
+    radial-gradient(circle at 18% 10%, rgba(255, 255, 255, 0.18), transparent 26rem),
+    radial-gradient(circle at 84% 0%, rgba(255, 255, 255, 0.16), transparent 28rem),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.05));
+}
+
+html[data-theme="glass"] .top-image-wrap {
+  display: none;
+}
+
+html[data-theme="glass"] .wrap {
+  width: min(1180px, calc(100% - 48px));
+  max-width: 1180px;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 html[data-theme="glass"] .theme-switcher {
   border-color: rgba(255, 255, 255, 0.2);
-  background: rgba(8, 16, 28, 0.58);
-  backdrop-filter: blur(18px) saturate(1.35);
-  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  background: rgba(231, 237, 244, 0.16);
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(26px) saturate(1.18);
+  -webkit-backdrop-filter: blur(26px) saturate(1.18);
 }
 
 html[data-theme="glass"] .theme-switcher button {
@@ -99,7 +109,7 @@ html[data-theme="glass"] .theme-switcher button {
 }
 
 html[data-theme="glass"] .theme-switcher button[aria-pressed="true"] {
-  background: linear-gradient(135deg, rgba(141, 248, 197, 0.96), rgba(158, 216, 255, 0.92));
+  background: rgba(182, 241, 255, 0.78);
   color: #031015;
 }
 
@@ -114,14 +124,36 @@ html[data-theme="glass"] footer {
 }
 
 html[data-theme="glass"] header {
-  background: linear-gradient(180deg, rgba(8, 16, 27, 0.78), rgba(5, 9, 16, 0.36));
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  width: min(1180px, calc(100% - 48px));
+  margin: 48px auto 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(244, 248, 252, 0.2), rgba(244, 248, 252, 0.09));
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(30px) saturate(1.18);
+  -webkit-backdrop-filter: blur(30px) saturate(1.18);
+}
+
+html[data-theme="glass"] header .hero,
+html[data-theme="glass"] header .wrap {
+  padding: 28px;
 }
 
 html[data-theme="glass"] .top-image {
   border: 1px solid rgba(255, 255, 255, 0.18);
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.56), 0 0 0 1px rgba(141, 248, 197, 0.08);
+}
+
+html[data-theme="glass"] main > section,
+html[data-theme="glass"] main.section {
+  margin: 0 0 18px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(245, 249, 253, 0.16), rgba(245, 249, 253, 0.075));
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(28px) saturate(1.16);
+  -webkit-backdrop-filter: blur(28px) saturate(1.16);
 }
 
 html[data-theme="glass"] .stat,
@@ -142,10 +174,10 @@ html[data-theme="glass"] .table-shell,
 html[data-theme="glass"] .sheet-grid,
 html[data-theme="glass"] table {
   border-color: var(--line);
-  background: linear-gradient(180deg, rgba(18, 31, 48, 0.66), rgba(8, 16, 27, 0.44));
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(18px) saturate(1.22);
-  -webkit-backdrop-filter: blur(18px) saturate(1.22);
+  background: linear-gradient(135deg, rgba(246, 250, 255, 0.17), rgba(246, 250, 255, 0.07));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(24px) saturate(1.18);
+  -webkit-backdrop-filter: blur(24px) saturate(1.18);
 }
 
 html[data-theme="glass"] .stat,
@@ -167,6 +199,7 @@ html[data-theme="glass"] table {
 html[data-theme="glass"] .chart-card canvas {
   border-radius: 8px;
   background: var(--chart-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 html[data-theme="glass"] .button,
@@ -174,17 +207,17 @@ html[data-theme="glass"] .release-version,
 html[data-theme="glass"] .copy-button,
 html[data-theme="glass"] .sheet-grid .tabulator-page {
   border-color: rgba(255, 255, 255, 0.2);
-  background: rgba(16, 29, 45, 0.58);
+  background: rgba(244, 248, 252, 0.13);
   color: var(--ink);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 html[data-theme="glass"] .button:not(.secondary),
 html[data-theme="glass"] .sheet-grid .tabulator-page.active {
   border-color: rgba(141, 248, 197, 0.62);
-  background: linear-gradient(135deg, rgba(141, 248, 197, 0.96), rgba(158, 216, 255, 0.86));
+  background: rgba(182, 241, 255, 0.76);
   color: #031015;
 }
 
@@ -197,21 +230,29 @@ html[data-theme="glass"] .copy-button:hover {
 
 html[data-theme="glass"] .search {
   border-color: rgba(255, 255, 255, 0.18);
-  background: rgba(8, 16, 27, 0.58);
+  background: rgba(244, 248, 252, 0.13);
   color: var(--ink);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 html[data-theme="glass"] .operator-warning {
   border-color: rgba(255, 211, 122, 0.78);
-  background: rgba(57, 42, 11, 0.44);
+  background: rgba(57, 42, 11, 0.28);
   color: #ffe8b6;
 }
 
 html[data-theme="glass"] .safe-reset-command {
   color: #ff8d8d;
+}
+
+html[data-theme="glass"] .note,
+html[data-theme="glass"] .operator-section,
+html[data-theme="glass"] .operator-warning,
+html[data-theme="glass"] .safe-reset-command {
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 html[data-theme="glass"] .sheet-grid .tabulator,
@@ -226,7 +267,7 @@ html[data-theme="glass"] .sheet-grid .tabulator-row.tabulator-row-even {
 html[data-theme="glass"] .sheet-grid .tabulator-header,
 html[data-theme="glass"] .sheet-grid .tabulator-col,
 html[data-theme="glass"] .sheet-grid .tabulator-footer {
-  background: rgba(12, 25, 40, 0.78) !important;
+  background: rgba(246, 250, 255, 0.14) !important;
   border-color: var(--line);
   color: var(--stone);
 }
@@ -236,7 +277,7 @@ html[data-theme="glass"] .sheet-grid .tabulator-row {
 }
 
 html[data-theme="glass"] .sheet-grid .tabulator-row:hover {
-  background: rgba(141, 248, 197, 0.1) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
 }
 
 html[data-theme="glass"] .sheet-grid .tabulator-cell,
@@ -247,13 +288,13 @@ html[data-theme="glass"] td {
 
 html[data-theme="glass"] th,
 html[data-theme="glass"] .updates-table th {
-  background: rgba(12, 25, 40, 0.84);
+  background: rgba(246, 250, 255, 0.14);
   color: var(--stone);
 }
 
 html[data-theme="glass"] tr:hover td,
 html[data-theme="glass"] .updates-table tbody tr:hover {
-  background: rgba(141, 248, 197, 0.08);
+  background: rgba(255, 255, 255, 0.09);
 }
 
 html[data-theme="glass"] .compat {
@@ -295,5 +336,13 @@ html[data-theme="glass"] .compat-live-data-unavailable {
   .theme-switcher {
     top: 10px;
     right: 10px;
+  }
+
+  html[data-theme="glass"] body {
+    overflow-x: hidden;
+  }
+
+  html[data-theme="glass"] .sheet-grid .tabulator-header {
+    overflow: hidden;
   }
 }
