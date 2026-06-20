@@ -12,6 +12,8 @@ import Darwin
 
 @Suite("MCPummelchenModServer API")
 struct MCPummelchenModServerCoreTests {
+    private static let environmentMutationLock = NSLock()
+
     @Test("serves current release identical to static JSON")
     func servesCurrentRelease() throws {
         let fixture = try makeProjectFixture()
@@ -1924,6 +1926,9 @@ struct MCPummelchenModServerCoreTests {
     }
 
     private func withMockSystemctl<T>(root: URL, _ operation: () throws -> T) throws -> T {
+        Self.environmentMutationLock.lock()
+        defer { Self.environmentMutationLock.unlock() }
+
         let mock = root.appendingPathComponent(".mock-systemctl")
         let script = "#!/bin/sh\n" +
             "case \"$1\" in\n" +
