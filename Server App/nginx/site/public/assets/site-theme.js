@@ -1,7 +1,7 @@
 (function () {
   const storageKey = 'pummelchen-site-theme';
   const defaultTheme = 'glass';
-  const validThemes = new Set(['current', 'glass', 'glass2']);
+  const validThemes = new Set(['current', 'glass']);
 
   function storedTheme() {
     try {
@@ -35,7 +35,6 @@
     nav.innerHTML = [
       ['current', 'Current'],
       ['glass', 'Glass'],
-      ['glass2', 'Glass 2'],
     ].map(([theme, label]) => (
       `<button type="button" data-theme-choice="${theme}" aria-pressed="false">${label}</button>`
     )).join('');
