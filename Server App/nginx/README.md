@@ -9,6 +9,8 @@ This directory contains the nginx-facing files for the live Pummelchen server we
 
 The live HTTPS virtual host serves the website and proxies `/api/` to the Swift server app on `127.0.0.1:8787`; static release downloads remain nginx-served files under `/downloads/`.
 
+The public edge enables HTTP/2 over TCP and HTTP/3 over QUIC/UDP 443. Responses advertise `Alt-Svc: h3=":443"` so capable browsers can upgrade to HTTP/3 automatically. The primary hostname is `pummelchen.91.99.176.243.nip.io`; the IPv6 alias is `pummelchen.2a01-4f8-c17-ecab--1.nip.io` and is covered by the same Let's Encrypt certificate.
+
 nginx is the public HTTPS edge for the website, release downloads, status APIs, and the authenticated client control API. The Swift server app listens locally on `127.0.0.1:8787`; nginx proxies `/api/` traffic to it.
 
 The global nginx tuning raises worker connection capacity, enables static-file descriptor caching, keeps sendfile/tcp_nopush enabled for large client downloads, and compresses text/json/js/css/svg assets. Large release artifacts remain uncompressed on the fly because ZIP, DMG, MRPACK, and JAR files are already compressed.
