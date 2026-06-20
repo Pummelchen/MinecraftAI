@@ -273,33 +273,50 @@ html[data-theme="glass"] .safe-reset-command {
 
 html[data-theme="glass"] .sheet-grid .tabulator,
 html[data-theme="glass"] .sheet-grid .tabulator-tableholder,
-html[data-theme="glass"] .sheet-grid .tabulator-table,
-html[data-theme="glass"] .sheet-grid .tabulator-row,
-html[data-theme="glass"] .sheet-grid .tabulator-row.tabulator-row-even {
+html[data-theme="glass"] .sheet-grid .tabulator-table {
   background: transparent !important;
+  color: var(--ink);
+}
+
+html[data-theme="glass"] .sheet-grid .tabulator-tableholder {
+  background: rgba(3, 6, 10, 0.34) !important;
+  backdrop-filter: blur(14px) saturate(1.08);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+}
+
+html[data-theme="glass"] .sheet-grid .tabulator-row {
+  background: rgba(8, 13, 18, 0.52) !important;
+  color: var(--ink);
+}
+
+html[data-theme="glass"] .sheet-grid .tabulator-row.tabulator-row-even {
+  background: rgba(12, 17, 23, 0.58) !important;
   color: var(--ink);
 }
 
 html[data-theme="glass"] .sheet-grid .tabulator-header,
 html[data-theme="glass"] .sheet-grid .tabulator-col,
 html[data-theme="glass"] .sheet-grid .tabulator-footer {
-  background: rgba(246, 250, 255, 0.14) !important;
+  background: rgba(10, 15, 21, 0.72) !important;
   border-color: var(--line);
-  color: var(--stone);
+  color: rgba(246, 251, 255, 0.94);
 }
 
 html[data-theme="glass"] .sheet-grid .tabulator-row {
-  border-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
 html[data-theme="glass"] .sheet-grid .tabulator-row:hover {
-  background: rgba(255, 255, 255, 0.1) !important;
+  background: rgba(18, 32, 39, 0.74) !important;
 }
 
-html[data-theme="glass"] .sheet-grid .tabulator-cell,
+html[data-theme="glass"] .sheet-grid.tabulator .tabulator-cell,
+html[data-theme="glass"] .sheet-grid .tabulator-row .tabulator-cell,
 html[data-theme="glass"] th,
 html[data-theme="glass"] td {
-  border-color: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.16);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(0, 0, 0, 0.08)) !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.44);
 }
 
 html[data-theme="glass"] th,
