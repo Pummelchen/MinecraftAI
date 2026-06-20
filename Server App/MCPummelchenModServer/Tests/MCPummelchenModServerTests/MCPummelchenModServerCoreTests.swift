@@ -1803,6 +1803,21 @@ struct MCPummelchenModServerCoreTests {
         #expect(status == "dry_run")
     }
 
+    @Test("rich ores datapack sets every managed vanilla ore vein size to 64")
+    func richOresDatapackSetsEveryManagedVanillaOreVeinSizeTo64() throws {
+        let datapack = actualServerDatapackURL(named: "pummelchen-rich-ores.zip")
+        let expectedEntries = datapackFixturePaths(for: "pummelchen-rich-ores.zip")
+        #expect(expectedEntries.count == 20)
+
+        for entry in expectedEntries {
+            let data = try unzipEntry(entry, from: datapack)
+            let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            let config = try #require(object["config"] as? [String: Any])
+            let size = try #require(config["size"] as? Int)
+            #expect(size == 64, "Expected \(entry) to use max ore vein size 64")
+        }
+    }
+
     @Test("phase 9 safe world reset requires explicit destructive confirmation")
     func phase9WorldResetRequiresConfirmation() throws {
         try requireDuckDB()
@@ -2164,11 +2179,26 @@ struct MCPummelchenModServerCoreTests {
             ]
         case "pummelchen-rich-ores.zip":
             [
+                "data/minecraft/worldgen/configured_feature/ore_ancient_debris_large.json",
+                "data/minecraft/worldgen/configured_feature/ore_ancient_debris_small.json",
+                "data/minecraft/worldgen/configured_feature/ore_coal.json",
+                "data/minecraft/worldgen/configured_feature/ore_coal_buried.json",
+                "data/minecraft/worldgen/configured_feature/ore_copper_large.json",
+                "data/minecraft/worldgen/configured_feature/ore_copper_small.json",
+                "data/minecraft/worldgen/configured_feature/ore_diamond_buried.json",
+                "data/minecraft/worldgen/configured_feature/ore_diamond_large.json",
+                "data/minecraft/worldgen/configured_feature/ore_diamond_medium.json",
+                "data/minecraft/worldgen/configured_feature/ore_diamond_small.json",
+                "data/minecraft/worldgen/configured_feature/ore_emerald.json",
+                "data/minecraft/worldgen/configured_feature/ore_gold.json",
+                "data/minecraft/worldgen/configured_feature/ore_gold_buried.json",
                 "data/minecraft/worldgen/configured_feature/ore_iron.json",
                 "data/minecraft/worldgen/configured_feature/ore_iron_small.json",
-                "data/minecraft/worldgen/configured_feature/ore_gold.json",
-                "data/minecraft/worldgen/configured_feature/ore_diamond_large.json",
-                "data/minecraft/worldgen/configured_feature/ore_diamond_small.json"
+                "data/minecraft/worldgen/configured_feature/ore_lapis.json",
+                "data/minecraft/worldgen/configured_feature/ore_lapis_buried.json",
+                "data/minecraft/worldgen/configured_feature/ore_nether_gold.json",
+                "data/minecraft/worldgen/configured_feature/ore_quartz.json",
+                "data/minecraft/worldgen/configured_feature/ore_redstone.json"
             ]
         default:
             []
@@ -2194,6 +2224,40 @@ struct MCPummelchenModServerCoreTests {
                 userInfo: [NSLocalizedDescriptionKey: error]
             )
         }
+    }
+
+    private func unzipEntry(_ entry: String, from archive: URL) throws -> Data {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["unzip", "-p", archive.path, entry]
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+        try process.run()
+        process.waitUntilExit()
+
+        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        if process.terminationStatus != 0 {
+            let error = String(decoding: errorPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            throw NSError(
+                domain: "MCPummelchenModServerCoreTests",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: error]
+            )
+        }
+        return data
+    }
+
+    private func actualServerDatapackURL(named name: String) -> URL {
+        let testFile = URL(fileURLWithPath: #filePath)
+        let serverApp = testFile
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return serverApp.appendingPathComponent("server-datapacks/\(name)")
     }
 
     private func writeNeoForgeJar(root: URL, fileName: String, displayName: String, version: String, side: String) throws -> URL {

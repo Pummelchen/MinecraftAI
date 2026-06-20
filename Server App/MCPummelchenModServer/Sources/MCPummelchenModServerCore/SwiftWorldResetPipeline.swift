@@ -138,11 +138,26 @@ public struct SwiftWorldResetPipeline: Sendable {
             "data/minecraft/worldgen/multi_noise_biome_source_parameter_list/overworld.json"
         ],
         "pummelchen-rich-ores.zip": [
+            "data/minecraft/worldgen/configured_feature/ore_ancient_debris_large.json",
+            "data/minecraft/worldgen/configured_feature/ore_ancient_debris_small.json",
+            "data/minecraft/worldgen/configured_feature/ore_coal.json",
+            "data/minecraft/worldgen/configured_feature/ore_coal_buried.json",
+            "data/minecraft/worldgen/configured_feature/ore_copper_large.json",
+            "data/minecraft/worldgen/configured_feature/ore_copper_small.json",
+            "data/minecraft/worldgen/configured_feature/ore_diamond_buried.json",
+            "data/minecraft/worldgen/configured_feature/ore_diamond_large.json",
+            "data/minecraft/worldgen/configured_feature/ore_diamond_medium.json",
+            "data/minecraft/worldgen/configured_feature/ore_diamond_small.json",
+            "data/minecraft/worldgen/configured_feature/ore_emerald.json",
+            "data/minecraft/worldgen/configured_feature/ore_gold.json",
+            "data/minecraft/worldgen/configured_feature/ore_gold_buried.json",
             "data/minecraft/worldgen/configured_feature/ore_iron.json",
             "data/minecraft/worldgen/configured_feature/ore_iron_small.json",
-            "data/minecraft/worldgen/configured_feature/ore_gold.json",
-            "data/minecraft/worldgen/configured_feature/ore_diamond_large.json",
-            "data/minecraft/worldgen/configured_feature/ore_diamond_small.json"
+            "data/minecraft/worldgen/configured_feature/ore_lapis.json",
+            "data/minecraft/worldgen/configured_feature/ore_lapis_buried.json",
+            "data/minecraft/worldgen/configured_feature/ore_nether_gold.json",
+            "data/minecraft/worldgen/configured_feature/ore_quartz.json",
+            "data/minecraft/worldgen/configured_feature/ore_redstone.json"
         ]
     ]
 
