@@ -105,7 +105,7 @@ Activation always publishes static release files through nginx and writes versio
 
 Only the Minecraft version marked `is_live = true` in DuckDB may also update `/downloads/current-release.json`, `/downloads/current-release.txt`, and the stable DMG/download aliases used by normal clients. Staging versions must not overwrite the global current release pointer.
 
-After activation, the Swift release pipeline enforces storage retention. It keeps the active release plus the newest retained releases per `server_key` in DuckDB and prunes older release directories from both the private release root and nginx public download release root. Manual VPS cleanup must not be the only disk-space control.
+After activation, the Swift release pipeline enforces storage retention. It keeps the active release plus the newest retained releases per `server_key` in DuckDB and prunes older release directories from both the private release root and nginx public download release root. If the activated release includes `MCPummelchenModClient.dmg`, the pipeline must also start automatic post-DMG cleanup for known Pummelchen build, headless-test, temporary DMG, spark profiler, and old binary-backup artifacts, then record a `cleanup` event in DuckDB. Manual VPS cleanup must not be the only disk-space control.
 
 `current-release.json` is also the client-app self-update contract. When a release includes a macOS DMG, the payload must include both:
 

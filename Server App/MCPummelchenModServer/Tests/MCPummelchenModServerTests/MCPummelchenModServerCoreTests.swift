@@ -691,6 +691,22 @@ struct MCPummelchenModServerCoreTests {
 
         let releaseID = "release_20260613_V77_swift_phase7_test"
         try writeDMGHeadlessLiveSoakReport(releaseID: releaseID, dmgSHA: dmgSHA, serverDir: serverDir)
+        let tempCleanupRoot = root.appendingPathComponent("tmp", isDirectory: true)
+        let clientBuildTemp = clientPackage.appendingPathComponent(".build/pummelchen-dmg/stage", isDirectory: true)
+        let projectBuildTemp = root.appendingPathComponent(".build/pummelchen-dmg/nginx-control-live-test", isDirectory: true)
+        let binaryBackups = root.appendingPathComponent("bin/backups", isDirectory: true)
+        let sparkTmp = serverDir.appendingPathComponent("config/spark/tmp", isDirectory: true)
+        try FileManager.default.createDirectory(at: clientBuildTemp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projectBuildTemp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binaryBackups, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sparkTmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: tempCleanupRoot.appendingPathComponent("pummelchen-headless-soak-test", isDirectory: true), withIntermediateDirectories: true)
+        try "build temp".write(to: clientBuildTemp.appendingPathComponent("old.app"), atomically: true, encoding: .utf8)
+        try "control temp".write(to: projectBuildTemp.appendingPathComponent("client.duckdb"), atomically: true, encoding: .utf8)
+        try "old backup".write(to: binaryBackups.appendingPathComponent("MCPummelchenModServer.old"), atomically: true, encoding: .utf8)
+        try "spark temp".write(to: sparkTmp.appendingPathComponent("spark-test-profile-data.jfr.tmp"), atomically: true, encoding: .utf8)
+        try "old dmg".write(to: tempCleanupRoot.appendingPathComponent(SwiftReleasePipeline.dmgName), atomically: true, encoding: .utf8)
+        try "pipeline log".write(to: tempCleanupRoot.appendingPathComponent("daily_release_pipeline_test.log"), atomically: true, encoding: .utf8)
         let pipeline = SwiftReleasePipeline(config: SwiftReleasePipelineConfig(
             projectRoot: root,
             serverDir: serverDir,
@@ -701,7 +717,8 @@ struct MCPummelchenModServerCoreTests {
             notes: "phase 7 test release",
             activate: true,
             buildClientZipIfMissing: false,
-            serviceName: ""
+            serviceName: "",
+            tempCleanupRoot: tempCleanupRoot
         ))
 
         let result = try pipeline.createRelease()
@@ -717,6 +734,14 @@ struct MCPummelchenModServerCoreTests {
         #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(SwiftReleasePipeline.dmgName).path)) == "releases/\(releaseID)/\(SwiftReleasePipeline.dmgName)")
         #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(liveClientZipName).path)) == "releases/\(releaseID)/\(liveClientZipName)")
         #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName).path)) == "releases/\(releaseID)/\(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName)")
+        #expect(!FileManager.default.fileExists(atPath: clientPackage.appendingPathComponent(".build").path))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".build/pummelchen-dmg").path))
+        #expect(!FileManager.default.fileExists(atPath: binaryBackups.path))
+        #expect(!FileManager.default.fileExists(atPath: sparkTmp.appendingPathComponent("spark-test-profile-data.jfr.tmp").path))
+        #expect(!FileManager.default.fileExists(atPath: tempCleanupRoot.appendingPathComponent(SwiftReleasePipeline.dmgName).path))
+        #expect(!FileManager.default.fileExists(atPath: tempCleanupRoot.appendingPathComponent("daily_release_pipeline_test.log").path))
+        let cleanupEventCount = try duckDBScalar(database: root.appendingPathComponent("phase7.duckdb"), sql: "SELECT count(*) FROM release.release_events WHERE release_id = '\(releaseID)' AND event_type = 'cleanup' AND status = 'ok';")
+        #expect(cleanupEventCount == "1")
         #expect(!FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/data/tested-updates.json").path))
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("site/public/tested-updates.json").path))
         let publicManifest = try String(contentsOf: publicDownloads.appendingPathComponent("releases/\(releaseID)/client-sync-manifest.tsv"), encoding: .utf8)

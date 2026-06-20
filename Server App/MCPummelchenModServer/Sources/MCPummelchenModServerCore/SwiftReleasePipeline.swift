@@ -38,6 +38,7 @@ public struct SwiftReleasePipelineConfig: Sendable {
     public let buildClientZipIfMissing: Bool
     public let serviceName: String
     public let releaseRetentionPerServer: Int
+    public let tempCleanupRoot: URL
 
     public init(
         projectRoot: URL,
@@ -55,7 +56,8 @@ public struct SwiftReleasePipelineConfig: Sendable {
         activate: Bool = false,
         buildClientZipIfMissing: Bool = true,
         serviceName: String = "",
-        releaseRetentionPerServer: Int = 8
+        releaseRetentionPerServer: Int = 8,
+        tempCleanupRoot: URL = FileManager.default.temporaryDirectory
     ) {
         self.projectRoot = projectRoot
         self.serverDir = serverDir
@@ -73,6 +75,7 @@ public struct SwiftReleasePipelineConfig: Sendable {
         self.buildClientZipIfMissing = buildClientZipIfMissing
         self.serviceName = serviceName.trimmingCharacters(in: .whitespacesAndNewlines)
         self.releaseRetentionPerServer = max(1, releaseRetentionPerServer)
+        self.tempCleanupRoot = tempCleanupRoot
     }
 }
 
@@ -275,6 +278,7 @@ public struct SwiftReleasePipeline: Sendable {
         VALUES (\(Self.sqlLiteral(UUID().uuidString)), \(Self.sqlLiteral(config.releaseID)), TIMESTAMP '\(Self.duckTimestamp(Date()))', 'activate', 'ok', \(Self.sqlLiteral(config.actor)), \(Self.sqlLiteral(config.notes)));
         """)
         try pruneReleaseStorage()
+        cleanupDMGReleaseTempFilesIfNeeded(dmgSHA: dmgSHA)
         try runRestartIfConfigured()
     }
 
@@ -906,6 +910,147 @@ public struct SwiftReleasePipeline: Sendable {
         return ids
     }
 
+    private func cleanupDMGReleaseTempFilesIfNeeded(dmgSHA: String?) {
+        guard dmgSHA != nil else {
+            return
+        }
+
+        var summary = ReleaseTempCleanupSummary()
+        let clientPackageBuild = config.serverDir
+            .appendingPathComponent("client-package", isDirectory: true)
+            .appendingPathComponent(".build", isDirectory: true)
+        removeIfSafe(clientPackageBuild, allowedRoot: config.serverDir, summary: &summary)
+
+        let releaseBuildTemp = config.projectRoot
+            .appendingPathComponent(".build", isDirectory: true)
+            .appendingPathComponent("pummelchen-dmg", isDirectory: true)
+        removeIfSafe(releaseBuildTemp, allowedRoot: config.projectRoot, summary: &summary)
+
+        let binaryBackups = config.projectRoot.appendingPathComponent("bin/backups", isDirectory: true)
+        removeIfSafe(binaryBackups, allowedRoot: config.projectRoot, summary: &summary)
+
+        cleanupSparkTemp(summary: &summary)
+        cleanupTemporaryRoot(summary: &summary)
+        recordReleaseCleanup(summary)
+    }
+
+    private func cleanupSparkTemp(summary: inout ReleaseTempCleanupSummary) {
+        let sparkTemp = config.serverDir.appendingPathComponent("config/spark/tmp", isDirectory: true)
+        guard fileManager.fileExists(atPath: sparkTemp.path) else {
+            return
+        }
+        do {
+            let children = try fileManager.contentsOfDirectory(at: sparkTemp, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles])
+            for child in children where child.lastPathComponent.hasSuffix(".tmp") || child.lastPathComponent.hasSuffix(".jfr.tmp") {
+                removeIfSafe(child, allowedRoot: sparkTemp, summary: &summary)
+            }
+        } catch {
+            summary.errors.append("spark tmp scan failed: \(error)")
+        }
+    }
+
+    private func cleanupTemporaryRoot(summary: inout ReleaseTempCleanupSummary) {
+        let tempRoot = config.tempCleanupRoot.standardizedFileURL
+        guard fileManager.fileExists(atPath: tempRoot.path) else {
+            return
+        }
+        do {
+            let children = try fileManager.contentsOfDirectory(at: tempRoot, includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey], options: [.skipsHiddenFiles])
+            for child in children where shouldRemoveTemporaryRootItem(child.lastPathComponent) {
+                removeIfSafe(child, allowedRoot: tempRoot, summary: &summary)
+            }
+        } catch {
+            summary.errors.append("temporary root scan failed: \(error)")
+        }
+    }
+
+    private func shouldRemoveTemporaryRootItem(_ name: String) -> Bool {
+        let exactNames: Set<String> = [
+            "MCPummelchenModClient.dmg",
+            "MCPummelchenModClient.dmg.sha256",
+            "Pummelchen-Client-Installer.dmg",
+            "PummelchenClient.dmg",
+            "pummelchen-mrpack",
+            "swift-generated-sources",
+            "node-compile-cache"
+        ]
+        if exactNames.contains(name) {
+            return true
+        }
+        if name.hasPrefix("pummelchen-headless-soak-") || name.hasPrefix("pummelchen-java-") || name.hasPrefix("TemporaryDirectory.") {
+            return true
+        }
+        if name.hasPrefix("pummelchen") && name.hasSuffix(".log") {
+            return true
+        }
+        if name.hasPrefix("daily_release_pipeline_") && name.hasSuffix(".log") {
+            return true
+        }
+        return false
+    }
+
+    private func removeIfSafe(_ url: URL, allowedRoot: URL, summary: inout ReleaseTempCleanupSummary) {
+        guard fileManager.fileExists(atPath: url.path) else {
+            return
+        }
+        do {
+            let resolvedURL = url.standardizedFileURL.resolvingSymlinksInPath()
+            let resolvedRoot = allowedRoot.standardizedFileURL.resolvingSymlinksInPath()
+            guard isPath(resolvedURL, inside: resolvedRoot) || resolvedURL.path == resolvedRoot.path else {
+                summary.errors.append("refused cleanup outside allowed root: \(url.path)")
+                return
+            }
+            let bytes = directorySize(resolvedURL)
+            try fileManager.removeItem(at: resolvedURL)
+            summary.removedItems += 1
+            summary.removedBytes += bytes
+            summary.removedPaths.append(url.path)
+        } catch {
+            summary.errors.append("cleanup failed for \(url.path): \(error)")
+        }
+    }
+
+    private func directorySize(_ url: URL) -> Int64 {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return 0
+        }
+        if !isDirectory.boolValue {
+            return (try? fileSize(url)) ?? 0
+        }
+        guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey], options: [.skipsHiddenFiles]) else {
+            return 0
+        }
+        var total: Int64 = 0
+        for case let file as URL in enumerator {
+            guard let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true else {
+                continue
+            }
+            total += Int64(values.fileSize ?? 0)
+        }
+        return total
+    }
+
+    private func isPath(_ path: URL, inside root: URL) -> Bool {
+        let pathString = path.path
+        let rootString = root.path
+        return pathString.hasPrefix(rootString.hasSuffix("/") ? rootString : "\(rootString)/")
+    }
+
+    private func recordReleaseCleanup(_ summary: ReleaseTempCleanupSummary) {
+        let status = summary.errors.isEmpty ? "ok" : "warning"
+        let detail = "Automatic post-DMG cleanup removed \(summary.removedItems) item(s), freed \(summary.removedBytes) byte(s)."
+        let pathSample = summary.removedPaths.prefix(8).joined(separator: ", ")
+        let errorSample = summary.errors.prefix(4).joined(separator: " | ")
+        let notes = [detail, pathSample.isEmpty ? nil : "paths: \(pathSample)", errorSample.isEmpty ? nil : "errors: \(errorSample)"]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        try? executeDuckDB("""
+        INSERT INTO release.release_events(event_id, release_id, event_at, event_type, status, actor, notes)
+        VALUES (\(Self.sqlLiteral(UUID().uuidString)), \(Self.sqlLiteral(config.releaseID)), TIMESTAMP '\(Self.duckTimestamp(Date()))', 'cleanup', \(Self.sqlLiteral(status)), 'MCPummelchenModServer release cleanup', \(Self.sqlLiteral(notes)));
+        """)
+    }
+
     @discardableResult
     private func runCommand(executable: String, arguments: [String], currentDirectory: URL? = nil) throws -> String {
         let process = Process()
@@ -1032,6 +1177,13 @@ public struct SwiftReleasePipeline: Sendable {
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return formatter.string(from: date)
     }
+}
+
+private struct ReleaseTempCleanupSummary {
+    var removedItems = 0
+    var removedBytes: Int64 = 0
+    var removedPaths: [String] = []
+    var errors: [String] = []
 }
 
 private struct DMGHeadlessLiveSoakReport: Decodable {
