@@ -314,6 +314,7 @@
         const payload = await response.json();
         if (Array.isArray(payload.rows)) {
           applyFailedModsRows(payload.rows);
+          window.dispatchEvent(new CustomEvent('pummelchen-live-data-updated', { detail: { source: 'failed-mods' } }));
         }
       } catch {
         if (!failedModsState.rows || !failedModsState.rows.length) {

@@ -974,6 +974,9 @@
         }
       }
     }
+    function announceLiveDataUpdate(source) {
+      window.dispatchEvent(new CustomEvent('pummelchen-live-data-updated', { detail: { source } }));
+    }
     async function refreshLiveStats() {
       const status = document.getElementById('liveStatus');
       const dot = document.getElementById('liveDot');
@@ -981,6 +984,7 @@
         const response = await fetch('/api/v1/site/live-stats', { cache: 'no-store' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         applyLiveStats(await response.json());
+        announceLiveDataUpdate('live-stats');
       } catch (error) {
         if (status) status.textContent = `Live stats unavailable: ${error.message}`;
         if (dot) {
@@ -1043,6 +1047,7 @@
         const response = await fetch('/api/v1/minecraft/server-versions', { cache: 'no-store' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         renderServerVersions(await response.json());
+        announceLiveDataUpdate('server-versions');
       } catch {
         renderServerVersions({ versions: [] });
       }
@@ -1305,6 +1310,7 @@
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const payload = await response.json();
         applyModInventoryRows(config, rowsFromInventoryPayload(payload, []), metadataFromInventoryPayload(payload));
+        announceLiveDataUpdate(config.gridId || 'mod-inventory');
       } catch (error) {
         const state = modInventoryTableState[config.gridId];
         if (!state) {

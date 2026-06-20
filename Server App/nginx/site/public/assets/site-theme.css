@@ -41,7 +41,7 @@
   color: #031006;
 }
 
-html[data-theme="glass"] {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) {
   color-scheme: dark;
   --bg: #05070a;
   --ink: #f6fbff;
@@ -66,14 +66,14 @@ html[data-theme="glass"] {
   --chart-line: #9fffd1;
 }
 
-html[data-theme="glass"] body {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) body {
   background:
     linear-gradient(180deg, rgba(5, 8, 12, 0.64), rgba(5, 8, 12, 0.82)),
     url("minecraft-spring26-bw-bg.jpg") center / cover fixed no-repeat,
     #05070a;
 }
 
-html[data-theme="glass"] body::before {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) body::before {
   content: "";
   position: fixed;
   inset: 0;
@@ -85,18 +85,18 @@ html[data-theme="glass"] body::before {
     linear-gradient(90deg, rgba(255, 255, 255, 0.06), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.05));
 }
 
-html[data-theme="glass"] .top-image-wrap {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .top-image-wrap {
   display: none;
 }
 
-html[data-theme="glass"] .wrap {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .wrap {
   width: min(1180px, calc(100% - 48px));
   max-width: 1180px;
   padding-left: 0;
   padding-right: 0;
 }
 
-html[data-theme="glass"] .theme-switcher {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .theme-switcher {
   border-color: rgba(255, 255, 255, 0.2);
   background: rgba(231, 237, 244, 0.16);
   box-shadow: 0 18px 54px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.18);
@@ -104,26 +104,26 @@ html[data-theme="glass"] .theme-switcher {
   -webkit-backdrop-filter: blur(26px) saturate(1.18);
 }
 
-html[data-theme="glass"] .theme-switcher button {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .theme-switcher button {
   color: #cfe0ec;
 }
 
-html[data-theme="glass"] .theme-switcher button[aria-pressed="true"] {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .theme-switcher button[aria-pressed="true"] {
   background: rgba(182, 241, 255, 0.78);
   color: #031015;
 }
 
-html[data-theme="glass"] a {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) a {
   color: var(--blue);
 }
 
-html[data-theme="glass"] header,
-html[data-theme="glass"] section,
-html[data-theme="glass"] footer {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) header,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) section,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) footer {
   border-color: var(--line);
 }
 
-html[data-theme="glass"] header {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) header {
   width: min(1180px, calc(100% - 48px));
   margin: 48px auto 18px;
   border: 1px solid var(--line);
@@ -134,18 +134,18 @@ html[data-theme="glass"] header {
   -webkit-backdrop-filter: blur(30px) saturate(1.18);
 }
 
-html[data-theme="glass"] header .hero,
-html[data-theme="glass"] header .wrap {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) header .hero,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) header .wrap {
   padding: 28px;
 }
 
-html[data-theme="glass"] .top-image {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .top-image {
   border: 1px solid rgba(255, 255, 255, 0.18);
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.56), 0 0 0 1px rgba(141, 248, 197, 0.08);
 }
 
-html[data-theme="glass"] main > section,
-html[data-theme="glass"] main.section {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) main > section,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) main.section {
   margin: 0 0 18px;
   padding: 22px;
   border: 1px solid var(--line);
@@ -156,23 +156,23 @@ html[data-theme="glass"] main.section {
   -webkit-backdrop-filter: blur(28px) saturate(1.16);
 }
 
-html[data-theme="glass"] .stat,
-html[data-theme="glass"] .chart-card,
-html[data-theme="glass"] .version-card,
-html[data-theme="glass"] .update-card,
-html[data-theme="glass"] .update-countdown,
-html[data-theme="glass"] .update-activity,
-html[data-theme="glass"] .run-block,
-html[data-theme="glass"] .manual-update,
-html[data-theme="glass"] .card,
-html[data-theme="glass"] .download,
-html[data-theme="glass"] .pill,
-html[data-theme="glass"] pre,
-html[data-theme="glass"] .terminal-cmd,
-html[data-theme="glass"] .terminal-output,
-html[data-theme="glass"] .table-shell,
-html[data-theme="glass"] .sheet-grid,
-html[data-theme="glass"] table {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .stat,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .chart-card,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .version-card,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .update-card,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .update-countdown,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .update-activity,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .run-block,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .manual-update,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .card,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .download,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .pill,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) pre,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .terminal-cmd,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .terminal-output,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .table-shell,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) table {
   border-color: var(--line);
   background: linear-gradient(135deg, rgba(246, 250, 255, 0.17), rgba(246, 250, 255, 0.07));
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18);
@@ -180,32 +180,32 @@ html[data-theme="glass"] table {
   -webkit-backdrop-filter: blur(24px) saturate(1.18);
 }
 
-html[data-theme="glass"] .stat,
-html[data-theme="glass"] .chart-card,
-html[data-theme="glass"] .version-card,
-html[data-theme="glass"] .update-card,
-html[data-theme="glass"] .update-countdown,
-html[data-theme="glass"] .update-activity,
-html[data-theme="glass"] .run-block,
-html[data-theme="glass"] .manual-update,
-html[data-theme="glass"] .card,
-html[data-theme="glass"] .download,
-html[data-theme="glass"] .sheet-grid,
-html[data-theme="glass"] .table-shell,
-html[data-theme="glass"] table {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .stat,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .chart-card,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .version-card,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .update-card,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .update-countdown,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .update-activity,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .run-block,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .manual-update,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .card,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .download,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .table-shell,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) table {
   border-radius: 8px;
 }
 
-html[data-theme="glass"] .chart-card canvas {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .chart-card canvas {
   border-radius: 8px;
   background: var(--chart-bg);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-html[data-theme="glass"] .button,
-html[data-theme="glass"] .release-version,
-html[data-theme="glass"] .copy-button,
-html[data-theme="glass"] .sheet-grid .tabulator-page {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .button,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .release-version,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .copy-button,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid .tabulator-page {
   border-color: rgba(255, 255, 255, 0.2);
   background: rgba(244, 248, 252, 0.13);
   color: var(--ink);
@@ -214,21 +214,21 @@ html[data-theme="glass"] .sheet-grid .tabulator-page {
   -webkit-backdrop-filter: blur(18px);
 }
 
-html[data-theme="glass"] .button:not(.secondary),
-html[data-theme="glass"] .sheet-grid .tabulator-page.active {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .button:not(.secondary),
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid .tabulator-page.active {
   border-color: rgba(141, 248, 197, 0.62);
   background: rgba(182, 241, 255, 0.76);
   color: #031015;
 }
 
-html[data-theme="glass"] .button.secondary:hover,
-html[data-theme="glass"] .release-version:hover,
-html[data-theme="glass"] .copy-button:hover {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .button.secondary:hover,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .release-version:hover,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .copy-button:hover {
   border-color: rgba(141, 248, 197, 0.72);
   color: var(--accent);
 }
 
-html[data-theme="glass"] .search {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .search {
   border-color: rgba(255, 255, 255, 0.34);
   background: rgba(8, 12, 16, 0.42);
   color: var(--ink);
@@ -237,115 +237,339 @@ html[data-theme="glass"] .search {
   -webkit-backdrop-filter: blur(18px);
 }
 
-html[data-theme="glass"] .search::placeholder {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .search::placeholder {
   color: rgba(246, 251, 255, 0.72);
   opacity: 1;
 }
 
-html[data-theme="glass"] .search:focus {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .search:focus {
   border-color: rgba(141, 248, 197, 0.82);
   outline: 2px solid rgba(141, 248, 197, 0.24);
   outline-offset: 2px;
 }
 
-html[data-theme="glass"] .table-count {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .table-count {
   color: rgba(246, 251, 255, 0.9);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.38);
 }
 
-html[data-theme="glass"] .operator-warning {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .operator-warning {
   border-color: rgba(255, 211, 122, 0.78);
   background: rgba(57, 42, 11, 0.28);
   color: #ffe8b6;
 }
 
-html[data-theme="glass"] .safe-reset-command {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .safe-reset-command {
   color: #ff8d8d;
 }
 
-html[data-theme="glass"] .note,
-html[data-theme="glass"] .operator-section,
-html[data-theme="glass"] .operator-warning,
-html[data-theme="glass"] .safe-reset-command {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .note,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .operator-section,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .operator-warning,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .safe-reset-command {
   max-width: 100%;
   overflow-wrap: anywhere;
 }
 
-html[data-theme="glass"] .sheet-grid .tabulator,
-html[data-theme="glass"] .sheet-grid .tabulator-tableholder,
-html[data-theme="glass"] .sheet-grid .tabulator-table,
-html[data-theme="glass"] .sheet-grid .tabulator-row,
-html[data-theme="glass"] .sheet-grid .tabulator-row.tabulator-row-even {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid .tabulator,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid .tabulator-tableholder,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid .tabulator-table,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid .tabulator-row,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid .tabulator-row.tabulator-row-even {
   background: transparent !important;
   color: var(--ink);
 }
 
-html[data-theme="glass"] .sheet-grid .tabulator-header,
-html[data-theme="glass"] .sheet-grid .tabulator-col,
-html[data-theme="glass"] .sheet-grid .tabulator-footer {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid .tabulator-header,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid .tabulator-col,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid .tabulator-footer {
   background: rgba(246, 250, 255, 0.14) !important;
   border-color: var(--line);
   color: var(--stone);
 }
 
-html[data-theme="glass"] .sheet-grid .tabulator-row {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid .tabulator-row {
   border-color: rgba(255, 255, 255, 0.1);
 }
 
-html[data-theme="glass"] .sheet-grid .tabulator-row:hover {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid .tabulator-row:hover {
   background: rgba(255, 255, 255, 0.1) !important;
 }
 
-html[data-theme="glass"] .sheet-grid .tabulator-cell,
-html[data-theme="glass"] th,
-html[data-theme="glass"] td {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid .tabulator-cell,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) th,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) td {
   border-color: rgba(255, 255, 255, 0.12);
 }
 
-html[data-theme="glass"] th,
-html[data-theme="glass"] .updates-table th {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) th,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .updates-table th {
   background: rgba(246, 250, 255, 0.14);
   color: var(--stone);
 }
 
-html[data-theme="glass"] tr:hover td,
-html[data-theme="glass"] .updates-table tbody tr:hover {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) tr:hover td,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .updates-table tbody tr:hover {
   background: rgba(255, 255, 255, 0.09);
 }
 
-html[data-theme="glass"] .compat {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .compat {
   border-color: rgba(255, 255, 255, 0.18);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-html[data-theme="glass"] .compat-active,
-html[data-theme="glass"] .compat-compatible,
-html[data-theme="glass"] .compat-staged,
-html[data-theme="glass"] .badge-applied {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .compat-active,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .compat-compatible,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .compat-staged,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .badge-applied {
   color: #d8ffe7;
   background: rgba(19, 90, 48, 0.58);
   border-color: rgba(141, 248, 197, 0.42);
 }
 
-html[data-theme="glass"] .compat-needs-test,
-html[data-theme="glass"] .compat-compatible-by-file,
-html[data-theme="glass"] .badge-dryrun {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .compat-needs-test,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .compat-compatible-by-file,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .badge-dryrun {
   color: #ffedbf;
   background: rgba(91, 65, 16, 0.58);
   border-color: rgba(255, 211, 122, 0.42);
 }
 
-html[data-theme="glass"] .compat-not-installed,
-html[data-theme="glass"] .badge-failed {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .compat-not-installed,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .badge-failed {
   color: #ffd2cf;
   background: rgba(91, 28, 27, 0.56);
   border-color: rgba(255, 170, 166, 0.42);
 }
 
-html[data-theme="glass"] .compat-unknown,
-html[data-theme="glass"] .compat-live-data-unavailable {
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .compat-unknown,
+:is(html[data-theme="glass"], html[data-theme="glass2"]) .compat-live-data-unavailable {
   color: #d6e4ee;
   background: rgba(35, 47, 62, 0.58);
+}
+
+html[data-theme="glass2"] {
+  --glass2-edge: rgba(203, 241, 255, 0.5);
+  --glass2-edge-hot: rgba(158, 255, 209, 0.88);
+  --glass2-sheen: rgba(255, 255, 255, 0.32);
+  --glass2-glow: rgba(151, 231, 255, 0.28);
+  --glass2-flash: rgba(159, 255, 209, 0.38);
+  --chart-bg: rgba(5, 8, 12, 0.48);
+  --chart-grid: rgba(255, 255, 255, 0.18);
+  --chart-line: #b6f6ff;
+}
+
+html[data-theme="glass2"] body {
+  background:
+    linear-gradient(180deg, rgba(4, 6, 10, 0.52), rgba(3, 5, 8, 0.84)),
+    url("minecraft-spring26-bw-bg.jpg") center / cover fixed no-repeat,
+    #030507;
+}
+
+html[data-theme="glass2"] header,
+html[data-theme="glass2"] main > section,
+html[data-theme="glass2"] .stat,
+html[data-theme="glass2"] .chart-card,
+html[data-theme="glass2"] .version-card,
+html[data-theme="glass2"] .update-card,
+html[data-theme="glass2"] .update-countdown,
+html[data-theme="glass2"] .update-activity,
+html[data-theme="glass2"] .run-block,
+html[data-theme="glass2"] .manual-update,
+html[data-theme="glass2"] .card,
+html[data-theme="glass2"] .download,
+html[data-theme="glass2"] .table-shell,
+html[data-theme="glass2"] .sheet-grid {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border-color: rgba(225, 245, 255, 0.28);
+  background:
+    radial-gradient(420px circle at var(--mouse-x, 50%) var(--mouse-y, 0%), var(--glass2-glow), transparent 42%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.07));
+  box-shadow:
+    0 26px 70px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="glass2"] header > *,
+html[data-theme="glass2"] main > section > *,
+html[data-theme="glass2"] .stat > *,
+html[data-theme="glass2"] .chart-card > *,
+html[data-theme="glass2"] .version-card > *,
+html[data-theme="glass2"] .update-card > *,
+html[data-theme="glass2"] .update-countdown > *,
+html[data-theme="glass2"] .update-activity > *,
+html[data-theme="glass2"] .run-block > *,
+html[data-theme="glass2"] .manual-update > *,
+html[data-theme="glass2"] .card > *,
+html[data-theme="glass2"] .download > *,
+html[data-theme="glass2"] .table-shell > *,
+html[data-theme="glass2"] .sheet-grid > * {
+  position: relative;
+  z-index: 2;
+}
+
+html[data-theme="glass2"] header::before,
+html[data-theme="glass2"] main > section::before,
+html[data-theme="glass2"] .stat::before,
+html[data-theme="glass2"] .chart-card::before,
+html[data-theme="glass2"] .version-card::before,
+html[data-theme="glass2"] .update-card::before,
+html[data-theme="glass2"] .update-countdown::before,
+html[data-theme="glass2"] .update-activity::before,
+html[data-theme="glass2"] .run-block::before,
+html[data-theme="glass2"] .manual-update::before,
+html[data-theme="glass2"] .card::before,
+html[data-theme="glass2"] .download::before,
+html[data-theme="glass2"] .table-shell::before,
+html[data-theme="glass2"] .sheet-grid::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background:
+    conic-gradient(from var(--glass2-spark-angle, 0deg),
+      transparent 0deg,
+      transparent 48deg,
+      var(--glass2-edge-hot) 54deg,
+      var(--glass2-edge) 62deg,
+      transparent 72deg,
+      transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0.72;
+  animation: glass2-border-spark 60s linear infinite;
+}
+
+html[data-theme="glass2"] header::after,
+html[data-theme="glass2"] main > section::after,
+html[data-theme="glass2"] .stat::after,
+html[data-theme="glass2"] .chart-card::after,
+html[data-theme="glass2"] .version-card::after,
+html[data-theme="glass2"] .update-card::after,
+html[data-theme="glass2"] .update-countdown::after,
+html[data-theme="glass2"] .update-activity::after,
+html[data-theme="glass2"] .run-block::after,
+html[data-theme="glass2"] .manual-update::after,
+html[data-theme="glass2"] .card::after,
+html[data-theme="glass2"] .download::after,
+html[data-theme="glass2"] .table-shell::after,
+html[data-theme="glass2"] .sheet-grid::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    linear-gradient(115deg,
+      transparent 0%,
+      transparent 28%,
+      var(--glass2-sheen) 42%,
+      rgba(255, 255, 255, 0.08) 50%,
+      transparent 66%,
+      transparent 100%);
+  transform: translateX(-130%);
+  animation: glass2-sheen 18s ease-in-out infinite;
+  opacity: 0.38;
+}
+
+html[data-theme="glass2"] .theme-switcher {
+  gap: 4px;
+  border-color: rgba(225, 245, 255, 0.28);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.23), rgba(255, 255, 255, 0.09));
+}
+
+html[data-theme="glass2"] .theme-switcher button[aria-pressed="true"] {
+  background: rgba(198, 244, 255, 0.84);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.36), 0 8px 22px rgba(151, 231, 255, 0.16);
+}
+
+html[data-theme="glass2"] .sheet-grid .tabulator-header,
+html[data-theme="glass2"] .sheet-grid .tabulator-col,
+html[data-theme="glass2"] .sheet-grid .tabulator-footer,
+html[data-theme="glass2"] th,
+html[data-theme="glass2"] .updates-table th {
+  background: rgba(230, 242, 250, 0.18) !important;
+  backdrop-filter: blur(18px) saturate(1.18);
+  -webkit-backdrop-filter: blur(18px) saturate(1.18);
+}
+
+html[data-theme="glass2"] .sheet-grid .tabulator-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+html[data-theme="glass2"] .button:not(.secondary),
+html[data-theme="glass2"] .sheet-grid .tabulator-page.active {
+  background: linear-gradient(135deg, rgba(202, 244, 255, 0.92), rgba(154, 255, 211, 0.84));
+  border-color: rgba(203, 241, 255, 0.76);
+}
+
+html[data-theme="glass2"] .search {
+  background:
+    radial-gradient(280px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(151, 231, 255, 0.2), transparent 50%),
+    rgba(8, 12, 16, 0.48);
+}
+
+html[data-theme="glass2"] .live-update-flash {
+  animation: glass2-live-flash 1050ms ease-out;
+}
+
+@property --glass2-spark-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes glass2-border-spark {
+  to { --glass2-spark-angle: 360deg; }
+}
+
+@keyframes glass2-sheen {
+  0%, 68% { transform: translateX(-130%); }
+  86%, 100% { transform: translateX(130%); }
+}
+
+@keyframes glass2-live-flash {
+  0% {
+    background-color: var(--glass2-flash);
+    text-shadow: 0 0 18px rgba(159, 255, 209, 0.64);
+  }
+  100% {
+    background-color: transparent;
+    text-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="glass2"] header::before,
+  html[data-theme="glass2"] header::after,
+  html[data-theme="glass2"] main > section::before,
+  html[data-theme="glass2"] main > section::after,
+  html[data-theme="glass2"] .stat::before,
+  html[data-theme="glass2"] .stat::after,
+  html[data-theme="glass2"] .chart-card::before,
+  html[data-theme="glass2"] .chart-card::after,
+  html[data-theme="glass2"] .version-card::before,
+  html[data-theme="glass2"] .version-card::after,
+  html[data-theme="glass2"] .download::before,
+  html[data-theme="glass2"] .download::after,
+  html[data-theme="glass2"] .table-shell::before,
+  html[data-theme="glass2"] .table-shell::after,
+  html[data-theme="glass2"] .sheet-grid::before,
+  html[data-theme="glass2"] .sheet-grid::after,
+  html[data-theme="glass2"] .live-update-flash {
+    animation: none;
+  }
 }
 
 @media (max-width: 760px) {
@@ -354,11 +578,11 @@ html[data-theme="glass"] .compat-live-data-unavailable {
     right: 10px;
   }
 
-  html[data-theme="glass"] body {
+  :is(html[data-theme="glass"], html[data-theme="glass2"]) body {
     overflow-x: hidden;
   }
 
-  html[data-theme="glass"] .sheet-grid .tabulator-header {
+  :is(html[data-theme="glass"], html[data-theme="glass2"]) .sheet-grid .tabulator-header {
     overflow: hidden;
   }
 }
