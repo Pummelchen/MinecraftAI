@@ -117,7 +117,7 @@ struct CoreUtilityTests {
         }
     }
 
-    @Test("current release URLs stay inside release downloads")
+    @Test("current release URLs stay in managed download paths")
     func validatesCurrentReleaseRelativeURLs() throws {
         let release = CurrentRelease(
             releaseID: "release_20260613_V21_client-smart-sync-feed",

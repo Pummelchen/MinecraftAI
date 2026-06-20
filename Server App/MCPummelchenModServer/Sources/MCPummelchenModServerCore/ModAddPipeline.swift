@@ -37,16 +37,16 @@ public struct ModAddPipelineConfig: Sendable {
     public let sourceURL: String
     public let localArtifact: URL?
     public let releaseID: String
+    public let serverPackageDirectory: URL?
+    public let serviceName: String?
     public let minecraftVersion: String
     public let loader: String
     public let loaderVersion: String
     public let installScope: String
     public let activate: Bool
     public let dryRun: Bool
-    public let buildDMGCommand: String?
-    public let serverTestCommand: String?
-    public let restartCommand: String?
-    public let healthCommand: String?
+    public let clientAPIToken: String?
+    public let requireClientToken: Bool
 
     public init(
         projectRoot: URL,
@@ -57,16 +57,16 @@ public struct ModAddPipelineConfig: Sendable {
         sourceURL: String,
         localArtifact: URL? = nil,
         releaseID: String,
+        serverPackageDirectory: URL? = nil,
+        serviceName: String? = nil,
         minecraftVersion: String = "26.1.2",
         loader: String = "neoforge",
         loaderVersion: String = "26.1.2.76",
         installScope: String = "auto",
         activate: Bool = false,
         dryRun: Bool = true,
-        buildDMGCommand: String? = nil,
-        serverTestCommand: String? = nil,
-        restartCommand: String? = nil,
-        healthCommand: String? = nil
+        clientAPIToken: String? = nil,
+        requireClientToken: Bool = false
     ) {
         self.projectRoot = projectRoot
         self.serverDir = serverDir
@@ -76,16 +76,16 @@ public struct ModAddPipelineConfig: Sendable {
         self.sourceURL = sourceURL
         self.localArtifact = localArtifact
         self.releaseID = releaseID
+        self.serverPackageDirectory = serverPackageDirectory
+        self.serviceName = serviceName?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.minecraftVersion = minecraftVersion
         self.loader = loader
         self.loaderVersion = loaderVersion
         self.installScope = installScope
         self.activate = activate
         self.dryRun = dryRun
-        self.buildDMGCommand = buildDMGCommand
-        self.serverTestCommand = serverTestCommand
-        self.restartCommand = restartCommand
-        self.healthCommand = healthCommand
+        self.clientAPIToken = clientAPIToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.requireClientToken = requireClientToken
     }
 }
 
@@ -144,13 +144,11 @@ public struct ModAddPipeline: Sendable {
 
         try recordSources(artifacts)
         steps.append("recorded source rows in DuckDB")
-        if let serverTestCommand = config.serverTestCommand, !serverTestCommand.isEmpty {
-            _ = try runCommand(serverTestCommand)
-            steps.append("server compatibility hook passed")
-        }
-        if let buildDMGCommand = config.buildDMGCommand, !buildDMGCommand.isEmpty {
-            _ = try runCommand(buildDMGCommand)
-            steps.append("DMG build hook passed")
+        try runServerSmokeCheckIfNeeded(steps: &steps)
+        if try buildDMGIfNeeded() {
+            steps.append("native Swift client DMG build passed")
+        } else {
+            steps.append("native Swift client DMG build skipped (platform unsupported)")
         }
 
         let release = try SwiftReleasePipeline(config: SwiftReleasePipelineConfig(
@@ -166,8 +164,7 @@ public struct ModAddPipeline: Sendable {
             notes: "Add mod: \(artifacts.map(\.displayName).joined(separator: ", "))",
             actor: "MCPummelchenModServer add-mod",
             activate: config.activate,
-            restartCommand: config.restartCommand,
-            healthCommand: config.healthCommand
+            serviceName: config.serviceName ?? ""
         )).createRelease()
         steps.append("release pipeline created \(release.releaseID)")
         if release.activated {
@@ -181,6 +178,58 @@ public struct ModAddPipeline: Sendable {
             releaseActivated: release.activated,
             steps: steps
         )
+    }
+
+    private func runServerSmokeCheckIfNeeded(steps: inout [String]) throws {
+        let currentReleaseFile = config.projectRoot.appendingPathComponent("site/public/downloads/current-release.json")
+        guard FileManager.default.fileExists(atPath: currentReleaseFile.path) else {
+            steps.append("server compatibility smoke check skipped (current release manifest missing)")
+            return
+        }
+        let api = MCPummelchenModServerAPI(
+            config: MCPummelchenModServerConfig(
+                projectRoot: config.projectRoot,
+                duckDBURL: config.databaseURL
+            )
+        )
+        try api.smokeCheck()
+        steps.append("native server compatibility smoke check passed")
+    }
+
+    private func buildDMGIfNeeded() throws -> Bool {
+        #if os(macOS)
+        let env = ProcessInfo.processInfo.environment
+        let clientPackageRoot = config.projectRoot.appendingPathComponent("Client App/MCPummelchenModClient", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: clientPackageRoot.appendingPathComponent("Package.swift").path) else {
+            return false
+        }
+        let serverPackageRoot = config.serverPackageDirectory
+            ?? URL(fileURLWithPath: env["PUMMELCHEN_SERVER_PACKAGE_DIR"] ?? config.projectRoot.appendingPathComponent("Server App/MCPummelchenModServer").path)
+        let clientToken = config.clientAPIToken ?? env["PUMMELCHEN_CLIENT_API_TOKEN"]
+        let runNginxControlLiveTest = env["PUMMELCHEN_SKIP_NGINX_CONTROL_LIVE_TEST"]?.lowercased() != "true" && !(clientToken?.isEmpty ?? true)
+        let builderConfig = ClientDMGBuilderConfig(
+            projectRoot: config.projectRoot,
+            clientPackageRoot: clientPackageRoot,
+            serverPackageRoot: serverPackageRoot,
+            releaseID: config.releaseID,
+            clientVersion: env["PUMMELCHEN_CLIENT_VERSION"] ?? "0.8.2",
+            serverURL: env["PUMMELCHEN_SERVER_URL"] ?? "https://pummelchen.91.99.176.243.nip.io",
+            serverAddress: env["PUMMELCHEN_SERVER_ADDRESS"] ?? "91.99.176.243:25565",
+            duckdbDylibPath: env["PUMMELCHEN_DUCKDB_DYLIB"] ?? "/opt/homebrew/lib/libduckdb.dylib",
+            macOSDeploymentTarget: env["MACOSX_DEPLOYMENT_TARGET"] ?? "26.0",
+            runNginxControlLiveTest: runNginxControlLiveTest,
+            runHeadlessSoak: env["PUMMELCHEN_REQUIRE_HEADLESS_SOAK"]?.lowercased() == "true",
+            headlessSoakSeconds: Int(env["PUMMELCHEN_HEADLESS_SOAK_SECONDS"] ?? "60") ?? 60,
+            headlessCommand: env["PUMMELCHEN_HEADLESS_COMMAND"],
+            expectedInstalledReleaseID: env["PUMMELCHEN_HEADLESS_EXPECTED_INSTALLED_RELEASE_ID"],
+            clientAPIToken: clientToken,
+            requireClientToken: config.requireClientToken
+        )
+        _ = try ClientDMGBuilder(config: builderConfig).build()
+        return true
+        #else
+        return false
+        #endif
     }
 
     private func resolvePrimaryArtifact() throws -> ResolvedArtifact {
@@ -535,24 +584,6 @@ public struct ModAddPipeline: Sendable {
             try fileManager.removeItem(at: target)
         }
         try fileManager.copyItem(at: source, to: target)
-    }
-
-    @discardableResult
-    private func runCommand(_ command: String) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-lc", command]
-        process.currentDirectoryURL = config.projectRoot
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        process.waitUntilExit()
-        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        guard process.terminationStatus == 0 else {
-            throw ModAddPipelineError.commandFailed(Self.redactSecrets(command + "\n" + output))
-        }
-        return output
     }
 
     @discardableResult

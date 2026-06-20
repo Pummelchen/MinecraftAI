@@ -154,7 +154,7 @@ final class LiveStatsProvider: @unchecked Sendable {
         if let release {
             stats["Last Mod Version"] = displayReleaseID(release.releaseID)
             stats["Mac Installer Latest Version"] = "Latest version: \(displayShortReleaseVersion(release.releaseID))"
-            stats["Mac Installer Release URL"] = "/release.html?release=\(release.releaseID)"
+            stats["Mac Installer Release URL"] = macInstallerDMGURL(release: release)
             stats["Minecraft"] = release.minecraftVersion ?? "unknown"
             stats["NeoForge"] = release.loaderVersion ?? "unknown"
             stats["Client Mod Pack SHA256"] = release.clientZipSHA256
@@ -372,12 +372,6 @@ final class LiveStatsProvider: @unchecked Sendable {
     }
 
     private func macInstallerDMGURL(release: CurrentRelease?) -> String {
-        if let release {
-            let releasePath = "/downloads/releases/\(release.releaseID)/MCPummelchenModClient.dmg"
-            if let releaseURL = urlForPublicPath(releasePath), FileManager.default.fileExists(atPath: releaseURL.path) {
-                return releasePath
-            }
-        }
         let rootPath = "/downloads/MCPummelchenModClient.dmg"
         if let rootURL = urlForPublicPath(rootPath), FileManager.default.fileExists(atPath: rootURL.path) {
             return rootPath

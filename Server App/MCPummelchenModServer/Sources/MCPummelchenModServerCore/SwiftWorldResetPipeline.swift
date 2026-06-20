@@ -10,10 +10,9 @@ public enum SwiftWorldResetError: Error, CustomStringConvertible {
     case destructiveConfirmationRequired
     case missingRequiredPath(String)
     case unsafeWorldName(String)
-    case commandRequired(String)
     case commandFailed(String)
-    case rconPasswordRequired
-    case forceloadVerificationFailed(String)
+        case rconPasswordRequired
+        case forceloadVerificationFailed(String)
 
     public var description: String {
         switch self {
@@ -23,12 +22,10 @@ public enum SwiftWorldResetError: Error, CustomStringConvertible {
             return "missing required path: \(path)"
         case .unsafeWorldName(let value):
             return "unsafe level-name in server.properties: \(value)"
-        case .commandRequired(let name):
-            return "non-dry-run world reset requires \(name)"
         case .commandFailed(let message):
             return message
         case .rconPasswordRequired:
-            return "world reset requires an RCON password in server.properties or --rcon-password when gamerule/pregeneration hooks are not provided"
+            return "world reset requires a valid RCON password in server.properties or --rcon-password"
         case .forceloadVerificationFailed(let message):
             return "forceload verification failed: \(message)"
         }
@@ -47,11 +44,6 @@ public struct SwiftWorldResetConfig: Sendable {
     public let confirmDestructive: Bool
     public let deleteBackupAfterSuccess: Bool
     public let actor: String
-    public let stopCommand: String?
-    public let startCommand: String?
-    public let gameruleCommand: String?
-    public let pregenerateCommand: String?
-    public let verifyForceloadsCommand: String?
     public let rconHost: String
     public let rconPort: Int
     public let rconPassword: String?
@@ -69,11 +61,6 @@ public struct SwiftWorldResetConfig: Sendable {
         confirmDestructive: Bool = false,
         deleteBackupAfterSuccess: Bool = false,
         actor: String = "pummelchen-swift-world-reset",
-        stopCommand: String? = nil,
-        startCommand: String? = nil,
-        gameruleCommand: String? = nil,
-        pregenerateCommand: String? = nil,
-        verifyForceloadsCommand: String? = nil,
         rconHost: String = "127.0.0.1",
         rconPort: Int = 25575,
         rconPassword: String? = nil,
@@ -90,11 +77,6 @@ public struct SwiftWorldResetConfig: Sendable {
         self.confirmDestructive = confirmDestructive
         self.deleteBackupAfterSuccess = deleteBackupAfterSuccess
         self.actor = actor
-        self.stopCommand = stopCommand
-        self.startCommand = startCommand
-        self.gameruleCommand = gameruleCommand
-        self.pregenerateCommand = pregenerateCommand
-        self.verifyForceloadsCommand = verifyForceloadsCommand
         self.rconHost = rconHost
         self.rconPort = rconPort
         self.rconPassword = rconPassword
@@ -199,8 +181,8 @@ public struct SwiftWorldResetPipeline: Sendable {
             guard config.confirmDestructive else {
                 throw SwiftWorldResetError.destructiveConfirmationRequired
             }
-            try requireHook(config.stopCommand, name: "--stop-command")
-            try requireHook(config.startCommand, name: "--start-command")
+            try ensureNativeServerService(phase: "stop")
+            try ensureNativeServerService(phase: "start")
             try validateMinecraftExecutionControl()
         }
         let jobID = UUID().uuidString
@@ -233,14 +215,14 @@ public struct SwiftWorldResetPipeline: Sendable {
         do {
             startedAt = Self.isoNow()
             try persist(jobID: jobID, requestedAt: requestedAt, startedAt: startedAt, completedAt: nil, status: "running", result: dryPlan, error: nil)
-            try runHook(config.stopCommand, phase: "stop")
+            try runServerServiceControl(phase: "stop")
 
             let worldName = dryPlan.worldName
             let worldDir = try activeWorldDirectory(worldName: worldName)
             let backupPath = try backupWorld(worldDir: worldDir)
             try writeServerProperties(worldName: worldName)
             try installRequiredDatapacks(worldDir: worldDir)
-            try runHook(config.startCommand, phase: "start")
+            try runServerServiceControl(phase: "start")
             try applySafetyGamerules()
 
             let spawn = readLevelSpawn(worldDir: worldDir) ?? (0, 0, 0)
@@ -338,9 +320,6 @@ public struct SwiftWorldResetPipeline: Sendable {
     }
 
     private func validateMinecraftExecutionControl() throws {
-        if hasHook(config.gameruleCommand), hasHook(config.pregenerateCommand), hasHook(config.verifyForceloadsCommand) {
-            return
-        }
         _ = try resolvedRCONPassword()
     }
 
@@ -513,69 +492,92 @@ public struct SwiftWorldResetPipeline: Sendable {
         }
     }
 
-    private func requireHook(_ value: String?, name: String) throws {
-        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw SwiftWorldResetError.commandRequired(name)
+    private func ensureNativeServerService(phase: String) throws {
+        guard !config.serviceName.isEmpty else {
+            throw SwiftWorldResetError.commandFailed("non-dry-run world reset requires --service for native control")
+        }
+        guard let status = try serviceStatus(config.serviceName), status.isActive || status.isEnabled else {
+            throw SwiftWorldResetError.commandFailed("service \(config.serviceName) is not active/enabled for world reset \(phase) control")
         }
     }
 
-    private func hasHook(_ value: String?) -> Bool {
-        guard let value else { return false }
-        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private func runServerServiceControl(phase: String) throws {
+        _ = try runServiceCommand(phase, serviceName: config.serviceName)
     }
 
-    private func runHook(_ command: String?, phase: String) throws {
-        guard let command, !command.isEmpty else {
-            return
+    private struct MCPServiceStatus {
+        let isActive: Bool
+        let isEnabled: Bool
+    }
+
+    private func serviceStatus(_ serviceName: String) throws -> MCPServiceStatus? {
+        let normalized = serviceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return nil
         }
-        var env = ProcessInfo.processInfo.environment
-        env["PUMMELCHEN_WORLD_RESET_PHASE"] = phase
-        env["PUMMELCHEN_WORLD_RESET_SEED"] = config.seed
-        env["PUMMELCHEN_WORLD_RESET_RADIUS_BLOCKS"] = String(config.radiusBlocks)
-        env["PUMMELCHEN_WORLD_RESET_SERVICE"] = config.serviceName
-        _ = try runCommand(executable: "/bin/sh", arguments: ["-lc", command], currentDirectory: config.projectRoot, environment: env)
+        guard let systemctl = resolvedSystemTool("systemctl") else {
+            return nil
+        }
+        let enabledOutput = try runCommand(executable: systemctl, arguments: ["is-enabled", normalized]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let activeOutput = try runCommand(executable: systemctl, arguments: ["is-active", normalized]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let enabled = ["enabled", "static", "indirect", "preset"].contains(enabledOutput)
+        let active = activeOutput == "active"
+        return MCPServiceStatus(isActive: active, isEnabled: enabled)
+    }
+
+    private func runServiceCommand(_ action: String, serviceName: String) throws -> String {
+        let normalized = serviceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            throw SwiftWorldResetError.commandFailed("no service name configured for world reset control")
+        }
+        guard let systemctl = resolvedSystemTool("systemctl") else {
+            throw SwiftWorldResetError.commandFailed("systemctl binary not found; cannot run native world-reset service control")
+        }
+        return try runCommand(executable: systemctl, arguments: [action, normalized])
+    }
+
+    private func resolvedSystemTool(_ name: String) -> String? {
+        if let override = ProcessInfo.processInfo.environment["PUMMELCHEN_SYSTEMCTL_PATH"], !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return override.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let candidates: [String]
+        if name == "systemctl" {
+            candidates = ["/usr/bin/systemctl", "/bin/systemctl", "/usr/sbin/systemctl"]
+        } else {
+            candidates = ["/usr/bin/\(name)", "/bin/\(name)", "/sbin/\(name)", "/usr/sbin/\(name)"]
+        }
+        return candidates.first(where: fileManager.fileExists(atPath:))
     }
 
     private func applySafetyGamerules() throws {
-        if hasHook(config.gameruleCommand) {
-            try runHook(config.gameruleCommand, phase: "gamerules")
-            return
-        }
         let commands = Self.safetyGamerules
             .compactMap { gamerule, value in
                 return "gamerule \(gamerule) \(value)"
             }
             .sorted()
-        let responses = try rconClient().commands(commands)
+        let responses = try executeRCONCommands(commands)
         for response in responses where isCommandFailure(response) {
             throw SwiftWorldResetError.commandFailed("RCON gamerule failed: \(response)")
         }
     }
 
     private func pregenerateWorld(segments: [(startX: Int, z: Int, endX: Int, count: Int)]) throws {
-        if hasHook(config.pregenerateCommand) {
-            try runHook(config.pregenerateCommand, phase: "pregenerate")
-            return
-        }
         let client = try rconClient()
         for batch in pregenerationCommandBatches(for: segments) {
-            let responses = try client.commands(batch)
+            let responses = try executeRCONCommands(using: client, commands: batch)
             for response in responses where isCommandFailure(response) {
                 throw SwiftWorldResetError.commandFailed("RCON pregeneration failed: \(response)")
             }
         }
-        let finalSave = try client.command("save-all flush")
+        let finalSave = try executeRCONCommand(using: client, command: "save-all flush")
         if isCommandFailure(finalSave) {
             throw SwiftWorldResetError.commandFailed("RCON final save failed: \(finalSave)")
         }
     }
 
     private func verifyForceloadsCleared() throws -> Bool {
-        if hasHook(config.verifyForceloadsCommand) {
-            try runHook(config.verifyForceloadsCommand, phase: "verify_forceloads")
-            return true
-        }
-        let response = try rconClient().command("forceload query")
+        let response = try executeRCONCommand(command: "forceload query")
         let normalized = response.lowercased()
         if normalized.contains("no force loaded chunks") || normalized.contains("0 force") || normalized.contains("0 chunk") {
             return true
@@ -622,7 +624,53 @@ public struct SwiftWorldResetPipeline: Sendable {
     }
 
     private func rconClient() throws -> MinecraftRCONClient {
-        try MinecraftRCONClient(host: config.rconHost, port: config.rconPort, password: resolvedRCONPassword())
+        do {
+            return try MinecraftRCONClient(host: config.rconHost, port: config.rconPort, password: resolvedRCONPassword())
+        } catch {
+            throw SwiftWorldResetError.commandFailed("RCON endpoint is not operational: \(Self.redactSecrets(error.localizedDescription))")
+        }
+    }
+
+    private func executeRCONCommand(command: String) throws -> String {
+        do {
+            return try executeRCONCommand(using: try rconClient(), command: command)
+        } catch {
+            throw mapRCONError(error)
+        }
+    }
+
+    private func executeRCONCommand(using client: MinecraftRCONClient, command: String) throws -> String {
+        do {
+            return try client.command(command)
+        } catch {
+            throw mapRCONError(error)
+        }
+    }
+
+    private func executeRCONCommands(_ commands: [String]) throws -> [String] {
+        do {
+            return try executeRCONCommands(using: try rconClient(), commands: commands)
+        } catch {
+            throw mapRCONError(error)
+        }
+    }
+
+    private func executeRCONCommands(using client: MinecraftRCONClient, commands: [String]) throws -> [String] {
+        do {
+            return try client.commands(commands)
+        } catch {
+            throw mapRCONError(error)
+        }
+    }
+
+    private func mapRCONError(_ error: Error) -> SwiftWorldResetError {
+        if let worldResetError = error as? SwiftWorldResetError {
+            return worldResetError
+        }
+        if let commandError = error as? MinecraftRCONError {
+            return SwiftWorldResetError.commandFailed("RCON endpoint is not operational: \(Self.redactSecrets(commandError.localizedDescription))")
+        }
+        return SwiftWorldResetError.commandFailed("RCON command failed: \(Self.redactSecrets(error.localizedDescription))")
     }
 
     private func resolvedRCONPassword() throws -> String {

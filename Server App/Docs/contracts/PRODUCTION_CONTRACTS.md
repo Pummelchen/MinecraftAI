@@ -112,7 +112,7 @@ After activation, the Swift release pipeline enforces storage retention. It keep
 - `dmg_url`
 - `dmg_sha256`
 
-The DMG URL must stay inside `/downloads/releases/<release-id>/` and the SHA256 must match the exact published `MCPummelchenModClient.dmg`. Clients use this metadata to stage a verified app update, replace `MCPummelchenModClient.app`, and relaunch automatically when the installed app bundle `PummelchenReleaseID` differs from the server `release_id`.
+The DMG URL must be the stable `/downloads/MCPummelchenModClient.dmg` alias and the SHA256 must match the exact published DMG. Clients use this metadata to stage a verified app update, replace `MCPummelchenModClient.app`, and relaunch automatically when the installed app bundle `PummelchenReleaseID` differs from the server `release_id`.
 
 ## Manifest Format
 

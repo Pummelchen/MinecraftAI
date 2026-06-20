@@ -36,8 +36,7 @@ public struct SwiftReleasePipelineConfig: Sendable {
     public let actor: String
     public let activate: Bool
     public let buildClientZipIfMissing: Bool
-    public let restartCommand: String?
-    public let healthCommand: String?
+    public let serviceName: String
     public let releaseRetentionPerServer: Int
 
     public init(
@@ -55,8 +54,7 @@ public struct SwiftReleasePipelineConfig: Sendable {
         actor: String = "pummelchen-swift-release",
         activate: Bool = false,
         buildClientZipIfMissing: Bool = true,
-        restartCommand: String? = nil,
-        healthCommand: String? = nil,
+        serviceName: String = "",
         releaseRetentionPerServer: Int = 8
     ) {
         self.projectRoot = projectRoot
@@ -73,8 +71,7 @@ public struct SwiftReleasePipelineConfig: Sendable {
         self.actor = actor
         self.activate = activate
         self.buildClientZipIfMissing = buildClientZipIfMissing
-        self.restartCommand = restartCommand
-        self.healthCommand = healthCommand
+        self.serviceName = serviceName.trimmingCharacters(in: .whitespacesAndNewlines)
         self.releaseRetentionPerServer = max(1, releaseRetentionPerServer)
     }
 }
@@ -353,7 +350,7 @@ public struct SwiftReleasePipeline: Sendable {
             clientZipSHA256: clientZipSHA,
             mrpackURL: "/downloads/releases/\(config.releaseID)/\(mrpackName)",
             mrpackSHA256: mrpackSHA,
-            dmgURL: dmgSHA == nil ? nil : "/downloads/releases/\(config.releaseID)/\(Self.dmgName)",
+            dmgURL: dmgSHA == nil ? nil : "/downloads/\(Self.dmgName)",
             dmgSHA256: dmgSHA,
             notes: config.notes
         )
@@ -411,15 +408,22 @@ public struct SwiftReleasePipeline: Sendable {
     }
 
     private func runRestartIfConfigured() throws {
-        guard let restartCommand = config.restartCommand, !restartCommand.isEmpty else {
+        guard !config.serviceName.isEmpty else {
             try executeDuckDB("""
             INSERT INTO release.release_events(event_id, release_id, event_at, event_type, status, actor, notes)
-            VALUES (\(Self.sqlLiteral(UUID().uuidString)), \(Self.sqlLiteral(config.releaseID)), TIMESTAMP '\(Self.duckTimestamp(Date()))', 'restart', 'skipped', \(Self.sqlLiteral(config.actor)), 'no restart command configured for Swift Phase 7 compatibility run');
+            VALUES (\(Self.sqlLiteral(UUID().uuidString)), \(Self.sqlLiteral(config.releaseID)), TIMESTAMP '\(Self.duckTimestamp(Date()))', 'restart', 'skipped', \(Self.sqlLiteral(config.actor)), 'no service configured for native restart path');
+            """)
+            return
+        }
+        guard let status = try serviceStatus(config.serviceName), status.isActive || status.isEnabled else {
+            try executeDuckDB("""
+            INSERT INTO release.release_events(event_id, release_id, event_at, event_type, status, actor, notes)
+            VALUES (\(Self.sqlLiteral(UUID().uuidString)), \(Self.sqlLiteral(config.releaseID)), TIMESTAMP '\(Self.duckTimestamp(Date()))', 'restart', 'skipped', \(Self.sqlLiteral(config.actor)), 'service \(config.serviceName) not available for native restart');
             """)
             return
         }
         do {
-            let output = try runCommand(executable: "/bin/sh", arguments: ["-lc", restartCommand], currentDirectory: config.projectRoot)
+            let output = try runServiceCommand("restart", serviceName: config.serviceName)
             try executeDuckDB("""
             INSERT INTO release.release_events(event_id, release_id, event_at, event_type, status, actor, notes)
             VALUES (\(Self.sqlLiteral(UUID().uuidString)), \(Self.sqlLiteral(config.releaseID)), TIMESTAMP '\(Self.duckTimestamp(Date()))', 'restart', 'ok', \(Self.sqlLiteral(config.actor)), \(Self.sqlLiteral(Self.redactSecrets(output).prefix(1000).description)));
@@ -434,14 +438,11 @@ public struct SwiftReleasePipeline: Sendable {
     }
 
     private func runReleaseHealthMonitorIfConfigured() throws {
-        guard let healthCommand = config.healthCommand, !healthCommand.isEmpty else {
-            return
-        }
         do {
-            let output = try runCommand(executable: "/bin/sh", arguments: ["-lc", healthCommand], currentDirectory: config.projectRoot)
+            try validateRelease(releaseDir: nil)
             try executeDuckDB("""
             INSERT INTO release.release_health_results(result_id, release_id, checked_at, status, details)
-            VALUES (\(Self.sqlLiteral(UUID().uuidString)), \(Self.sqlLiteral(config.releaseID)), TIMESTAMP '\(Self.duckTimestamp(Date()))', 'ok', \(Self.sqlLiteral(Self.redactSecrets(output).prefix(2000).description)));
+            VALUES (\(Self.sqlLiteral(UUID().uuidString)), \(Self.sqlLiteral(config.releaseID)), TIMESTAMP '\(Self.duckTimestamp(Date()))', 'ok', \(Self.sqlLiteral("release manifest validated by Swift release pipeline")));
             """)
         } catch {
             try executeDuckDB("""
@@ -583,6 +584,51 @@ public struct SwiftReleasePipeline: Sendable {
     private func activeReleaseID() throws -> String? {
         let csv = try queryDuckDB("SELECT release_id FROM release.pack_releases WHERE server_key = \(Self.sqlLiteral(config.serverKey)) AND active = true ORDER BY activated_at DESC LIMIT 1;")
         return csv.split(separator: "\n").dropFirst().first.map(String.init)
+    }
+
+    private struct MCPServiceStatus {
+        let isActive: Bool
+        let isEnabled: Bool
+    }
+
+    private func serviceStatus(_ serviceName: String) throws -> MCPServiceStatus? {
+        let normalized = serviceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return nil
+        }
+        guard let systemctl = resolvedSystemTool("systemctl") else {
+            return nil
+        }
+        let enabledOutput = try runCommand(executable: systemctl, arguments: ["is-enabled", normalized]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let activeOutput = try runCommand(executable: systemctl, arguments: ["is-active", normalized]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let enabled = ["enabled", "static", "indirect", "preset"].contains(enabledOutput)
+        let active = activeOutput == "active"
+        return MCPServiceStatus(isActive: active, isEnabled: enabled)
+    }
+
+    private func runServiceCommand(_ action: String, serviceName: String) throws -> String {
+        let normalized = serviceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            throw SwiftReleasePipelineError.commandFailed("no service name configured")
+        }
+        guard let systemctl = resolvedSystemTool("systemctl") else {
+            throw SwiftReleasePipelineError.commandFailed("systemctl binary not found; cannot run native service restart")
+        }
+        return try runCommand(executable: systemctl, arguments: [action, normalized])
+    }
+
+    private func resolvedSystemTool(_ name: String) -> String? {
+        if let override = ProcessInfo.processInfo.environment["PUMMELCHEN_SYSTEMCTL_PATH"], !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return override.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let candidates: [String]
+        if name == "systemctl" {
+            candidates = ["/usr/bin/systemctl", "/bin/systemctl", "/usr/sbin/systemctl"]
+        } else {
+            candidates = ["/usr/bin/\(name)", "/bin/\(name)", "/sbin/\(name)", "/usr/sbin/\(name)"]
+        }
+        return candidates.first(where: fileManager.fileExists(atPath:))
     }
 
     private func rebuildClientDistributionArtifacts(sourcePackage: URL) throws {

@@ -41,10 +41,10 @@ public struct ModUpdateApplyPipelineConfig: Sendable {
     public let releaseIDPrefix: String
     public let activateLiveVersions: Bool
     public let dryRun: Bool
-    public let buildDMGCommand: String?
-    public let serverTestCommand: String?
-    public let restartCommand: String?
-    public let healthCommand: String?
+    public let serverPackageDirectory: URL?
+    public let serviceName: String?
+    public let clientAPIToken: String?
+    public let requireClientToken: Bool
 
     public init(
         projectRoot: URL,
@@ -56,10 +56,10 @@ public struct ModUpdateApplyPipelineConfig: Sendable {
         releaseIDPrefix: String,
         activateLiveVersions: Bool = true,
         dryRun: Bool = true,
-        buildDMGCommand: String? = nil,
-        serverTestCommand: String? = nil,
-        restartCommand: String? = nil,
-        healthCommand: String? = nil
+        serverPackageDirectory: URL? = nil,
+        serviceName: String? = nil,
+        clientAPIToken: String? = nil,
+        requireClientToken: Bool = false
     ) {
         self.projectRoot = projectRoot
         self.releaseRoot = releaseRoot
@@ -70,10 +70,10 @@ public struct ModUpdateApplyPipelineConfig: Sendable {
         self.releaseIDPrefix = releaseIDPrefix
         self.activateLiveVersions = activateLiveVersions
         self.dryRun = dryRun
-        self.buildDMGCommand = buildDMGCommand
-        self.serverTestCommand = serverTestCommand
-        self.restartCommand = restartCommand
-        self.healthCommand = healthCommand
+        self.serverPackageDirectory = serverPackageDirectory
+        self.serviceName = serviceName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.clientAPIToken = clientAPIToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.requireClientToken = requireClientToken
     }
 }
 
@@ -158,11 +158,9 @@ public struct ModUpdateApplyPipeline: Sendable {
 
         let releaseID = releaseID(for: version)
         if !config.dryRun {
-            if let serverTestCommand = config.serverTestCommand, !serverTestCommand.isEmpty {
-                _ = try runCommand(serverTestCommand, currentDirectory: config.projectRoot)
-            }
-            if let buildDMGCommand = config.buildDMGCommand, !buildDMGCommand.isEmpty, version.isLive {
-                _ = try runCommand(buildDMGCommand, currentDirectory: config.projectRoot)
+            try runServerSmokeCheck()
+            if version.isLive {
+                _ = try buildDMGIfNeeded(releaseID: releaseID, version: version)
             }
             let release = try SwiftReleasePipeline(config: SwiftReleasePipelineConfig(
                 projectRoot: config.projectRoot,
@@ -177,8 +175,7 @@ public struct ModUpdateApplyPipeline: Sendable {
                 notes: releaseNotes(applied: applied),
                 actor: "MCPummelchenModServer mod-update-apply",
                 activate: version.isLive && config.activateLiveVersions,
-                restartCommand: version.isLive ? config.restartCommand : nil,
-                healthCommand: config.healthCommand
+                serviceName: version.isLive ? (config.serviceName ?? "") : ""
             )).createRelease()
             try recordUpdateActivity(
                 version: version,
@@ -195,6 +192,63 @@ public struct ModUpdateApplyPipeline: Sendable {
             appliedUpdates: applied,
             skippedReason: nil
         )
+    }
+
+    private func buildDMGIfNeeded(releaseID: String, version: VersionTarget) throws -> Bool {
+        #if os(macOS)
+        guard version.isLive else {
+            return false
+        }
+
+        guard !config.dryRun else {
+            return false
+        }
+
+        let env = ProcessInfo.processInfo.environment
+        let clientPackageRoot = version.serverDir.appendingPathComponent("client-package", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: clientPackageRoot.appendingPathComponent("Package.swift").path) else {
+            return false
+        }
+        let serverPackage = config.serverPackageDirectory
+            ?? URL(fileURLWithPath: env["PUMMELCHEN_SERVER_PACKAGE_DIR"] ?? config.projectRoot.appendingPathComponent("Server App/MCPummelchenModServer").path)
+        let clientToken = config.clientAPIToken ?? env["PUMMELCHEN_CLIENT_API_TOKEN"]
+        let runNginxControlLiveTest = env["PUMMELCHEN_SKIP_NGINX_CONTROL_LIVE_TEST"]?.lowercased() != "true" && !(clientToken?.isEmpty ?? true)
+        let builderConfig = ClientDMGBuilderConfig(
+            projectRoot: config.projectRoot,
+            clientPackageRoot: clientPackageRoot,
+            serverPackageRoot: serverPackage,
+            releaseID: releaseID,
+            clientVersion: env["PUMMELCHEN_CLIENT_VERSION"] ?? "0.8.2",
+            serverURL: env["PUMMELCHEN_SERVER_URL"] ?? "https://pummelchen.91.99.176.243.nip.io",
+            serverAddress: env["PUMMELCHEN_SERVER_ADDRESS"] ?? "91.99.176.243:25565",
+            duckdbDylibPath: env["PUMMELCHEN_DUCKDB_DYLIB"] ?? "/opt/homebrew/lib/libduckdb.dylib",
+            macOSDeploymentTarget: env["MACOSX_DEPLOYMENT_TARGET"] ?? "26.0",
+            runNginxControlLiveTest: runNginxControlLiveTest,
+            runHeadlessSoak: env["PUMMELCHEN_REQUIRE_HEADLESS_SOAK"]?.lowercased() == "true",
+            headlessSoakSeconds: Int(env["PUMMELCHEN_HEADLESS_SOAK_SECONDS"] ?? "60") ?? 60,
+            clientAPIToken: clientToken,
+            requireClientToken: config.requireClientToken
+        )
+
+        _ = try ClientDMGBuilder(config: builderConfig).build()
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    private func runServerSmokeCheck() throws {
+        let currentReleasePath = config.projectRoot.appendingPathComponent("site/public/downloads/current-release.json")
+        guard FileManager.default.fileExists(atPath: currentReleasePath.path) else {
+            return
+        }
+        let api = MCPummelchenModServerAPI(
+            config: MCPummelchenModServerConfig(
+                projectRoot: config.projectRoot,
+                duckDBURL: config.databaseURL
+            )
+        )
+        try api.smokeCheck()
     }
 
     private func apply(group: [UpdateCandidate], version: VersionTarget) throws -> AppliedModUpdate {
@@ -454,24 +508,6 @@ public struct ModUpdateApplyPipeline: Sendable {
             .filter { url in
                 (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
             }
-    }
-
-    @discardableResult
-    private func runCommand(_ command: String, currentDirectory: URL) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-lc", command]
-        process.currentDirectoryURL = currentDirectory
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        process.waitUntilExit()
-        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        guard process.terminationStatus == 0 else {
-            throw ModUpdateApplyPipelineError.commandFailed(Self.redactSecrets(command + "\n" + output))
-        }
-        return output
     }
 
     @discardableResult

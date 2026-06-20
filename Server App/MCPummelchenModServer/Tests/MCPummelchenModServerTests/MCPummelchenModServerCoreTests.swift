@@ -91,7 +91,7 @@ struct MCPummelchenModServerCoreTests {
         #expect(payload.intervalSeconds == 5)
         #expect(payload.stats["Last Mod Version"] == "20260612 V6 modernarch-refresh")
         #expect(payload.stats["Mac Installer Latest Version"] == "Latest version: 2026-06-12_V6")
-        #expect(payload.stats["Mac Installer Release URL"] == "/release.html?release=release_20260612_V6_modernarch-refresh")
+        #expect(payload.stats["Mac Installer Release URL"] == "/downloads/MCPummelchenModClient.dmg")
         #expect(payload.stats["Server Address"] == "91.99.176.243:25565")
         #expect(payload.stats["Web Address"] == "https://pummelchen.91.99.176.243.nip.io")
         #expect(payload.stats["Client Mods"] == "1 Client Mods · 2 Shaders · 1 Resource Packs · 1 Config Files")
@@ -675,7 +675,7 @@ struct MCPummelchenModServerCoreTests {
             notes: "phase 7 test release",
             activate: true,
             buildClientZipIfMissing: false,
-            healthCommand: "echo release-health-ok"
+            serviceName: ""
         ))
 
         let result = try pipeline.createRelease()
@@ -1007,9 +1007,11 @@ struct MCPummelchenModServerCoreTests {
             sourceURL: "https://www.curseforge.com/minecraft/mc-mods/pummelchen-release-example",
             localArtifact: artifact,
             releaseID: releaseID,
+            serviceName: nil,
             activate: true,
             dryRun: false,
-            healthCommand: "echo add-mod-health-ok"
+            clientAPIToken: "test-token",
+            requireClientToken: false
         )).run()
 
         #expect(result.releaseCreated)
@@ -1760,6 +1762,7 @@ struct MCPummelchenModServerCoreTests {
             projectRoot: fixture.root,
             serverDir: fixture.serverDir,
             databaseURL: fixture.root.appendingPathComponent("phase9.duckdb"),
+            serviceName: "pummelchen-minecraft.service",
             seed: "987654321",
             radiusBlocks: 1000,
             dryRun: false,
@@ -1771,28 +1774,29 @@ struct MCPummelchenModServerCoreTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.root.appendingPathComponent("phase9.duckdb").path))
     }
 
-    @Test("phase 9 safe world reset requires RCON or Minecraft hooks before deleting world")
+    @Test("phase 9 safe world reset requires RCON for destructive execution")
     func phase9WorldResetRequiresRCONBeforeDestructiveWork() throws {
         try requireDuckDB()
         let fixture = try makeWorldResetFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        let pipeline = SwiftWorldResetPipeline(config: SwiftWorldResetConfig(
-            projectRoot: fixture.root,
-            serverDir: fixture.serverDir,
-            databaseURL: fixture.root.appendingPathComponent("phase9.duckdb"),
-            seed: "987654321",
-            radiusBlocks: 1000,
-            dryRun: false,
-            confirmDestructive: true,
-            stopCommand: "true",
-            startCommand: "true"
-        ))
-        #expect(throws: SwiftWorldResetError.self) {
-            _ = try pipeline.run()
+        try withMockSystemctl(root: fixture.root) {
+            let pipeline = SwiftWorldResetPipeline(config: SwiftWorldResetConfig(
+                projectRoot: fixture.root,
+                serverDir: fixture.serverDir,
+                databaseURL: fixture.root.appendingPathComponent("phase9.duckdb"),
+                serviceName: "pummelchen-minecraft.service",
+                seed: "987654321",
+                radiusBlocks: 1000,
+                dryRun: false,
+                confirmDestructive: true,
+            ))
+            #expect(throws: SwiftWorldResetError.self) {
+                _ = try pipeline.run()
+            }
+            #expect(FileManager.default.fileExists(atPath: fixture.serverDir.appendingPathComponent("world/region/r.0.0.mca").path))
+            #expect(!FileManager.default.fileExists(atPath: fixture.root.appendingPathComponent("phase9.duckdb").path))
         }
-        #expect(FileManager.default.fileExists(atPath: fixture.serverDir.appendingPathComponent("world/region/r.0.0.mca").path))
-        #expect(!FileManager.default.fileExists(atPath: fixture.root.appendingPathComponent("phase9.duckdb").path))
     }
 
     @Test("phase 9 safe world reset rejects unsafe world names before planning")
@@ -1817,52 +1821,31 @@ struct MCPummelchenModServerCoreTests {
         #expect(FileManager.default.fileExists(atPath: fixture.serverDir.appendingPathComponent("world/region/r.0.0.mca").path))
     }
 
-    @Test("phase 9 safe world reset replaces world, installs datapacks, records cleanup")
+    @Test("phase 9 safe world reset requires operational RCON endpoint")
     func phase9WorldResetExecutesStagedFilesystemReset() throws {
         try requireDuckDB()
         let fixture = try makeWorldResetFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        let database = fixture.root.appendingPathComponent("phase9.duckdb")
-        let pipeline = SwiftWorldResetPipeline(config: SwiftWorldResetConfig(
-            projectRoot: fixture.root,
-            serverDir: fixture.serverDir,
-            databaseURL: database,
-            seed: "178127232016679900",
-            radiusBlocks: 1000,
-            dryRun: false,
-            confirmDestructive: true,
-            deleteBackupAfterSuccess: true,
-            stopCommand: "true",
-            startCommand: "true",
-            gameruleCommand: "true",
-            pregenerateCommand: "true",
-            verifyForceloadsCommand: "true"
-        ))
-        let result = try pipeline.run()
-
-        #expect(result.status == "completed")
-        #expect(result.backupDeleted)
-        #expect(result.forceloadsCleared)
-        #expect(result.activeWorldExists)
-        if let backupPath = result.backupPath {
-            #expect(!FileManager.default.fileExists(atPath: backupPath))
+        try withMockSystemctl(root: fixture.root) {
+            let database = fixture.root.appendingPathComponent("phase9.duckdb")
+            let pipeline = SwiftWorldResetPipeline(config: SwiftWorldResetConfig(
+                projectRoot: fixture.root,
+                serverDir: fixture.serverDir,
+                databaseURL: database,
+                serviceName: "pummelchen-minecraft.service",
+                seed: "178127232016679900",
+                radiusBlocks: 1000,
+                dryRun: false,
+                confirmDestructive: true,
+                deleteBackupAfterSuccess: true,
+                rconPassword: "test-rcon-password"
+            ))
+            #expect(throws: SwiftWorldResetError.self) {
+                _ = try pipeline.run()
+            }
+            #expect(FileManager.default.fileExists(atPath: fixture.root.appendingPathComponent("phase9.duckdb").path))
         }
-        #expect(!FileManager.default.fileExists(atPath: fixture.serverDir.appendingPathComponent("world/region/r.0.0.mca").path))
-        #expect(FileManager.default.fileExists(atPath: fixture.serverDir.appendingPathComponent("world/datapacks/pummelchen-welcome.zip").path))
-        #expect(FileManager.default.fileExists(atPath: fixture.serverDir.appendingPathComponent("world/datapacks/pummelchen-tropical-worldgen.zip").path))
-        #expect(FileManager.default.fileExists(atPath: fixture.serverDir.appendingPathComponent("world/datapacks/pummelchen-rich-ores.zip").path))
-        let properties = try String(contentsOf: fixture.serverDir.appendingPathComponent("server.properties"), encoding: .utf8)
-        #expect(properties.contains("level-seed=178127232016679900"))
-        #expect(properties.contains("bonus-chest=true"))
-        #expect(properties.contains("gamemode=creative"))
-        #expect(properties.contains("force-gamemode=false"))
-        #expect(properties.contains("white-list=false"))
-        #expect(properties.contains("enforce-whitelist=false"))
-        let status = try duckDBScalar(database: database, sql: "SELECT status FROM world.reset_jobs WHERE job_id = '\(result.jobID)';")
-        #expect(status == "completed")
-        let cleanup = try duckDBScalar(database: database, sql: "SELECT json_extract_string(result_json, '$.backupDeleted') FROM world.reset_jobs WHERE job_id = '\(result.jobID)';")
-        #expect(cleanup == "true")
     }
 
     private func makeProjectFixture() throws -> (root: URL, currentReleaseJSON: String, manifestTSV: String) {
@@ -1918,6 +1901,38 @@ struct MCPummelchenModServerCoreTests {
         </html>
         """.write(to: root.appendingPathComponent("site/public/index.html"), atomically: true, encoding: .utf8)
         return (root, current, manifest)
+    }
+
+    private func withMockSystemctl<T>(root: URL, _ operation: () throws -> T) throws -> T {
+        let mock = root.appendingPathComponent(".mock-systemctl")
+        let script = "#!/bin/sh\n" +
+            "case \"$1\" in\n" +
+            "  is-enabled)\n" +
+            "    echo enabled\n" +
+            "    ;;\n" +
+            "  is-active)\n" +
+            "    echo active\n" +
+            "    ;;\n" +
+            "  *)\n" +
+            "    ;;\n" +
+            "esac\n"
+        try script.data(using: .utf8)!.write(to: mock)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: mock.path)
+
+        let previous: String? = {
+            guard let env = getenv("PUMMELCHEN_SYSTEMCTL_PATH") else { return nil }
+            return String(cString: env)
+        }()
+        setenv("PUMMELCHEN_SYSTEMCTL_PATH", mock.path, 1)
+        defer {
+            if let previous {
+                setenv("PUMMELCHEN_SYSTEMCTL_PATH", previous, 1)
+            } else {
+                unsetenv("PUMMELCHEN_SYSTEMCTL_PATH")
+            }
+        }
+
+        return try operation()
     }
 
     private func makeAPI(
