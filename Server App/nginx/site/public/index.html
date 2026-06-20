@@ -809,9 +809,9 @@
       <h2>Safe World Reset</h2>
       <div class="operator-section">
         <p class="note">Send the request through Codex, OpenCode, Qwen, or another AI coding tool as an operator command, for example:</p>
-        <p class="safe-reset-command">"Make a Safe World Reset with a new random seed"</p>
+        <p class="safe-reset-command">"Make a Safe World Reset"</p>
         <p class="safe-reset-command">"Make a Safe World Reset with seed 12345"</p>
-        <p class="note">The Swift server app plans the reset, requires destructive confirmation, removes the old active world safely, applies the configured seed, reinstalls required datapacks, reapplies safety gamerules, starts the server, pregenerates a 1000-block radius around spawn, verifies completion, and writes the result to DuckDB.</p>
+        <p class="note">The Swift server app plans the reset, requires destructive confirmation, removes the old active world safely, applies the default seed 5605164115430518763 unless a different seed is provided, reinstalls required datapacks, reapplies safety gamerules, starts the server, pregenerates a 1000-block radius around spawn, verifies completion, and writes the result to DuckDB.</p>
         <p class="operator-warning">Do not delete world folders manually. Manual deletion skips Swift validation, audit records, datapacks, gamerules, backups, and pregeneration.</p>
       </div>
     </section>

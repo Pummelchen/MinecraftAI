@@ -259,7 +259,8 @@ Safe reset is destructive and must only run through the audited Swift server app
 Required behavior:
 
 - dry-run support
-- explicit seed write
+- default seed `5605164115430518763` when no operator seed is provided
+- explicit seed override support
 - old world moved/backed up before deletion
 - required datapacks installed before first boot
 - gamerules enforced:
