@@ -1,0 +1,299 @@
+:root {
+  --chart-bg: #070b08;
+  --chart-grid: #1b251d;
+  --chart-line: #5fd286;
+}
+
+.theme-switcher {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 10000;
+  display: inline-flex;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid rgba(126, 226, 157, 0.24);
+  border-radius: 999px;
+  background: rgba(6, 10, 7, 0.88);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.36);
+}
+
+.theme-switcher button {
+  min-height: 30px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 11px;
+  background: transparent;
+  color: #a5afa6;
+  font: 700 12px/1 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.theme-switcher button:hover,
+.theme-switcher button:focus-visible {
+  color: #f4f7f2;
+  outline: none;
+}
+
+.theme-switcher button[aria-pressed="true"] {
+  background: #31a85f;
+  color: #031006;
+}
+
+html[data-theme="glass"] {
+  color-scheme: dark;
+  --bg: #05080d;
+  --ink: #f6fbff;
+  --text: #f6fbff;
+  --muted: #b7c8d7;
+  --line: rgba(191, 224, 255, 0.2);
+  --panel: rgba(10, 18, 29, 0.56);
+  --panel-strong: rgba(19, 32, 49, 0.68);
+  --panel-2: rgba(22, 38, 58, 0.7);
+  --green: #7df5b3;
+  --green-strong: #64e7a2;
+  --lime: #b7f38a;
+  --amber: #ffd37a;
+  --stone: #e7f1fa;
+  --blue: #9ed8ff;
+  --accent: #8df8c5;
+  --red: #ffaaa6;
+  --danger: #ff8585;
+  --shadow: rgba(0, 0, 0, 0.52);
+  --chart-bg: rgba(5, 10, 18, 0.62);
+  --chart-grid: rgba(190, 224, 255, 0.16);
+  --chart-line: #88f7c4;
+}
+
+html[data-theme="glass"] body {
+  background:
+    radial-gradient(circle at 16% 10%, rgba(95, 210, 134, 0.2) 0, rgba(95, 210, 134, 0.02) 26rem, transparent 42rem),
+    radial-gradient(circle at 86% 6%, rgba(143, 199, 255, 0.22) 0, rgba(143, 199, 255, 0.04) 28rem, transparent 46rem),
+    radial-gradient(circle at 50% 98%, rgba(168, 214, 109, 0.12) 0, rgba(168, 214, 109, 0.02) 26rem, transparent 42rem),
+    linear-gradient(135deg, #03050a 0%, #08101b 46%, #04100c 100%) fixed;
+}
+
+html[data-theme="glass"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.78), transparent 76%);
+}
+
+html[data-theme="glass"] .theme-switcher {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(8, 16, 28, 0.58);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+}
+
+html[data-theme="glass"] .theme-switcher button {
+  color: #cfe0ec;
+}
+
+html[data-theme="glass"] .theme-switcher button[aria-pressed="true"] {
+  background: linear-gradient(135deg, rgba(141, 248, 197, 0.96), rgba(158, 216, 255, 0.92));
+  color: #031015;
+}
+
+html[data-theme="glass"] a {
+  color: var(--blue);
+}
+
+html[data-theme="glass"] header,
+html[data-theme="glass"] section,
+html[data-theme="glass"] footer {
+  border-color: var(--line);
+}
+
+html[data-theme="glass"] header {
+  background: linear-gradient(180deg, rgba(8, 16, 27, 0.78), rgba(5, 9, 16, 0.36));
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+html[data-theme="glass"] .top-image {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.56), 0 0 0 1px rgba(141, 248, 197, 0.08);
+}
+
+html[data-theme="glass"] .stat,
+html[data-theme="glass"] .chart-card,
+html[data-theme="glass"] .version-card,
+html[data-theme="glass"] .update-card,
+html[data-theme="glass"] .update-countdown,
+html[data-theme="glass"] .update-activity,
+html[data-theme="glass"] .run-block,
+html[data-theme="glass"] .manual-update,
+html[data-theme="glass"] .card,
+html[data-theme="glass"] .download,
+html[data-theme="glass"] .pill,
+html[data-theme="glass"] pre,
+html[data-theme="glass"] .terminal-cmd,
+html[data-theme="glass"] .terminal-output,
+html[data-theme="glass"] .table-shell,
+html[data-theme="glass"] .sheet-grid,
+html[data-theme="glass"] table {
+  border-color: var(--line);
+  background: linear-gradient(180deg, rgba(18, 31, 48, 0.66), rgba(8, 16, 27, 0.44));
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px) saturate(1.22);
+  -webkit-backdrop-filter: blur(18px) saturate(1.22);
+}
+
+html[data-theme="glass"] .stat,
+html[data-theme="glass"] .chart-card,
+html[data-theme="glass"] .version-card,
+html[data-theme="glass"] .update-card,
+html[data-theme="glass"] .update-countdown,
+html[data-theme="glass"] .update-activity,
+html[data-theme="glass"] .run-block,
+html[data-theme="glass"] .manual-update,
+html[data-theme="glass"] .card,
+html[data-theme="glass"] .download,
+html[data-theme="glass"] .sheet-grid,
+html[data-theme="glass"] .table-shell,
+html[data-theme="glass"] table {
+  border-radius: 8px;
+}
+
+html[data-theme="glass"] .chart-card canvas {
+  border-radius: 8px;
+  background: var(--chart-bg);
+}
+
+html[data-theme="glass"] .button,
+html[data-theme="glass"] .release-version,
+html[data-theme="glass"] .copy-button,
+html[data-theme="glass"] .sheet-grid .tabulator-page {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(16, 29, 45, 0.58);
+  color: var(--ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+html[data-theme="glass"] .button:not(.secondary),
+html[data-theme="glass"] .sheet-grid .tabulator-page.active {
+  border-color: rgba(141, 248, 197, 0.62);
+  background: linear-gradient(135deg, rgba(141, 248, 197, 0.96), rgba(158, 216, 255, 0.86));
+  color: #031015;
+}
+
+html[data-theme="glass"] .button.secondary:hover,
+html[data-theme="glass"] .release-version:hover,
+html[data-theme="glass"] .copy-button:hover {
+  border-color: rgba(141, 248, 197, 0.72);
+  color: var(--accent);
+}
+
+html[data-theme="glass"] .search {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(8, 16, 27, 0.58);
+  color: var(--ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+html[data-theme="glass"] .operator-warning {
+  border-color: rgba(255, 211, 122, 0.78);
+  background: rgba(57, 42, 11, 0.44);
+  color: #ffe8b6;
+}
+
+html[data-theme="glass"] .safe-reset-command {
+  color: #ff8d8d;
+}
+
+html[data-theme="glass"] .sheet-grid .tabulator,
+html[data-theme="glass"] .sheet-grid .tabulator-tableholder,
+html[data-theme="glass"] .sheet-grid .tabulator-table,
+html[data-theme="glass"] .sheet-grid .tabulator-row,
+html[data-theme="glass"] .sheet-grid .tabulator-row.tabulator-row-even {
+  background: transparent !important;
+  color: var(--ink);
+}
+
+html[data-theme="glass"] .sheet-grid .tabulator-header,
+html[data-theme="glass"] .sheet-grid .tabulator-col,
+html[data-theme="glass"] .sheet-grid .tabulator-footer {
+  background: rgba(12, 25, 40, 0.78) !important;
+  border-color: var(--line);
+  color: var(--stone);
+}
+
+html[data-theme="glass"] .sheet-grid .tabulator-row {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="glass"] .sheet-grid .tabulator-row:hover {
+  background: rgba(141, 248, 197, 0.1) !important;
+}
+
+html[data-theme="glass"] .sheet-grid .tabulator-cell,
+html[data-theme="glass"] th,
+html[data-theme="glass"] td {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme="glass"] th,
+html[data-theme="glass"] .updates-table th {
+  background: rgba(12, 25, 40, 0.84);
+  color: var(--stone);
+}
+
+html[data-theme="glass"] tr:hover td,
+html[data-theme="glass"] .updates-table tbody tr:hover {
+  background: rgba(141, 248, 197, 0.08);
+}
+
+html[data-theme="glass"] .compat {
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="glass"] .compat-active,
+html[data-theme="glass"] .compat-compatible,
+html[data-theme="glass"] .compat-staged,
+html[data-theme="glass"] .badge-applied {
+  color: #d8ffe7;
+  background: rgba(19, 90, 48, 0.58);
+  border-color: rgba(141, 248, 197, 0.42);
+}
+
+html[data-theme="glass"] .compat-needs-test,
+html[data-theme="glass"] .compat-compatible-by-file,
+html[data-theme="glass"] .badge-dryrun {
+  color: #ffedbf;
+  background: rgba(91, 65, 16, 0.58);
+  border-color: rgba(255, 211, 122, 0.42);
+}
+
+html[data-theme="glass"] .compat-not-installed,
+html[data-theme="glass"] .badge-failed {
+  color: #ffd2cf;
+  background: rgba(91, 28, 27, 0.56);
+  border-color: rgba(255, 170, 166, 0.42);
+}
+
+html[data-theme="glass"] .compat-unknown,
+html[data-theme="glass"] .compat-live-data-unavailable {
+  color: #d6e4ee;
+  background: rgba(35, 47, 62, 0.58);
+}
+
+@media (max-width: 760px) {
+  .theme-switcher {
+    top: 10px;
+    right: 10px;
+  }
+}

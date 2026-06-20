@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Pummelchen Server</title>
   <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_midnight.min.css" rel="stylesheet">
+  <link href="assets/site-theme.css" rel="stylesheet">
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem('pummelchen-site-theme')||'current'}catch{document.documentElement.dataset.theme='current'}</script>
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+  <script src="assets/site-theme.js" defer></script>
   <style>
     :root {
       --bg: #000000;
@@ -901,9 +904,14 @@
         canvas.height = height;
       }
       context.clearRect(0, 0, width, height);
-      context.fillStyle = '#070b08';
+      const themeStyle = getComputedStyle(document.documentElement);
+      const chartBg = themeStyle.getPropertyValue('--chart-bg').trim() || '#070b08';
+      const chartGrid = themeStyle.getPropertyValue('--chart-grid').trim() || '#1b251d';
+      const chartLine = themeStyle.getPropertyValue('--chart-line').trim() || '#5fd286';
+      const chartMuted = themeStyle.getPropertyValue('--muted').trim() || '#a5afa6';
+      context.fillStyle = chartBg;
       context.fillRect(0, 0, width, height);
-      context.strokeStyle = '#1b251d';
+      context.strokeStyle = chartGrid;
       context.lineWidth = Math.max(1, dpr);
       for (let i = 1; i <= 3; i += 1) {
         const y = (height / 4) * i;
@@ -917,7 +925,7 @@
         .map(sample => boundedLiveValue(sample[key], config))
         .filter(value => Number.isFinite(value));
       if (values.length < 2) {
-        context.fillStyle = '#a5afa6';
+        context.fillStyle = chartMuted;
         context.font = `${12 * dpr}px system-ui, sans-serif`;
         context.fillText('Waiting for samples', 12 * dpr, 26 * dpr);
         return;
@@ -928,7 +936,7 @@
       if (max === null || max === undefined) max = Math.max(100, ...values);
       if (max <= min) max = min + 1;
       const xStep = width / Math.max(1, values.length - 1);
-      context.strokeStyle = '#5fd286';
+      context.strokeStyle = chartLine;
       context.lineWidth = Math.max(2, 2 * dpr);
       context.beginPath();
       values.forEach((value, index) => {
