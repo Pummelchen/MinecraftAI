@@ -88,6 +88,22 @@ struct MinecraftClientDefaultsTests {
         let existingManagedServers = try Data(contentsOf: existingPummelchenRoot.appendingPathComponent("servers.dat"))
         #expect(existingManagedServers.occurrences(of: Data("91.99.176.243:25565".utf8)) == 1)
         #expect(existingManagedServers.occurrences(of: Data("91.99.176.243:25566".utf8)) == 1)
+        #expect(existingManagedServers.range(of: Data("Pummelchen Server 26.1.2".utf8)) != nil)
+        #expect(existingManagedServers.range(of: Data.nbtString("Already Added")) == nil)
+
+        let oldNameRoot = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-minecraft-old-server-name-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: oldNameRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: oldNameRoot) }
+        try MinecraftClientDefaultWriter.apply(
+            defaults: MinecraftClientDefaults(serverName: "Pummelchen Server", serverAddress: "91.99.176.243:25565"),
+            to: oldNameRoot
+        )
+        try MinecraftClientDefaultWriter.apply(to: oldNameRoot)
+        let renamedServers = try Data(contentsOf: oldNameRoot.appendingPathComponent("servers.dat"))
+        #expect(renamedServers.occurrences(of: Data("91.99.176.243:25565".utf8)) == 1)
+        #expect(renamedServers.range(of: Data("Pummelchen Server 26.1.2".utf8)) != nil)
+        #expect(renamedServers.range(of: Data.nbtString("Pummelchen Server")) == nil)
 
         let defaultPortRoot = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("pummelchen-minecraft-default-port-\(UUID().uuidString)", isDirectory: true)
@@ -115,6 +131,15 @@ struct MinecraftClientDefaultsTests {
 }
 
 private extension Data {
+    static func nbtString(_ value: String) -> Data {
+        let bytes = Array(value.utf8)
+        var data = Data()
+        data.append(UInt8((bytes.count >> 8) & 0xff))
+        data.append(UInt8(bytes.count & 0xff))
+        data.append(contentsOf: bytes)
+        return data
+    }
+
     func occurrences(of needle: Data) -> Int {
         guard !needle.isEmpty else { return 0 }
         var count = 0

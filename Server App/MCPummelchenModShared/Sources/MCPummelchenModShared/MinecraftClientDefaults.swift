@@ -306,11 +306,14 @@ public enum MinecraftClientDefaultWriter {
 
     private static func ensureServerEntries(defaults: MinecraftClientDefaults, minecraftDirectory: URL) throws {
         let path = minecraftDirectory.appendingPathComponent("servers.dat")
+        let existing = try? Data(contentsOf: path)
+        let normalizedExisting = try existing?.renamingServers(defaults.supportedServers)
+        let source = normalizedExisting ?? existing
         let missingServers = defaults.supportedServers.filter { server in
-            guard let existing = try? Data(contentsOf: path) else { return true }
-            return (try? existing.hasServerAddress(server.serverAddress)) != true
+            guard let source else { return true }
+            return (try? source.hasServerAddress(server.serverAddress)) != true
         }
-        guard !missingServers.isEmpty else { return }
+        guard normalizedExisting != existing || !missingServers.isEmpty else { return }
 
         if FileManager.default.fileExists(atPath: path.path) {
             let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
@@ -320,8 +323,8 @@ public enum MinecraftClientDefaultWriter {
             )
         }
 
-        if let existing = try? Data(contentsOf: path) {
-            var updated = existing
+        if let source {
+            var updated = source
             for server in missingServers {
                 updated = try updated.appendingServerEntry(name: server.serverName, address: server.serverAddress)
             }
@@ -501,6 +504,35 @@ private extension Data {
         return false
     }
 
+    func renamingServers(_ servers: [MinecraftSupportedServer]) throws -> Data {
+        var updated = self
+        for server in servers {
+            updated = try updated.renamingServer(address: server.serverAddress, to: server.serverName)
+        }
+        return updated
+    }
+
+    private func renamingServer(address: String, to desiredName: String) throws -> Data {
+        let normalizedTarget = Self.normalizedServerAddress(address)
+        let (_, serverCount, afterCountOffset) = try serversListHeader()
+        var cursor = afterCountOffset
+        for _ in 0..<serverCount {
+            let entry = try readServerEntryMetadata(cursor: &cursor)
+            guard let ip = entry.ip, Self.normalizedServerAddress(ip) == normalizedTarget else {
+                continue
+            }
+            guard let nameRange = entry.nameRange, entry.name != desiredName else {
+                return self
+            }
+            var replacement = Data()
+            replacement.appendUTF(desiredName)
+            var updated = self
+            updated.replaceSubrange(nameRange, with: replacement)
+            return updated
+        }
+        return self
+    }
+
     private func serversListHeader() throws -> (countOffset: Int, serverCount: Int32, afterCountOffset: Int) {
         let marker = Data([9, 0, 7]) + Data("servers".utf8) + Data([10])
         guard let markerRange = range(of: marker) else {
@@ -533,6 +565,33 @@ private extension Data {
             let name = try readUTF(cursor: &cursor)
             if type == 8 {
                 values[name] = try readUTF(cursor: &cursor)
+            } else {
+                try skipPayload(type: type, cursor: &cursor)
+            }
+        }
+        throw ContractValidationError.invalid("unterminated server entry in servers.dat")
+    }
+
+    private func readServerEntryMetadata(cursor: inout Int) throws -> (name: String?, ip: String?, nameRange: Range<Int>?) {
+        var nameValue: String?
+        var ipValue: String?
+        var nameRange: Range<Int>?
+        while cursor < count {
+            let type = self[cursor]
+            cursor += 1
+            if type == 0 {
+                return (nameValue, ipValue, nameRange)
+            }
+            let tagName = try readUTF(cursor: &cursor)
+            if type == 8 {
+                let valueStart = cursor
+                let value = try readUTF(cursor: &cursor)
+                if tagName == "name" {
+                    nameValue = value
+                    nameRange = valueStart..<cursor
+                } else if tagName == "ip" {
+                    ipValue = value
+                }
             } else {
                 try skipPayload(type: type, cursor: &cursor)
             }

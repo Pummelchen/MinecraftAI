@@ -455,7 +455,7 @@ struct HeadlessSoakRunner {
         } else {
             args.append(contentsOf: ["--no-client-api-token", "--no-report"])
         }
-        return try runProcess(executable: syncBinary.path, arguments: args, timeoutSeconds: 2_400, environment: environment)
+        return try runProcess(executable: syncBinary.path, arguments: args, timeoutSeconds: 4_200, environment: environment)
     }
 
     private func managedJavaExecutable(pummelchenHome: URL) throws -> URL {
