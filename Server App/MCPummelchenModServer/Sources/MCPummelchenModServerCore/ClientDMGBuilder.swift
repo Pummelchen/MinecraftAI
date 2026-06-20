@@ -54,7 +54,7 @@ public struct ClientDMGBuilderConfig: Sendable {
         clientPackageRoot: URL,
         serverPackageRoot: URL,
         releaseID: String = "development",
-        clientVersion: String = "0.8.2",
+        clientVersion: String = "0.8.3",
         serverURL: String = "https://pummelchen.91.99.176.243.nip.io",
         serverAddress: String = "91.99.176.243:25565",
         duckdbDylibPath: String = "/opt/homebrew/lib/libduckdb.dylib",
@@ -404,7 +404,7 @@ public struct ClientDMGBuilder: Sendable {
             arguments: ["swift", "run", "--package-path", config.serverPackageRoot.path, "-c", "release", "pummelchen-headless-soak", "--dmg", dmgPath.path, "--release-id", config.releaseID, "--server-address", config.serverAddress, "--server-url", config.serverURL, "--duration-seconds", String(max(60, config.headlessSoakSeconds))] + (headlessCommand.map { ["--headless-command", $0] } ?? []) + (expectedInstalledReleaseID.map { ["--expected-installed-release-id", $0] } ?? []),
             workingDirectory: config.projectRoot,
             environment: token == nil ? nil : ["PUMMELCHEN_CLIENT_API_TOKEN": token!],
-            timeoutSeconds: Double(max(80, config.headlessSoakSeconds + 120))
+            timeoutSeconds: Double(max(2_700, config.headlessSoakSeconds + 2_400))
         )
     }
 

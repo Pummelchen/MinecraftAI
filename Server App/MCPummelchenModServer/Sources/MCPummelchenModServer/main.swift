@@ -546,7 +546,7 @@ private func buildClientDMGCommand(args: Arguments, projectRoot: URL) throws -> 
         clientPackageRoot: URL(fileURLWithPath: args.options["--client-package"] ?? projectRoot.appendingPathComponent("Client App/MCPummelchenModClient").path),
         serverPackageRoot: URL(fileURLWithPath: args.options["--server-package"] ?? envOrDefault("PUMMELCHEN_SERVER_PACKAGE_DIR", defaultPath: projectRoot.appendingPathComponent("Server App/MCPummelchenModServer").path)),
         releaseID: args.options["--release-id"] ?? env["PUMMELCHEN_RELEASE_ID"] ?? "development",
-        clientVersion: args.options["--client-version"] ?? env["PUMMELCHEN_CLIENT_VERSION"] ?? "0.8.2",
+        clientVersion: args.options["--client-version"] ?? env["PUMMELCHEN_CLIENT_VERSION"] ?? "0.8.3",
         serverURL: args.options["--server-url"] ?? env["PUMMELCHEN_SERVER_URL"] ?? "https://pummelchen.91.99.176.243.nip.io",
         serverAddress: args.options["--server-address"] ?? env["PUMMELCHEN_SERVER_ADDRESS"] ?? "91.99.176.243:25565",
         duckdbDylibPath: args.options["--duckdb-dylib"] ?? env["PUMMELCHEN_DUCKDB_DYLIB"] ?? "/opt/homebrew/lib/libduckdb.dylib",

@@ -218,7 +218,7 @@ public struct ModUpdateApplyPipeline: Sendable {
             clientPackageRoot: clientPackageRoot,
             serverPackageRoot: serverPackage,
             releaseID: releaseID,
-            clientVersion: env["PUMMELCHEN_CLIENT_VERSION"] ?? "0.8.2",
+            clientVersion: env["PUMMELCHEN_CLIENT_VERSION"] ?? "0.8.3",
             serverURL: env["PUMMELCHEN_SERVER_URL"] ?? "https://pummelchen.91.99.176.243.nip.io",
             serverAddress: env["PUMMELCHEN_SERVER_ADDRESS"] ?? "91.99.176.243:25565",
             duckdbDylibPath: env["PUMMELCHEN_DUCKDB_DYLIB"] ?? "/opt/homebrew/lib/libduckdb.dylib",
