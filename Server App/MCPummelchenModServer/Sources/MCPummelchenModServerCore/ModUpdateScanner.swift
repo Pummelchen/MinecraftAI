@@ -170,6 +170,9 @@ public struct ModUpdateScanner: Sendable {
             guard let url = URL(string: source.sourceURL), let host = url.host?.lowercased() else {
                 throw ModUpdateScannerError.invalidSourceURL(source.sourceURL)
             }
+            if host.contains("neoforged.net") {
+                return try checkNeoForge(source: source, sourceURL: url)
+            }
             if host.contains("modrinth.com") {
                 return try checkModrinth(source: source, sourceURL: url)
             }
@@ -221,6 +224,7 @@ public struct ModUpdateScanner: Sendable {
 
     public static func provider(for sourceURL: String) -> String {
         let lower = sourceURL.lowercased()
+        if lower.contains("neoforged.net") { return "neoforge" }
         if lower.contains("modrinth.com") { return "modrinth" }
         if lower.contains("curseforge.com") { return "curseforge" }
         return "web"
@@ -706,6 +710,27 @@ public struct ModUpdateScanner: Sendable {
         }
     }
 
+    private func checkNeoForge(source: ModSourceRecord, sourceURL: URL) throws -> ModUpdateCheckResult {
+        let metadataURL = Self.neoForgeMetadataURL(from: sourceURL)
+        let metadata = try fetchText(metadataURL)
+        guard let latestVersion = Self.latestNeoForgeVersion(fromMetadata: metadata, minecraftVersion: config.minecraftVersion) else {
+            return ModUpdateCheckResult(
+                source: source,
+                status: "unresolved",
+                latestVersion: nil,
+                latestURL: metadataURL.absoluteString,
+                details: "official NeoForged Maven metadata returned no NeoForge build for Minecraft \(config.minecraftVersion)"
+            )
+        }
+        return ModUpdateCheckResult(
+            source: source,
+            status: Self.classify(installedVersion: source.installedVersion, latestVersion: latestVersion),
+            latestVersion: latestVersion,
+            latestURL: Self.neoForgeInstallerURL(version: latestVersion),
+            details: "checked official NeoForged download metadata for Minecraft \(config.minecraftVersion)"
+        )
+    }
+
     private func checkModrinth(source: ModSourceRecord, sourceURL: URL) throws -> ModUpdateCheckResult {
         guard let slug = Self.modrinthSlug(from: sourceURL) else {
             let body = try fetchText(sourceURL)
@@ -996,6 +1021,27 @@ public struct ModUpdateScanner: Sendable {
         return normalizedVersion(installedVersion) == normalizedVersion(latestVersion) ? "current" : "update_available"
     }
 
+    public static let neoForgeOfficialDownloadPageURL = "https://neoforged.net/"
+    public static let neoForgeOfficialMetadataURL = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"
+
+    public static func neoForgeMetadataURL(from sourceURL: URL) -> URL {
+        if sourceURL.lastPathComponent == "maven-metadata.xml" {
+            return sourceURL
+        }
+        return URL(string: neoForgeOfficialMetadataURL)!
+    }
+
+    public static func neoForgeInstallerURL(version: String) -> String {
+        "https://maven.neoforged.net/releases/net/neoforged/neoforge/\(version)/neoforge-\(version)-installer.jar"
+    }
+
+    public static func latestNeoForgeVersion(fromMetadata metadata: String, minecraftVersion: String) -> String? {
+        let prefix = "\(minecraftVersion)."
+        return matches(pattern: #"<version>\s*([^<]+)\s*</version>"#, in: metadata)
+            .filter { $0.hasPrefix(prefix) }
+            .last
+    }
+
     public static func modrinthCategory(from url: URL) -> String? {
         let parts = url.path.split(separator: "/").map(String.init)
         return parts.first { ["mod", "shader", "datapack", "resourcepack", "plugin", "modpack"].contains($0) }
@@ -1234,6 +1280,20 @@ public struct ModUpdateScanner: Sendable {
             return nil
         }
         return String(value[range])
+    }
+
+    private static func matches(pattern: String, in value: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) else {
+            return []
+        }
+        let nsRange = NSRange(value.startIndex..<value.endIndex, in: value)
+        return regex.matches(in: value, range: nsRange).compactMap { match in
+            guard match.numberOfRanges > 1,
+                  let range = Range(match.range(at: 1), in: value) else {
+                return nil
+            }
+            return String(value[range])
+        }
     }
 
     private func csvRows(_ csv: String) -> [[String]] {

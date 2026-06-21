@@ -175,6 +175,7 @@ struct MCPummelchenModServerCoreTests {
         #expect(activityObject?["source"] as? String == "duckdb.release_events_mod_scans_release_health")
         #expect((activityObject?["entries"] as? [[String: Any]])?.isEmpty == false)
         #expect(neoForgeObject?["official_url"] as? String == "https://neoforged.net/")
+        #expect(neoForgeObject?["official_download_url"] as? String == "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.1.2.76/neoforge-26.1.2.76-installer.jar")
         #expect(neoForgeObject?["latest_neoforge_version"] as? String == "26.1.2.76")
         #expect(neoForgeObject?["generated_by"] as? String == "MCPummelchenModServer-duckdb-neoforge-version")
     }
@@ -1637,9 +1638,20 @@ struct MCPummelchenModServerCoreTests {
         <script>{"version_number":"18.0.3","loaders":["neoforge"]}</script></html>
         """#
         let cloudflareHTML = #"<html><head><title>Just a moment...</title></head><script src="https://challenges.cloudflare.com/x"></script></html>"#
+        let neoForgeMetadata = #"""
+        <metadata><versioning><versions>
+          <version>26.2.0.1-beta</version>
+          <version>26.2.0.3-beta</version>
+          <version>26.2.0.6-beta</version>
+          <version>26.1.2.76</version>
+        </versions></versioning></metadata>
+        """#
 
         #expect(ModUpdateScanner.provider(for: "https://modrinth.com/mod/betterf3") == "modrinth")
         #expect(ModUpdateScanner.provider(for: "https://www.curseforge.com/minecraft/mc-mods/betterf3") == "curseforge")
+        #expect(ModUpdateScanner.provider(for: "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml") == "neoforge")
+        #expect(ModUpdateScanner.latestNeoForgeVersion(fromMetadata: neoForgeMetadata, minecraftVersion: "26.2") == "26.2.0.6-beta")
+        #expect(ModUpdateScanner.neoForgeInstallerURL(version: "26.2.0.6-beta") == "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.2.0.6-beta/neoforge-26.2.0.6-beta-installer.jar")
         #expect(ModUpdateScanner.modrinthSlug(from: URL(string: "https://modrinth.com/shader/bsl-shaders")!) == "bsl-shaders")
         #expect(ModUpdateScanner.modrinthSlug(from: URL(string: "https://modrinth.com/datapack/ketkets-furnicraft/changelog?l=neoforge")!) == "ketkets-furnicraft")
         #expect(ModUpdateScanner.curseForgeSlug(from: URL(string: "https://www.curseforge.com/minecraft/mc-mods/betterf3")!) == "betterf3")

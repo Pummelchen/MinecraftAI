@@ -1336,8 +1336,9 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             "minecraft_version": minecraftVersion,
             "loader": row["loader"] ?? "neoforge",
             "server_version_status": row["status"] ?? "",
-            "official_url": "https://neoforged.net/",
-            "metadata_url": "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml",
+            "official_url": ModUpdateScanner.neoForgeOfficialDownloadPageURL,
+            "official_download_url": ModUpdateScanner.neoForgeInstallerURL(version: latestLoaderVersion),
+            "metadata_url": ModUpdateScanner.neoForgeOfficialMetadataURL,
             "status": status,
             "update_available": updateAvailable,
             "message": message
