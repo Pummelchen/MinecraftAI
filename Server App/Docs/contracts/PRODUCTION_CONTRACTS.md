@@ -203,8 +203,9 @@ The Swift server app owns repository update discovery. Source URLs are stored in
 
 Required behavior:
 
-- store one row per mod/source URL in `core.mod_sources`
-- support more than one URL per mod, such as Modrinth and CurseForge
+- store the installed artifact/source row in `core.mod_sources`
+- store every provider URL in `core.mod_source_links` with explicit roles such as `primary`, `modrinth`, `curseforge`, and `official`
+- support more than one URL per mod, such as Modrinth and CurseForge links for the same installed source
 - persist each scan in `core.mod_update_scans`
 - persist per-URL outcomes in `core.mod_update_scan_results`
 - throttle webpage/API fetching; production default is at most 5 URLs per 10 seconds

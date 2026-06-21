@@ -57,7 +57,7 @@ The Swift server app, client app, and database helper tools read and write DuckD
 
 ## Versioned Mod Tracking
 
-`core.mod_sources`, `core.mods`, `core.mod_files`, and `core.mod_server_files` are version-aware. The daily Swift update scan treats the live Minecraft version as the baseline and seeds missing staging-version candidates before crawling Modrinth and CurseForge. Seeded staging rows are marked as compatibility candidates, not deployed installs; scan results then record whether a real upstream file exists for that Minecraft/NeoForge version.
+`core.mod_sources`, `core.mod_source_links`, `core.mods`, `core.mod_files`, and `core.mod_server_files` are version-aware. `core.mod_sources` keeps the installed artifact/source row used by compatibility scans, while `core.mod_source_links` stores the normalized set of provider links for that source, including `primary`, `modrinth`, `curseforge`, and `official` link roles. The daily Swift update scan treats the live Minecraft version as the baseline and seeds missing staging-version candidates before crawling Modrinth and CurseForge. Seeded staging rows are marked as compatibility candidates, not deployed installs; scan results then record whether a real upstream file exists for that Minecraft/NeoForge version.
 
 The scanner checks NeoForge loader compatibility for CurseForge and Modrinth mod projects. For non-mod project types such as shaders, resource packs, and data packs, it checks Minecraft-version compatibility without requiring a NeoForge loader marker, because those artifacts are not loaded the same way as server/client mod jars.
 

@@ -230,6 +230,27 @@ public struct ModUpdateScanner: Sendable {
         return "web"
     }
 
+    public static func sourceLinkRole(provider: String) -> String {
+        switch provider.lowercased() {
+        case "modrinth", "curseforge":
+            return provider.lowercased()
+        case "neoforge", "adoptium", "web":
+            return "official"
+        default:
+            return "primary"
+        }
+    }
+
+    private static func sqlLinkRoleExpression(providerColumn: String) -> String {
+        """
+        CASE
+          WHEN lower(\(providerColumn)) IN ('modrinth', 'curseforge') THEN lower(\(providerColumn))
+          WHEN lower(\(providerColumn)) IN ('neoforge', 'adoptium', 'web') THEN 'official'
+          ELSE 'primary'
+        END
+        """
+    }
+
     private func initializeDatabase() throws {
         try fileManager.createDirectory(at: config.databaseURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try execute("""
@@ -283,6 +304,24 @@ public struct ModUpdateScanner: Sendable {
         ALTER TABLE core.mod_sources ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR DEFAULT '26.1.2';
         ALTER TABLE core.mod_sources ADD COLUMN IF NOT EXISTS loader VARCHAR DEFAULT 'neoforge';
         ALTER TABLE core.mod_sources ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
+        CREATE TABLE IF NOT EXISTS core.mod_source_links (
+          link_id VARCHAR PRIMARY KEY,
+          source_id VARCHAR NOT NULL,
+          mod_key VARCHAR NOT NULL,
+          display_name VARCHAR NOT NULL,
+          provider VARCHAR NOT NULL,
+          link_role VARCHAR NOT NULL,
+          source_url VARCHAR NOT NULL,
+          priority INTEGER NOT NULL DEFAULT 100,
+          active BOOLEAN NOT NULL DEFAULT true,
+          verified_at TIMESTAMP,
+          created_at TIMESTAMP NOT NULL DEFAULT now(),
+          updated_at TIMESTAMP NOT NULL DEFAULT now(),
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader VARCHAR DEFAULT 'neoforge',
+          loader_version VARCHAR,
+          notes VARCHAR
+        );
         ALTER TABLE core.mod_update_scans ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR DEFAULT '26.1.2';
         ALTER TABLE core.mod_update_scans ADD COLUMN IF NOT EXISTS loader VARCHAR DEFAULT 'neoforge';
         ALTER TABLE core.mod_update_scans ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
@@ -320,6 +359,43 @@ public struct ModUpdateScanner: Sendable {
         ALTER TABLE core.failed_mod_update_status ADD COLUMN IF NOT EXISTS last_check_details VARCHAR;
         ALTER TABLE core.failed_mod_update_status ADD COLUMN IF NOT EXISTS last_checked_at TIMESTAMP;
         ALTER TABLE core.failed_mod_update_status ADD COLUMN IF NOT EXISTS active_status VARCHAR DEFAULT 'failed';
+        INSERT OR REPLACE INTO core.mod_source_links(
+          link_id, source_id, mod_key, display_name, provider, link_role,
+          source_url, priority, active, verified_at, created_at, updated_at,
+          minecraft_version, loader, loader_version, notes
+        )
+        SELECT
+          'link_' || md5(
+            COALESCE(source_id, '') || '|' ||
+            COALESCE(minecraft_version, '26.1.2') || '|' ||
+            COALESCE(provider, '') || '|' ||
+            COALESCE(source_url, '')
+          ),
+          source_id,
+          mod_key,
+          display_name,
+          provider,
+          \(Self.sqlLinkRoleExpression(providerColumn: "provider")),
+          source_url,
+          priority,
+          active,
+          CASE WHEN source_url LIKE 'http%' THEN updated_at ELSE NULL END,
+          COALESCE(created_at, now()),
+          COALESCE(updated_at, now()),
+          COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))),
+          COALESCE(loader, \(Self.sqlLiteral(config.loader))),
+          COALESCE(loader_version, \(Self.sqlLiteral(config.loaderVersion))),
+          'Backfilled from core.mod_sources during scanner initialization.'
+        FROM core.mod_sources
+        WHERE (COALESCE(source_url, '') LIKE 'http://%' OR COALESCE(source_url, '') LIKE 'https://%')
+          AND NOT EXISTS (
+            SELECT 1
+            FROM core.mod_source_links existing
+            WHERE existing.source_id = core.mod_sources.source_id
+              AND existing.provider = core.mod_sources.provider
+              AND existing.source_url = core.mod_sources.source_url
+              AND COALESCE(existing.minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = COALESCE(core.mod_sources.minecraft_version, \(Self.sqlLiteral(config.minecraftVersion)))
+          );
         """)
     }
 
@@ -669,14 +745,46 @@ public struct ModUpdateScanner: Sendable {
 
     private func loadSources(limit: Int?) throws -> [ModSourceRecord] {
         let limitClause = limit.map { " LIMIT \(max(0, $0))" } ?? ""
-        let activeClause = try isStagingMinecraftVersion() ? "" : "AND active = true"
+        let isStaging = try isStagingMinecraftVersion()
+        let activeClause = isStaging ? "" : "AND active = true"
+        let sourceActiveClause = isStaging ? "" : "AND s.active = true"
+        let linkActiveClause = isStaging ? "" : "AND l.active = true"
+        let sourceRowsSQL: String
+        if try tableExists(schema: "core", table: "mod_source_links") {
+            sourceRowsSQL = """
+            SELECT
+              s.source_id,
+              s.mod_key,
+              s.display_name,
+              COALESCE(s.installed_file, '') AS installed_file,
+              COALESCE(s.installed_version, '') AS installed_version,
+              l.provider,
+              l.source_url,
+              l.priority
+            FROM core.mod_sources s
+            JOIN core.mod_source_links l
+              ON l.source_id = s.source_id
+             AND COALESCE(l.minecraft_version, COALESCE(s.minecraft_version, \(Self.sqlLiteral(config.minecraftVersion)))) = COALESCE(s.minecraft_version, \(Self.sqlLiteral(config.minecraftVersion)))
+            WHERE COALESCE(s.minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
+              \(sourceActiveClause)
+              \(linkActiveClause)
+              AND (COALESCE(l.source_url, '') LIKE 'http://%' OR COALESCE(l.source_url, '') LIKE 'https://%')
+            """
+        } else {
+            sourceRowsSQL = """
+            SELECT source_id, mod_key, display_name, COALESCE(installed_file, ''), COALESCE(installed_version, ''), provider, source_url, priority
+            FROM core.mod_sources
+            WHERE COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
+              \(activeClause)
+              AND (COALESCE(source_url, '') LIKE 'http://%' OR COALESCE(source_url, '') LIKE 'https://%')
+            """
+        }
         let csv = try query("""
-        SELECT source_id, mod_key, display_name, COALESCE(installed_file, ''), COALESCE(installed_version, ''), provider, source_url, priority
-        FROM core.mod_sources
-        WHERE COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
-          \(activeClause)
+        \(sourceRowsSQL)
         UNION ALL
-        SELECT
+        SELECT source_id, mod_key, display_name, COALESCE(installed_file, ''), COALESCE(installed_version, ''), provider, source_url, priority
+        FROM (
+          SELECT
           'failed_' || failed_mod_id AS source_id,
           regexp_replace(lower(title), '[^a-z0-9]+', '-', 'g') AS mod_key,
           title AS display_name,
@@ -689,10 +797,11 @@ public struct ModUpdateScanner: Sendable {
           END AS provider,
           COALESCE(source_url, '') AS source_url,
           500 AS priority
-        FROM core.failed_mod_update_status
-        WHERE active_status = 'failed'
-          AND COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
-          AND (COALESCE(source_url, '') LIKE 'http://%' OR COALESCE(source_url, '') LIKE 'https://%')
+          FROM core.failed_mod_update_status
+          WHERE active_status = 'failed'
+            AND COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
+            AND (COALESCE(source_url, '') LIKE 'http://%' OR COALESCE(source_url, '') LIKE 'https://%')
+        )
         ORDER BY priority ASC, display_name ASC, source_url ASC
         \(limitClause);
         """)
@@ -851,6 +960,7 @@ public struct ModUpdateScanner: Sendable {
         let sourceActive = try isLiveMinecraftVersion()
         var statements: [String] = ["BEGIN TRANSACTION;"]
         for source in sources {
+            let linkID = Self.stableID("\(source.sourceID)|\(source.provider)|\(source.sourceURL)|\(config.minecraftVersion)")
             statements.append("""
             DELETE FROM core.mod_sources WHERE source_id = \(Self.sqlLiteral(source.sourceID));
             INSERT INTO core.mod_sources(
@@ -872,6 +982,28 @@ public struct ModUpdateScanner: Sendable {
               \(Self.sqlLiteral(config.minecraftVersion)),
               \(Self.sqlLiteral(config.loader)),
               \(Self.sqlLiteral(config.loaderVersion))
+            );
+            INSERT OR REPLACE INTO core.mod_source_links(
+              link_id, source_id, mod_key, display_name, provider, link_role,
+              source_url, priority, active, verified_at, updated_at,
+              minecraft_version, loader, loader_version, notes
+            )
+            VALUES (
+              \(Self.sqlLiteral(linkID)),
+              \(Self.sqlLiteral(source.sourceID)),
+              \(Self.sqlLiteral(source.modKey)),
+              \(Self.sqlLiteral(source.displayName)),
+              \(Self.sqlLiteral(source.provider)),
+              \(Self.sqlLiteral(Self.sourceLinkRole(provider: source.provider))),
+              \(Self.sqlLiteral(source.sourceURL)),
+              100,
+              \(sourceActive ? "true" : "false"),
+              CASE WHEN \(Self.sqlLiteral(source.sourceURL)) LIKE 'http%' THEN now() ELSE NULL END,
+              now(),
+              \(Self.sqlLiteral(config.minecraftVersion)),
+              \(Self.sqlLiteral(config.loader)),
+              \(Self.sqlLiteral(config.loaderVersion)),
+              'Recorded by mod-update scanner source seeding.'
             );
             """)
         }
@@ -925,6 +1057,14 @@ public struct ModUpdateScanner: Sendable {
                 updated_at = now()
             WHERE source_id = \(Self.sqlLiteral(result.source.sourceID))
               AND COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion));
+            UPDATE core.mod_source_links
+            SET active = \(scanCompatible ? "true" : "false"),
+                verified_at = TIMESTAMP '\(Self.duckTimestamp(Date()))',
+                updated_at = now()
+            WHERE source_id = \(Self.sqlLiteral(result.source.sourceID))
+              AND provider = \(Self.sqlLiteral(result.source.provider))
+              AND source_url = \(Self.sqlLiteral(result.source.sourceURL))
+              AND COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion));
             """)
         }
     }
@@ -968,6 +1108,16 @@ public struct ModUpdateScanner: Sendable {
 
     private func query(_ sql: String) throws -> String {
         try database.queryCSV(sql)
+    }
+
+    private func tableExists(schema: String, table: String) throws -> Bool {
+        let csv = try query("""
+        SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_schema = \(Self.sqlLiteral(schema))
+          AND table_name = \(Self.sqlLiteral(table));
+        """)
+        return csvRows(csv).first?.first == "1"
     }
 
     private func existingInstalledFiles() throws -> Set<String> {

@@ -520,6 +520,24 @@ struct MCPummelchenModServerCoreTests {
           loader VARCHAR DEFAULT 'neoforge',
           loader_version VARCHAR
         );
+        CREATE TABLE core.mod_source_links (
+          link_id VARCHAR PRIMARY KEY,
+          source_id VARCHAR NOT NULL,
+          mod_key VARCHAR NOT NULL,
+          display_name VARCHAR NOT NULL,
+          provider VARCHAR NOT NULL,
+          link_role VARCHAR NOT NULL,
+          source_url VARCHAR NOT NULL,
+          priority INTEGER NOT NULL DEFAULT 100,
+          active BOOLEAN NOT NULL DEFAULT true,
+          verified_at TIMESTAMP,
+          created_at TIMESTAMP NOT NULL DEFAULT now(),
+          updated_at TIMESTAMP NOT NULL DEFAULT now(),
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader VARCHAR DEFAULT 'neoforge',
+          loader_version VARCHAR,
+          notes VARCHAR
+        );
         INSERT INTO core.mod_sources(
           source_id, mod_key, display_name, installed_file, installed_version,
           provider, source_url, active, minecraft_version, loader, loader_version
@@ -529,6 +547,15 @@ struct MCPummelchenModServerCoreTests {
           ('fixture-server-26-2', 'fixture-server-mod', 'Fixture Server Mod', 'server-26.2.jar', '2.0.0', 'fixture', 'https://fixture.local/server', true, '26.2', 'neoforge', '26.2.0.3-beta'),
           ('fixture-client-26-1-2', 'fixture-client-mod', 'Fixture Client Mod', 'example-mod.jar', '1.0.0', 'fixture', 'https://fixture.local/client', true, '26.1.2', 'neoforge', '26.1.2.76'),
           ('fixture-shared-26-1-2', 'fixture-shared-mod', 'Fixture Shared Mod', 'shared.jar', '1.0.0', 'fixture', 'https://fixture.local/shared', true, '26.1.2', 'neoforge', '26.1.2.76');
+        INSERT INTO core.mod_source_links(
+          link_id, source_id, mod_key, display_name, provider, link_role,
+          source_url, priority, active, verified_at, minecraft_version, loader, loader_version, notes
+        )
+        VALUES
+          ('fixture-client-cf', 'fixture-client-26-1-2', 'fixture-client-mod', 'Fixture Client Mod', 'curseforge', 'curseforge',
+           'https://fixture.local/client', 25, true, now(), '26.1.2', 'neoforge', '26.1.2.76', 'fixture primary'),
+          ('fixture-client-mr', 'fixture-client-26-1-2', 'fixture-client-mod', 'Fixture Client Mod', 'modrinth', 'modrinth',
+           'https://modrinth.com/mod/fixture-client', 30, true, now(), '26.1.2', 'neoforge', '26.1.2.76', 'fixture alternate');
         """)
         let manifestDir = fixture.root.appendingPathComponent(
             "site/public/downloads/releases/release_20260612_V6_modernarch-refresh/manifests",
@@ -585,6 +612,9 @@ struct MCPummelchenModServerCoreTests {
         #expect(clientRows.first?["name"] as? String == "Fixture Client Mod")
         #expect(clientRows.first?["sourceUrl"] as? String == "https://fixture.local/client")
         #expect(clientRows.first?["sourceHost"] as? String == "fixture.local")
+        let clientSourceLinks = try #require(clientRows.first?["sourceLinks"] as? [[String: String]])
+        #expect(clientSourceLinks.contains { $0["url"] == "https://fixture.local/client" })
+        #expect(clientSourceLinks.contains { $0["provider"] == "modrinth" && $0["url"] == "https://modrinth.com/mod/fixture-client" })
         #expect(clientCompatibility["26.1.2"] == "Active")
         #expect(clientCompatibility["26.2"] == "Needs test")
         #expect(mergedObject?["scope"] as? String == "mods")
@@ -1728,8 +1758,11 @@ struct MCPummelchenModServerCoreTests {
         #expect(summary.seededSources == 2)
         #expect(summary.sourcesChecked == 0)
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources;") == "2")
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_source_links;") == "2")
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources WHERE provider = 'modrinth';") == "1")
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources WHERE provider = 'curseforge';") == "1")
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_source_links WHERE provider = 'modrinth';") == "1")
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_source_links WHERE provider = 'curseforge';") == "1")
     }
 
     @Test("mod update scanner keeps source rows separate by Minecraft version")
@@ -1770,9 +1803,11 @@ struct MCPummelchenModServerCoreTests {
         )).run()
 
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources;") == "2")
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_source_links;") == "2")
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources WHERE minecraft_version = '26.1.2';") == "1")
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources WHERE minecraft_version = '26.2';") == "1")
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources WHERE source_id LIKE '%_mc_26_2';") == "1")
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_source_links WHERE minecraft_version = '26.2';") == "1")
     }
 
     @Test("mod update scanner does not attach batch files to one source URL")

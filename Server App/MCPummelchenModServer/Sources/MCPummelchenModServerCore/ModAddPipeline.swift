@@ -451,6 +451,24 @@ public struct ModAddPipeline: Sendable {
         ALTER TABLE core.mod_sources ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR DEFAULT '26.1.2';
         ALTER TABLE core.mod_sources ADD COLUMN IF NOT EXISTS loader VARCHAR DEFAULT 'neoforge';
         ALTER TABLE core.mod_sources ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
+        CREATE TABLE IF NOT EXISTS core.mod_source_links (
+          link_id VARCHAR PRIMARY KEY,
+          source_id VARCHAR NOT NULL,
+          mod_key VARCHAR NOT NULL,
+          display_name VARCHAR NOT NULL,
+          provider VARCHAR NOT NULL,
+          link_role VARCHAR NOT NULL,
+          source_url VARCHAR NOT NULL,
+          priority INTEGER NOT NULL DEFAULT 100,
+          active BOOLEAN NOT NULL DEFAULT true,
+          verified_at TIMESTAMP,
+          created_at TIMESTAMP NOT NULL DEFAULT now(),
+          updated_at TIMESTAMP NOT NULL DEFAULT now(),
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader VARCHAR DEFAULT 'neoforge',
+          loader_version VARCHAR,
+          notes VARCHAR
+        );
         """)
         for artifact in artifacts {
             let sourceID = [Optional(artifact.provider), artifact.projectID, artifact.fileID]
@@ -461,6 +479,8 @@ public struct ModAddPipeline: Sendable {
                 .joined(separator: "_")
             let baseStableID = sourceID.isEmpty ? Self.stableID("\(artifact.sourceURL)|\(artifact.fileName)") : sourceID
             let stableID = Self.versionedSourceID(baseStableID, minecraftVersion: config.minecraftVersion)
+            let modKey = Self.modKey(artifact.displayName)
+            let linkID = Self.stableID("\(stableID)|\(artifact.provider)|\(artifact.sourceURL)|\(config.minecraftVersion)")
             try DuckDBDatabase(databaseURL: config.databaseURL).execute("""
             DELETE FROM core.mod_sources WHERE source_id = \(Self.sqlLiteral(stableID));
             INSERT INTO core.mod_sources(
@@ -470,7 +490,7 @@ public struct ModAddPipeline: Sendable {
             )
             VALUES (
               \(Self.sqlLiteral(stableID)),
-              \(Self.sqlLiteral(Self.modKey(artifact.displayName))),
+              \(Self.sqlLiteral(modKey)),
               \(Self.sqlLiteral(artifact.displayName)),
               \(Self.sqlLiteral(artifact.fileName)),
               \(Self.sqlLiteral(artifact.version)),
@@ -482,6 +502,28 @@ public struct ModAddPipeline: Sendable {
               \(Self.sqlLiteral(config.minecraftVersion)),
               \(Self.sqlLiteral(config.loader)),
               \(Self.sqlLiteral(config.loaderVersion))
+            );
+            INSERT OR REPLACE INTO core.mod_source_links(
+              link_id, source_id, mod_key, display_name, provider, link_role,
+              source_url, priority, active, verified_at, updated_at,
+              minecraft_version, loader, loader_version, notes
+            )
+            VALUES (
+              \(Self.sqlLiteral(linkID)),
+              \(Self.sqlLiteral(stableID)),
+              \(Self.sqlLiteral(modKey)),
+              \(Self.sqlLiteral(artifact.displayName)),
+              \(Self.sqlLiteral(artifact.provider)),
+              \(Self.sqlLiteral(Self.sourceLinkRole(provider: artifact.provider))),
+              \(Self.sqlLiteral(artifact.sourceURL)),
+              25,
+              true,
+              now(),
+              now(),
+              \(Self.sqlLiteral(config.minecraftVersion)),
+              \(Self.sqlLiteral(config.loader)),
+              \(Self.sqlLiteral(config.loaderVersion)),
+              'Recorded by add-mod pipeline.'
             );
             """)
         }
@@ -608,6 +650,17 @@ public struct ModAddPipeline: Sendable {
         if host.contains("curseforge.com") { return "curseforge" }
         if host.contains("modrinth.com") { return "modrinth" }
         return "web"
+    }
+
+    private static func sourceLinkRole(provider: String) -> String {
+        switch provider.lowercased() {
+        case "modrinth", "curseforge":
+            return provider.lowercased()
+        case "neoforge", "adoptium", "web":
+            return "official"
+        default:
+            return "primary"
+        }
     }
 
     private static func parseMetadata(_ text: String) -> JarMetadata {

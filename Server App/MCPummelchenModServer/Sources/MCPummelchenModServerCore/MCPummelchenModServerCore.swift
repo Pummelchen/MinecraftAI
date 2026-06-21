@@ -27,6 +27,7 @@ public enum MCPummelchenModServerError: Error, CustomStringConvertible {
 private struct LiveModSourceInventory {
     let displayName: String
     let sourceURL: String
+    let sourceLinks: String
     let installedFiles: String
     let installedVersions: String
     let latestStatuses: String
@@ -672,6 +673,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             annotated["files"] = live.installedFiles
             annotated["versionFile"] = live.installedFiles
             annotated["installed_version"] = live.installedVersions
+            annotated["sourceLinks"] = Self.sourceLinksPayload(live.sourceLinks)
             if !live.sourceURL.isEmpty {
                 annotated["sourceUrl"] = live.sourceURL
                 annotated["sourceHost"] = URL(string: live.sourceURL)?.host ?? live.sourceURL
@@ -778,6 +780,39 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         return Self.parseCSV(csv).first?["count_star()"] == "1"
     }
 
+    private func modSourceLinksJoinSQL() throws -> String {
+        guard try duckDBTableExists(schema: "core", table: "mod_source_links") else {
+            return """
+                  LEFT JOIN (
+                    SELECT
+                      CAST(NULL AS VARCHAR) AS source_id,
+                      CAST(NULL AS VARCHAR) AS minecraft_version,
+                      CAST(NULL AS VARCHAR) AS source_links
+                    WHERE false
+                  ) l
+                    ON false
+            """
+        }
+        return """
+              LEFT JOIN (
+                SELECT
+                  source_id,
+                  minecraft_version,
+                  string_agg(
+                    DISTINCT link_role || '|||' || provider || '|||' || source_url,
+                    '~~~'
+                    ORDER BY link_role || '|||' || provider || '|||' || source_url
+                  ) AS source_links
+                FROM core.mod_source_links
+                WHERE active
+                  AND (source_url LIKE 'http://%' OR source_url LIKE 'https://%')
+                GROUP BY source_id, minecraft_version
+              ) l
+                ON l.source_id = s.source_id
+               AND l.minecraft_version = s.minecraft_version
+        """
+    }
+
     private func versionedModSourceInventory(supportedVersions: [[String: Any]]) throws -> [String: [String: LiveModSourceInventory]] {
         let versions = supportedVersions.compactMap { $0["minecraft_version"] as? String }.filter { !$0.isEmpty }
         guard !versions.isEmpty else {
@@ -785,11 +820,13 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         }
         let versionList = versions.map(Self.sqlLiteral).joined(separator: ", ")
         let latestScanCTE = try modSourceLatestScanResultCTE(whereClause: "minecraft_version IN (\(versionList))")
+        let sourceLinksJoin = try modSourceLinksJoinSQL()
         let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
               \(latestScanCTE)
               SELECT
                 lower(s.source_url) AS source_url_key,
                 s.source_url,
+                COALESCE(l.source_links, 'primary' || '|||' || s.provider || '|||' || s.source_url) AS source_links,
                 s.display_name,
                 regexp_replace(lower(s.display_name), '[^a-z0-9]+', '-', 'g') AS name_key,
                 s.minecraft_version,
@@ -801,10 +838,11 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
               LEFT JOIN latest_scan_result r
                 ON r.source_id = s.source_id
                AND r.minecraft_version = s.minecraft_version
+              \(sourceLinksJoin)
               WHERE s.active
                 AND s.minecraft_version IN (\(versionList))
                 AND COALESCE(s.installed_file, '') <> ''
-              GROUP BY 1, 2, 3, 4, 5;
+              GROUP BY 1, 2, 3, 4, 5, 6;
               """)
 
         var values: [String: [String: LiveModSourceInventory]] = [:]
@@ -815,6 +853,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             let inventory = LiveModSourceInventory(
                 displayName: row["display_name"] ?? "",
                 sourceURL: row["source_url"] ?? "",
+                sourceLinks: row["source_links"] ?? "",
                 installedFiles: row["installed_files"] ?? "",
                 installedVersions: row["installed_versions"] ?? "",
                 latestStatuses: row["latest_statuses"] ?? ""
@@ -840,11 +879,13 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             return [:]
         }
         let latestScanCTE = try modSourceLatestScanResultCTE(whereClause: "minecraft_version = \(Self.sqlLiteral(minecraftVersion))")
+        let sourceLinksJoin = try modSourceLinksJoinSQL()
         let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
               \(latestScanCTE)
               SELECT
                 lower(s.source_url) AS source_url_key,
                 s.source_url,
+                COALESCE(l.source_links, 'primary' || '|||' || s.provider || '|||' || s.source_url) AS source_links,
                 s.display_name,
                 regexp_replace(lower(s.display_name), '[^a-z0-9]+', '-', 'g') AS name_key,
                 string_agg(DISTINCT s.installed_file, ', ' ORDER BY s.installed_file) AS installed_files,
@@ -855,16 +896,18 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
               LEFT JOIN latest_scan_result r
                 ON r.source_id = s.source_id
                AND r.minecraft_version = s.minecraft_version
+              \(sourceLinksJoin)
               WHERE s.active
                 AND s.minecraft_version = \(Self.sqlLiteral(minecraftVersion))
                 AND COALESCE(s.installed_file, '') <> ''
-              GROUP BY 1, 2, 3, 4;
+              GROUP BY 1, 2, 3, 4, 5;
               """)
         var values: [String: LiveModSourceInventory] = [:]
         for row in Self.parseCSV(csv) {
             let inventory = LiveModSourceInventory(
                 displayName: row["display_name"] ?? "",
                 sourceURL: row["source_url"] ?? "",
+                sourceLinks: row["source_links"] ?? "",
                 installedFiles: row["installed_files"] ?? "",
                 installedVersions: row["installed_versions"] ?? "",
                 latestStatuses: row["latest_statuses"] ?? ""
@@ -913,6 +956,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 "installed_version": source.installedVersions,
                 "sourceUrl": source.sourceURL,
                 "sourceHost": URL(string: source.sourceURL)?.host ?? "",
+                "sourceLinks": Self.sourceLinksPayload(source.sourceLinks),
                 "details": "Live mod source row generated from DuckDB because this active mod is not present in the static website inventory.",
                 "search": "\(source.displayName) \(source.installedFiles) \(source.installedVersions) \(source.sourceURL)"
             ]
@@ -1047,6 +1091,23 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             .components(separatedBy: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    private static func sourceLinksPayload(_ value: String) -> [[String: String]] {
+        value
+            .components(separatedBy: "~~~")
+            .compactMap { line -> [String: String]? in
+                let parts = line.components(separatedBy: "|||")
+                guard parts.count >= 3, !parts[2].isEmpty else {
+                    return nil
+                }
+                return [
+                    "role": parts[0],
+                    "provider": parts[1],
+                    "url": parts[2],
+                    "host": URL(string: parts[2])?.host ?? parts[2]
+                ]
+            }
     }
 
     private func liveModSource(for row: [String: Any], liveModSources: [String: LiveModSourceInventory]) -> LiveModSourceInventory? {
@@ -1634,11 +1695,14 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     }
 
     private func errorResponse(status: Int, message: String) -> HTTPResponse {
-        let escaped = Self.redactSecrets(message)
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        let body = #"{"api_version":"v1","error":"\#(escaped)","request_id":"\#(UUID().uuidString)","server_time":"\#(Self.isoNow())"}"#
-        return .json(Data(body.utf8), statusCode: status)
+        let body: [String: Any] = [
+            "api_version": "v1",
+            "error": Self.redactSecrets(message),
+            "request_id": UUID().uuidString,
+            "server_time": Self.isoNow()
+        ]
+        let data = (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data(#"{"api_version":"v1","error":"internal server error"}"#.utf8)
+        return .json(data, statusCode: status)
     }
 
     private static func isoNow() -> String {
