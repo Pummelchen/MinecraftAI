@@ -1720,6 +1720,35 @@ struct MCPummelchenModServerCoreTests {
         #expect(ModUpdateScanner.parseLatestVersion(fromHTML: modrinthHTML, provider: "modrinth") == "18.0.3")
         #expect(ModUpdateScanner.parseLatestVersion(fromHTML: "<title>BetterF3 - Minecraft Mods - CurseForge</title>", provider: "curseforge") == nil)
         #expect(ModUpdateScanner.isCloudflareChallenge(cloudflareHTML))
+
+        let modrinthSearch = Data(#"{"hits":[{"title":"BetterF3","slug":"betterf3","project_type":"mod"},{"title":"BSL Shaders","slug":"bsl-shaders","project_type":"shader"}]}"#.utf8)
+        #expect(ModUpdateScanner.modrinthSourceURLs(fromSearchData: modrinthSearch) == [
+            "https://modrinth.com/mod/betterf3",
+            "https://modrinth.com/shader/bsl-shaders"
+        ])
+
+        let curseForgeSearch = Data(#"{"data":[{"name":"BetterF3","slug":"betterf3","links":{"websiteUrl":"https://www.curseforge.com/minecraft/mc-mods/betterf3/files"}},{"name":"Noise","slug":"not-minecraft","links":{"websiteUrl":"https://example.com/not-allowed"}}]}"#.utf8)
+        #expect(ModUpdateScanner.curseForgeSourceURLs(fromSearchData: curseForgeSearch) == [
+            "https://www.curseforge.com/minecraft/mc-mods/betterf3"
+        ])
+
+        let modrinthSiteHTML = #"<a href="/mod/betterf3">BetterF3</a><a href="https://modrinth.com/shader/bsl-shaders?x=1">BSL</a>"#
+        #expect(Set(ModUpdateScanner.sourceLinkURLs(fromHTML: modrinthSiteHTML, provider: "modrinth")) == Set([
+            "https://modrinth.com/mod/betterf3",
+            "https://modrinth.com/shader/bsl-shaders"
+        ]))
+
+        let googleHTML = #"""
+        <a href="/url?q=https%3A%2F%2Fmodrinth.com%2Fmod%2Fbetterf3&amp;sa=U">BetterF3</a>
+        <a href="/url?q=https%3A%2F%2Fexample.com%2Fnot-a-mod&amp;sa=U">Bad</a>
+        <a href="https://www.curseforge.com/minecraft/mc-mods/betterf3">CurseForge BetterF3</a>
+        """#
+        #expect(ModUpdateScanner.sourceLinkURLs(fromGoogleHTML: googleHTML, provider: "modrinth") == [
+            "https://modrinth.com/mod/betterf3"
+        ])
+        #expect(ModUpdateScanner.sourceLinkURLs(fromGoogleHTML: googleHTML, provider: "curseforge") == [
+            "https://www.curseforge.com/minecraft/mc-mods/betterf3"
+        ])
     }
 
     @Test("mod update scanner seeds source URLs into DuckDB")

@@ -29,6 +29,9 @@ public struct ModUpdateScannerConfig: Sendable {
     public let windowSeconds: TimeInterval
     public let limit: Int?
     public let seedFromProjectData: Bool
+    public let discoverSourceLinks: Bool
+    public let discoveryLimit: Int?
+    public let discoverySearchesPerSecond: Double
     public let dryRun: Bool
 
     public init(
@@ -41,6 +44,9 @@ public struct ModUpdateScannerConfig: Sendable {
         windowSeconds: TimeInterval = 10,
         limit: Int? = nil,
         seedFromProjectData: Bool = false,
+        discoverSourceLinks: Bool = false,
+        discoveryLimit: Int? = nil,
+        discoverySearchesPerSecond: Double = 2,
         dryRun: Bool = false
     ) {
         self.projectRoot = projectRoot
@@ -52,6 +58,9 @@ public struct ModUpdateScannerConfig: Sendable {
         self.windowSeconds = windowSeconds
         self.limit = limit
         self.seedFromProjectData = seedFromProjectData
+        self.discoverSourceLinks = discoverSourceLinks
+        self.discoveryLimit = discoveryLimit
+        self.discoverySearchesPerSecond = discoverySearchesPerSecond
         self.dryRun = dryRun
     }
 }
@@ -82,6 +91,12 @@ public struct ModUpdateCheckResult: Equatable, Sendable {
     public let details: String
 }
 
+public struct ModSourceDiscoverySummary: Equatable, Sendable {
+    public let sourcesChecked: Int
+    public let searchesRun: Int
+    public let linksFound: Int
+}
+
 public struct ModUpdateScanner: Sendable {
     public let config: ModUpdateScannerConfig
     private var database: DuckDBDatabase { DuckDBDatabase(databaseURL: config.databaseURL) }
@@ -94,6 +109,7 @@ public struct ModUpdateScanner: Sendable {
     public func run() throws -> ModUpdateScanSummary {
         try initializeDatabase()
         let seeded = config.seedFromProjectData ? try seedSourcesFromProjectData() : 0
+        let discovered = config.discoverSourceLinks ? try discoverMissingSourceLinks(limit: config.discoveryLimit) : ModSourceDiscoverySummary(sourcesChecked: 0, searchesRun: 0, linksFound: 0)
         let scanID = "scan_\(Self.compactTimestamp())_\(UUID().uuidString.prefix(8))"
         let startedAt = Self.duckTimestamp(Date())
         if !config.dryRun {
@@ -149,7 +165,7 @@ public struct ModUpdateScanner: Sendable {
                 urls_checked = \(checked),
                 candidates_found = \(candidates),
                 unresolved = \(unresolved),
-                notes = \(Self.sqlLiteral("seeded_sources=\(seeded) throttle=\(config.maxURLsPerWindow)/\(Int(config.windowSeconds))s"))
+                notes = \(Self.sqlLiteral("seeded_sources=\(seeded) discovered_links=\(discovered.linksFound) discovery_searches=\(discovered.searchesRun) throttle=\(config.maxURLsPerWindow)/\(Int(config.windowSeconds))s discovery_throttle=\(config.discoverySearchesPerSecond)/s"))
             WHERE scan_id = \(Self.sqlLiteral(scanID));
             """)
         }
@@ -321,6 +337,22 @@ public struct ModUpdateScanner: Sendable {
           loader VARCHAR DEFAULT 'neoforge',
           loader_version VARCHAR,
           notes VARCHAR
+        );
+        CREATE TABLE IF NOT EXISTS core.mod_source_discovery_results (
+          discovery_id VARCHAR PRIMARY KEY,
+          source_id VARCHAR NOT NULL,
+          mod_key VARCHAR NOT NULL,
+          display_name VARCHAR NOT NULL,
+          missing_provider VARCHAR NOT NULL,
+          search_method VARCHAR NOT NULL,
+          search_url VARCHAR NOT NULL,
+          found_url VARCHAR,
+          status VARCHAR NOT NULL,
+          details VARCHAR,
+          checked_at TIMESTAMP NOT NULL DEFAULT now(),
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader VARCHAR DEFAULT 'neoforge',
+          loader_version VARCHAR
         );
         ALTER TABLE core.mod_update_scans ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR DEFAULT '26.1.2';
         ALTER TABLE core.mod_update_scans ADD COLUMN IF NOT EXISTS loader VARCHAR DEFAULT 'neoforge';
@@ -618,6 +650,278 @@ public struct ModUpdateScanner: Sendable {
             return false
         }
         return referenceVersion != config.minecraftVersion
+    }
+
+    private struct SourceDiscoveryRow {
+        let sourceID: String
+        let modKey: String
+        let displayName: String
+        let installedFile: String?
+        let installedVersion: String?
+        let provider: String
+        let sourceURL: String
+        let missingProviders: [String]
+    }
+
+    private struct SourceLinkCandidate {
+        let provider: String
+        let url: String
+        let title: String?
+    }
+
+    private struct SourceSearchAttempt {
+        let method: String
+        let searchURL: String
+        let candidates: [SourceLinkCandidate]
+        let details: String
+    }
+
+    private final class SourceDiscoveryRateLimiter {
+        private let minimumInterval: TimeInterval
+        private var lastSearch: Date?
+        private(set) var searchesRun = 0
+
+        init(searchesPerSecond: Double) {
+            minimumInterval = searchesPerSecond > 0 ? 1.0 / searchesPerSecond : 0
+        }
+
+        func beforeSearch() {
+            if let lastSearch, minimumInterval > 0 {
+                let elapsed = Date().timeIntervalSince(lastSearch)
+                if elapsed < minimumInterval {
+                    Thread.sleep(forTimeInterval: minimumInterval - elapsed)
+                }
+            }
+            lastSearch = Date()
+            searchesRun += 1
+        }
+    }
+
+    public func discoverMissingSourceLinks(limit: Int? = nil) throws -> ModSourceDiscoverySummary {
+        try initializeDatabase()
+        let rows = try loadSourceDiscoveryRows(limit: limit)
+        let limiter = SourceDiscoveryRateLimiter(searchesPerSecond: min(max(config.discoverySearchesPerSecond, 0.1), 2.0))
+        var linksFound = 0
+        for row in rows {
+            for provider in row.missingProviders {
+                guard ["modrinth", "curseforge"].contains(provider) else {
+                    continue
+                }
+                var found: SourceLinkCandidate?
+                for attempt in sourceDiscoveryAttempts(row: row, missingProvider: provider, limiter: limiter) {
+                    let accepted = attempt.candidates.first { Self.sourceCandidateMatches($0, row: row, missingProvider: provider) }
+                    if !config.dryRun {
+                        try recordSourceDiscovery(
+                            row: row,
+                            missingProvider: provider,
+                            method: attempt.method,
+                            searchURL: attempt.searchURL,
+                            foundURL: accepted?.url,
+                            status: accepted == nil ? "not_found" : "found",
+                            details: attempt.details
+                        )
+                    }
+                    if let accepted {
+                        found = accepted
+                        break
+                    }
+                }
+                if let found {
+                    linksFound += 1
+                    if !config.dryRun {
+                        try insertDiscoveredSourceLink(row: row, candidate: found)
+                    }
+                }
+            }
+        }
+        return ModSourceDiscoverySummary(sourcesChecked: rows.count, searchesRun: limiter.searchesRun, linksFound: linksFound)
+    }
+
+    private func loadSourceDiscoveryRows(limit: Int?) throws -> [SourceDiscoveryRow] {
+        let sourceActiveClause = (try isStagingMinecraftVersion()) ? "" : "AND s.active = true"
+        let limitClause = limit.map { "LIMIT \(max(0, $0))" } ?? ""
+        let csv = try query("""
+        WITH source_coverage AS (
+          SELECT
+            s.source_id,
+            s.mod_key,
+            s.display_name,
+            COALESCE(s.installed_file, '') AS installed_file,
+            COALESCE(s.installed_version, '') AS installed_version,
+            s.provider,
+            s.source_url,
+            MAX(CASE WHEN l.provider = 'modrinth' AND l.active THEN 1 ELSE 0 END) AS has_modrinth,
+            MAX(CASE WHEN l.provider = 'curseforge' AND l.active THEN 1 ELSE 0 END) AS has_curseforge
+          FROM core.mod_sources s
+          LEFT JOIN core.mod_source_links l
+            ON l.source_id = s.source_id
+           AND COALESCE(l.minecraft_version, COALESCE(s.minecraft_version, \(Self.sqlLiteral(config.minecraftVersion)))) = COALESCE(s.minecraft_version, \(Self.sqlLiteral(config.minecraftVersion)))
+          WHERE COALESCE(s.minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
+            \(sourceActiveClause)
+            AND (COALESCE(s.source_url, '') LIKE 'http://%' OR COALESCE(s.source_url, '') LIKE 'https://%')
+            AND s.provider <> 'manifest'
+          GROUP BY 1, 2, 3, 4, 5, 6, 7
+        )
+        SELECT source_id, mod_key, display_name, installed_file, installed_version, provider, source_url, has_modrinth, has_curseforge
+        FROM source_coverage
+        WHERE has_modrinth = 0 OR has_curseforge = 0
+        ORDER BY display_name, source_url
+        \(limitClause);
+        """)
+        return csvRows(csv).compactMap { row in
+            guard row.count >= 9 else { return nil }
+            var missing: [String] = []
+            if row[7] != "1" { missing.append("modrinth") }
+            if row[8] != "1" { missing.append("curseforge") }
+            return SourceDiscoveryRow(
+                sourceID: row[0],
+                modKey: row[1],
+                displayName: row[2],
+                installedFile: row[3].isEmpty ? nil : row[3],
+                installedVersion: row[4].isEmpty ? nil : row[4],
+                provider: row[5],
+                sourceURL: row[6],
+                missingProviders: missing
+            )
+        }
+    }
+
+    private func sourceDiscoveryAttempts(row: SourceDiscoveryRow, missingProvider: String, limiter: SourceDiscoveryRateLimiter) -> [SourceSearchAttempt] {
+        let builders: [() throws -> SourceSearchAttempt] = [
+            { try self.searchProviderAPI(row: row, provider: missingProvider, limiter: limiter) },
+            { try self.searchProviderSite(row: row, provider: missingProvider, limiter: limiter) },
+            { try self.searchGoogleForProvider(row: row, provider: missingProvider, limiter: limiter) }
+        ]
+        return builders.compactMap { builder in
+            do {
+                return try builder()
+            } catch {
+                return SourceSearchAttempt(
+                    method: "error",
+                    searchURL: "",
+                    candidates: [],
+                    details: String(describing: error)
+                )
+            }
+        }
+    }
+
+    private func searchProviderAPI(row: SourceDiscoveryRow, provider: String, limiter: SourceDiscoveryRateLimiter) throws -> SourceSearchAttempt {
+        let queryText = Self.discoveryQuery(for: row)
+        let endpoint: String
+        if provider == "modrinth" {
+            endpoint = "https://api.modrinth.com/v2/search?query=\(Self.urlQuery(queryText))&limit=10"
+        } else {
+            endpoint = "https://api.curse.tools/v1/cf/mods/search?gameId=432&searchFilter=\(Self.urlQuery(queryText))&pageSize=10"
+        }
+        guard let url = URL(string: endpoint) else {
+            throw ModUpdateScannerError.invalidSourceURL(endpoint)
+        }
+        limiter.beforeSearch()
+        let data = try fetchData(url)
+        let candidates = provider == "modrinth"
+            ? Self.modrinthCandidates(fromSearchData: data)
+            : Self.curseForgeCandidates(fromSearchData: data)
+        return SourceSearchAttempt(method: "api", searchURL: endpoint, candidates: candidates, details: "searched \(provider) API")
+    }
+
+    private func searchProviderSite(row: SourceDiscoveryRow, provider: String, limiter: SourceDiscoveryRateLimiter) throws -> SourceSearchAttempt {
+        let queryText = Self.discoveryQuery(for: row)
+        let endpoint: String
+        if provider == "modrinth" {
+            endpoint = "https://modrinth.com/mods?q=\(Self.urlQuery(queryText))"
+        } else {
+            endpoint = "https://www.curseforge.com/minecraft/search?page=1&pageSize=20&sortBy=relevancy&search=\(Self.urlQuery(queryText))"
+        }
+        guard let url = URL(string: endpoint) else {
+            throw ModUpdateScannerError.invalidSourceURL(endpoint)
+        }
+        limiter.beforeSearch()
+        let html = try fetchText(url)
+        let candidates = Self.sourceLinkCandidates(fromHTML: html, provider: provider)
+        return SourceSearchAttempt(method: "site_curl", searchURL: endpoint, candidates: candidates, details: "searched \(provider) website HTML")
+    }
+
+    private func searchGoogleForProvider(row: SourceDiscoveryRow, provider: String, limiter: SourceDiscoveryRateLimiter) throws -> SourceSearchAttempt {
+        let queryText = Self.discoveryQuery(for: row)
+        let siteClause: String
+        if provider == "modrinth" {
+            siteClause = "site:modrinth.com/mod OR site:modrinth.com/shader OR site:modrinth.com/resourcepack OR site:modrinth.com/datapack"
+        } else {
+            siteClause = "site:curseforge.com/minecraft/mc-mods OR site:curseforge.com/minecraft/shaders OR site:curseforge.com/minecraft/texture-packs OR site:curseforge.com/minecraft/data-packs"
+        }
+        let endpoint = "https://www.google.com/search?q=\(Self.urlQuery("\(siteClause) \(queryText)"))"
+        guard let url = URL(string: endpoint) else {
+            throw ModUpdateScannerError.invalidSourceURL(endpoint)
+        }
+        limiter.beforeSearch()
+        let html = try fetchText(url)
+        let candidates = Self.sourceLinkCandidates(fromGoogleHTML: html, provider: provider)
+        return SourceSearchAttempt(method: "google_curl", searchURL: endpoint, candidates: candidates, details: "searched Google and accepted only \(provider) result URLs")
+    }
+
+    private func insertDiscoveredSourceLink(row: SourceDiscoveryRow, candidate: SourceLinkCandidate) throws {
+        let linkID = Self.stableID("\(row.sourceID)|\(candidate.provider)|\(candidate.url)|\(config.minecraftVersion)")
+        try execute("""
+        INSERT OR REPLACE INTO core.mod_source_links(
+          link_id, source_id, mod_key, display_name, provider, link_role,
+          source_url, priority, active, verified_at, created_at, updated_at,
+          minecraft_version, loader, loader_version, notes
+        )
+        VALUES (
+          \(Self.sqlLiteral(linkID)),
+          \(Self.sqlLiteral(row.sourceID)),
+          \(Self.sqlLiteral(row.modKey)),
+          \(Self.sqlLiteral(row.displayName)),
+          \(Self.sqlLiteral(candidate.provider)),
+          \(Self.sqlLiteral(Self.sourceLinkRole(provider: candidate.provider))),
+          \(Self.sqlLiteral(candidate.url)),
+          50,
+          true,
+          now(),
+          now(),
+          now(),
+          \(Self.sqlLiteral(config.minecraftVersion)),
+          \(Self.sqlLiteral(config.loader)),
+          \(Self.sqlLiteral(config.loaderVersion)),
+          \(Self.sqlLiteral("Discovered by source-link redundancy search\(candidate.title.map { ": \($0)" } ?? ".")"))
+        );
+        """)
+    }
+
+    private func recordSourceDiscovery(
+        row: SourceDiscoveryRow,
+        missingProvider: String,
+        method: String,
+        searchURL: String,
+        foundURL: String?,
+        status: String,
+        details: String
+    ) throws {
+        let discoveryID = Self.stableID("\(row.sourceID)|\(missingProvider)|\(method)|\(searchURL)|\(foundURL ?? "")|\(Self.duckTimestamp(Date()))")
+        try execute("""
+        INSERT INTO core.mod_source_discovery_results(
+          discovery_id, source_id, mod_key, display_name, missing_provider,
+          search_method, search_url, found_url, status, details, checked_at,
+          minecraft_version, loader, loader_version
+        )
+        VALUES (
+          \(Self.sqlLiteral(discoveryID)),
+          \(Self.sqlLiteral(row.sourceID)),
+          \(Self.sqlLiteral(row.modKey)),
+          \(Self.sqlLiteral(row.displayName)),
+          \(Self.sqlLiteral(missingProvider)),
+          \(Self.sqlLiteral(method)),
+          \(Self.sqlLiteral(searchURL)),
+          \(Self.sqlLiteral(foundURL)),
+          \(Self.sqlLiteral(status)),
+          \(Self.sqlLiteral(details)),
+          TIMESTAMP '\(Self.duckTimestamp(Date()))',
+          \(Self.sqlLiteral(config.minecraftVersion)),
+          \(Self.sqlLiteral(config.loader)),
+          \(Self.sqlLiteral(config.loaderVersion))
+        );
+        """)
     }
 
 
@@ -1246,6 +1550,216 @@ public struct ModUpdateScanner: Sendable {
             return installedVersion ?? versionFromFilename(fileName)
         }
         return fileName.flatMap(versionFromFilename)
+    }
+
+    public static func sourceLinkURLs(fromHTML html: String, provider: String) -> [String] {
+        sourceLinkCandidates(fromHTML: html, provider: provider).map(\.url)
+    }
+
+    public static func sourceLinkURLs(fromGoogleHTML html: String, provider: String) -> [String] {
+        sourceLinkCandidates(fromGoogleHTML: html, provider: provider).map(\.url)
+    }
+
+    public static func modrinthSourceURLs(fromSearchData data: Data) -> [String] {
+        modrinthCandidates(fromSearchData: data).map(\.url)
+    }
+
+    public static func curseForgeSourceURLs(fromSearchData data: Data) -> [String] {
+        curseForgeCandidates(fromSearchData: data).map(\.url)
+    }
+
+    private static func discoveryQuery(for row: SourceDiscoveryRow) -> String {
+        let installedName = row.installedFile.map(displayNameFromManifestFile)
+        return [row.displayName, installedName, row.modKey]
+            .compactMap { $0 }
+            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? row.displayName
+    }
+
+    private static func modrinthCandidates(fromSearchData data: Data) -> [SourceLinkCandidate] {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hits = object["hits"] as? [[String: Any]] else {
+            return []
+        }
+        return hits.compactMap { hit in
+            let projectType = (hit["project_type"] as? String) ?? "mod"
+            guard ["mod", "shader", "resourcepack", "datapack", "modpack", "plugin"].contains(projectType),
+                  let slug = hit["slug"] as? String,
+                  !slug.isEmpty else {
+                return nil
+            }
+            return SourceLinkCandidate(
+                provider: "modrinth",
+                url: "https://modrinth.com/\(projectType)/\(slug)",
+                title: hit["title"] as? String
+            )
+        }
+    }
+
+    private static func curseForgeCandidates(fromSearchData data: Data) -> [SourceLinkCandidate] {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hits = object["data"] as? [[String: Any]] else {
+            return []
+        }
+        return hits.compactMap { hit in
+            let links = hit["links"] as? [String: Any]
+            let websiteURL = links?["websiteUrl"] as? String
+            let slug = hit["slug"] as? String
+            let url = websiteURL ?? slug.map { "https://www.curseforge.com/minecraft/mc-mods/\($0)" }
+            guard let url else {
+                return nil
+            }
+            let canonicalURL = canonicalSourceURL(url, provider: "curseforge")
+            guard acceptedProviderURL(canonicalURL, provider: "curseforge") else {
+                return nil
+            }
+            return SourceLinkCandidate(provider: "curseforge", url: canonicalURL, title: hit["name"] as? String)
+        }
+    }
+
+    private static func sourceLinkCandidates(fromHTML html: String, provider: String) -> [SourceLinkCandidate] {
+        let decoded = htmlDecoded(html)
+        let patterns: [String]
+        if provider == "modrinth" {
+            patterns = [
+                #"(https?://(?:www\.)?modrinth\.com/(?:mod|shader|resourcepack|datapack|modpack|plugin)/[A-Za-z0-9._+\-]+)"#,
+                #"href="(/(?:mod|shader|resourcepack|datapack|modpack|plugin)/[A-Za-z0-9._+\-]+)""#
+            ]
+        } else {
+            patterns = [
+                #"(https?://(?:www\.)?curseforge\.com/minecraft/(?:mc-mods|shaders|texture-packs|data-packs|modpacks|bukkit-plugins)/[A-Za-z0-9._+\-]+)"#,
+                #"href="(/minecraft/(?:mc-mods|shaders|texture-packs|data-packs|modpacks|bukkit-plugins)/[A-Za-z0-9._+\-]+)""#
+            ]
+        }
+        var candidates: [SourceLinkCandidate] = []
+        var seen = Set<String>()
+        for pattern in patterns {
+            for match in matches(pattern: pattern, in: decoded) {
+                let raw = match.hasPrefix("/") ? (provider == "modrinth" ? "https://modrinth.com\(match)" : "https://www.curseforge.com\(match)") : match
+                let url = canonicalSourceURL(raw, provider: provider)
+                guard acceptedProviderURL(url, provider: provider), !seen.contains(url) else {
+                    continue
+                }
+                seen.insert(url)
+                candidates.append(SourceLinkCandidate(provider: provider, url: url, title: nil))
+            }
+        }
+        return candidates
+    }
+
+    private static func sourceLinkCandidates(fromGoogleHTML html: String, provider: String) -> [SourceLinkCandidate] {
+        let decoded = htmlDecoded(html)
+        var rawURLs = matches(pattern: #"(https?://[^"'<>\s&]+(?:modrinth\.com|curseforge\.com)[^"'<>\s&]*)"#, in: decoded)
+        rawURLs += matches(pattern: #"/url\?q=([^"&]+)"#, in: decoded).compactMap {
+            $0.removingPercentEncoding
+        }
+        var seen = Set<String>()
+        return rawURLs.compactMap { raw in
+            let cleaned = raw
+                .replacingOccurrences(of: "\\u003d", with: "=")
+                .replacingOccurrences(of: "\\u0026", with: "&")
+            let url = canonicalSourceURL(cleaned, provider: provider)
+            guard acceptedProviderURL(url, provider: provider), !seen.contains(url) else {
+                return nil
+            }
+            seen.insert(url)
+            return SourceLinkCandidate(provider: provider, url: url, title: nil)
+        }
+    }
+
+    private static func sourceCandidateMatches(_ candidate: SourceLinkCandidate, row: SourceDiscoveryRow, missingProvider: String) -> Bool {
+        guard candidate.provider == missingProvider,
+              acceptedProviderURL(candidate.url, provider: missingProvider),
+              canonicalSourceURL(row.sourceURL, provider: row.provider) != candidate.url else {
+            return false
+        }
+        let identityValues = [
+            row.displayName,
+            row.modKey,
+            row.installedFile.map(displayNameFromManifestFile),
+            slug(fromSourceURL: row.sourceURL)
+        ].compactMap { $0 }
+        let candidateValues = [
+            candidate.title,
+            slug(fromSourceURL: candidate.url)
+        ].compactMap { $0 }
+        for identity in identityValues {
+            for candidateValue in candidateValues {
+                if normalizedSearchIdentity(identity) == normalizedSearchIdentity(candidateValue) {
+                    return true
+                }
+                if compactSearchIdentity(identity) == compactSearchIdentity(candidateValue) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private static func acceptedProviderURL(_ value: String, provider: String) -> Bool {
+        guard let url = URL(string: value),
+              let host = url.host?.lowercased() else {
+            return false
+        }
+        let path = url.path.lowercased()
+        if provider == "modrinth" {
+            return host == "modrinth.com" && path.range(of: #"^/(mod|shader|resourcepack|datapack|modpack|plugin)/[^/]+$"#, options: .regularExpression) != nil
+        }
+        if provider == "curseforge" {
+            return (host == "www.curseforge.com" || host == "curseforge.com")
+                && path.range(of: #"^/minecraft/(mc-mods|shaders|texture-packs|data-packs|modpacks|bukkit-plugins)/[^/]+$"#, options: .regularExpression) != nil
+        }
+        return false
+    }
+
+    private static func canonicalSourceURL(_ value: String, provider: String) -> String {
+        guard let url = URL(string: value) else {
+            return value
+        }
+        let parts = url.path.split(separator: "/").map(String.init)
+        if provider == "modrinth",
+           parts.count >= 2 {
+            return "https://modrinth.com/\(parts[0])/\(parts[1])"
+        }
+        if provider == "curseforge",
+           parts.count >= 3,
+           parts[0] == "minecraft" {
+            return "https://www.curseforge.com/minecraft/\(parts[1])/\(parts[2])"
+        }
+        return value
+    }
+
+    private static func slug(fromSourceURL value: String) -> String? {
+        guard let url = URL(string: value) else {
+            return nil
+        }
+        if url.host?.lowercased().contains("modrinth.com") == true {
+            return modrinthSlug(from: url)
+        }
+        if url.host?.lowercased().contains("curseforge.com") == true {
+            return curseForgeSlug(from: url)
+        }
+        return url.path.split(separator: "/").last.map(String.init)
+    }
+
+    private static func normalizedSearchIdentity(_ value: String) -> String {
+        value.lowercased()
+            .replacingOccurrences(of: #"\.(jar|zip)$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+
+    private static func compactSearchIdentity(_ value: String) -> String {
+        normalizedSearchIdentity(value).replacingOccurrences(of: "-", with: "")
+    }
+
+    private static func htmlDecoded(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#x27;", with: "'")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "\\u003d", with: "=")
+            .replacingOccurrences(of: "\\u0026", with: "&")
     }
 
     private static func curseForgeLoaderType(_ loader: String) -> Int {

@@ -206,6 +206,9 @@ Required behavior:
 - store the installed artifact/source row in `core.mod_sources`
 - store every provider URL in `core.mod_source_links` with explicit roles such as `primary`, `modrinth`, `curseforge`, and `official`
 - support more than one URL per mod, such as Modrinth and CurseForge links for the same installed source
+- discover missing redundant provider URLs through three ordered methods: Modrinth/CurseForge APIs, direct provider-site HTML searches, and Google result pages filtered to Modrinth/CurseForge result URLs only
+- cap source-discovery searches at a maximum of 2 searches per second
+- persist source-discovery attempts in `core.mod_source_discovery_results`
 - persist each scan in `core.mod_update_scans`
 - persist per-URL outcomes in `core.mod_update_scan_results`
 - throttle webpage/API fetching; production default is at most 5 URLs per 10 seconds

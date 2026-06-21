@@ -28,7 +28,7 @@ enum ServerCommandError: Error, CustomStringConvertible {
               MCPummelchenModServer add-mod --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --url <curseforge-or-modrinth-url> --release-id <id> [--server-package <dir>] [--service <systemd-unit>] [--local-artifact <jar>] [--install-scope auto|server|client|both] [--activate true] [--dry-run false] [--client-api-token <token>] [--require-client-token true|false]
               MCPummelchenModServer build-client-dmg --project-root <repo> [--client-package <dir>] [--server-package <dir>] [--release-id <id>] [--client-version <version>] [--server-url <url>] [--server-address <host:port>] [--duckdb-dylib <path>] [--macos-deployment-target <target>] [--skip-nginx-control-live-test true] [--skip-headless-soak true] [--require-headless-soak true] [--headless-soak-seconds 60] [--headless-command <command>] [--expected-installed-release-id <id>] [--require-client-token true|false]
               MCPummelchenModServer ban-mod --project-root <repo> --duckdb <file> --name <display-name> --file-pattern <jar-name-or-pattern> [--source-url <url>] [--reason "Banned by Admin"] [--dry-run true]
-              MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--all-supported true] [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-project-data true] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
+              MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--all-supported true] [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-project-data true] [--discover-source-links true] [--discovery-limit <n>] [--discovery-searches-per-second 2] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
               MCPummelchenModServer mod-update-apply --project-root <repo> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id-prefix <id> [--server-package <dir>] [--all-supported true] [--minecraft-version 26.1.2] [--dry-run true] [--activate-live true] [--service <systemd-unit>] [--client-api-token <token>] [--require-client-token true|false]
               MCPummelchenModServer client-force-update --project-root <repo> --duckdb <file> [--release-id <id>] [--target-client-id <id>]
               MCPummelchenModServer world-reset --project-root <repo> --server-dir <dir> --duckdb <file> [--seed <seed>] [--dry-run true] [--yes true] [--service <systemd-unit>] [--radius-blocks 1000] [--delete-backup-after-success true] [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>] [--rcon-ready-timeout-seconds 600] [--pregeneration-batch-size 384]
@@ -600,13 +600,18 @@ private func modUpdateScanner(
 ) throws -> ModUpdateScanner {
     let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
     let limit = args.options["--limit"].flatMap(Int.init)
+    let discoveryLimit = args.options["--discovery-limit"].flatMap(Int.init)
     let maxURLs = Int(args.options["--max-urls-per-window"] ?? "5") ?? 5
     let windowSeconds = Double(args.options["--window-seconds"] ?? "10") ?? 10
+    let discoverySearchesPerSecond = Double(args.options["--discovery-searches-per-second"] ?? "2") ?? 2
     guard maxURLs > 0 else {
         throw ServerCommandError.invalidValue("--max-urls-per-window must be greater than zero")
     }
     guard windowSeconds >= 0 else {
         throw ServerCommandError.invalidValue("--window-seconds must be zero or greater")
+    }
+    guard discoverySearchesPerSecond > 0, discoverySearchesPerSecond <= 2 else {
+        throw ServerCommandError.invalidValue("--discovery-searches-per-second must be greater than zero and at most 2")
     }
     return ModUpdateScanner(config: ModUpdateScannerConfig(
         projectRoot: projectRoot,
@@ -618,6 +623,9 @@ private func modUpdateScanner(
         windowSeconds: windowSeconds,
         limit: limit,
         seedFromProjectData: args.options["--seed-from-project-data"] == "true",
+        discoverSourceLinks: args.options["--discover-source-links"] == "true",
+        discoveryLimit: discoveryLimit,
+        discoverySearchesPerSecond: discoverySearchesPerSecond,
         dryRun: args.options["--dry-run"] == "true"
     ))
 }
