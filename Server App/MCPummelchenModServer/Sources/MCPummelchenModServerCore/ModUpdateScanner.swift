@@ -526,6 +526,21 @@ public struct ModUpdateScanner: Sendable {
         return config.minecraftVersion == "26.1.2" ? nil : "26.1.2"
     }
 
+    private func isLiveMinecraftVersion() throws -> Bool {
+        guard let referenceVersion = try liveReferenceMinecraftVersion() else {
+            return config.minecraftVersion == "26.1.2"
+        }
+        return referenceVersion == config.minecraftVersion
+    }
+
+    private func isStagingMinecraftVersion() throws -> Bool {
+        guard let referenceVersion = try liveReferenceMinecraftVersion() else {
+            return false
+        }
+        return referenceVersion != config.minecraftVersion
+    }
+
+
     private func seedSourcesFromSiteInventory() throws -> Int {
         let indexCandidates = [
             config.projectRoot.appendingPathComponent("site/public/index.html"),
@@ -650,10 +665,12 @@ public struct ModUpdateScanner: Sendable {
 
     private func loadSources(limit: Int?) throws -> [ModSourceRecord] {
         let limitClause = limit.map { " LIMIT \(max(0, $0))" } ?? ""
+        let activeClause = try isStagingMinecraftVersion() ? "" : "AND active = true"
         let csv = try query("""
         SELECT source_id, mod_key, display_name, COALESCE(installed_file, ''), COALESCE(installed_version, ''), provider, source_url, priority
         FROM core.mod_sources
         WHERE COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
+          \(activeClause)
         UNION ALL
         SELECT
           'failed_' || failed_mod_id AS source_id,
@@ -695,7 +712,14 @@ public struct ModUpdateScanner: Sendable {
             let latest = Self.parseLatestVersion(fromHTML: body, provider: source.provider)
             return ModUpdateCheckResult(source: source, status: Self.classify(installedVersion: source.installedVersion, latestVersion: latest), latestVersion: latest, latestURL: source.sourceURL, details: latest == nil ? "modrinth slug not found and HTML parse failed" : "parsed from Modrinth HTML")
         }
-        let endpoint = "https://api.modrinth.com/v2/project/\(slug)/version?loaders=%5B%22\(config.loader)%22%5D&game_versions=%5B%22\(config.minecraftVersion)%22%5D"
+        let category = Self.modrinthCategory(from: sourceURL)
+        let loaderQuery: String
+        if category == "mod" {
+            loaderQuery = "&loaders=%5B%22\(config.loader)%22%5D"
+        } else {
+            loaderQuery = ""
+        }
+        let endpoint = "https://api.modrinth.com/v2/project/\(slug)/version?game_versions=%5B%22\(config.minecraftVersion)%22%5D\(loaderQuery)"
         guard let endpointURL = URL(string: endpoint) else {
             return ModUpdateCheckResult(
                 source: source,
@@ -743,7 +767,9 @@ public struct ModUpdateScanner: Sendable {
             )
         }
 
-        let endpoint = "https://www.curseforge.com/api/v1/mods/\(projectID)/files?pageIndex=0&pageSize=50&gameVersion=\(Self.urlQuery(config.minecraftVersion))&modLoaderType=\(Self.curseForgeLoaderType(config.loader))"
+        let requiresLoader = Self.curseForgeCategory(from: sourceURL) == "mc-mods"
+        let loaderQuery = requiresLoader ? "&modLoaderType=\(Self.curseForgeLoaderType(config.loader))" : ""
+        let endpoint = "https://www.curseforge.com/api/v1/mods/\(projectID)/files?pageIndex=0&pageSize=50&gameVersion=\(Self.urlQuery(config.minecraftVersion))\(loaderQuery)"
         guard let endpointURL = URL(string: endpoint) else {
             return ModUpdateCheckResult(
                 source: source,
@@ -756,7 +782,7 @@ public struct ModUpdateScanner: Sendable {
         let data = try fetchData(endpointURL)
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let files = object["data"] as? [[String: Any]],
-              let latest = Self.bestCurseForgeFile(from: files, loader: config.loader, minecraftVersion: config.minecraftVersion) else {
+              let latest = Self.bestCurseForgeFile(from: files, loader: requiresLoader ? config.loader : nil, minecraftVersion: config.minecraftVersion) else {
             return ModUpdateCheckResult(
                 source: source,
                 status: "unresolved",
@@ -797,7 +823,7 @@ public struct ModUpdateScanner: Sendable {
 
     private func upsert(sources: [ModSourceRecord]) throws {
         guard !sources.isEmpty else { return }
-        let sourceActive = (try? liveReferenceMinecraftVersion()) == config.minecraftVersion
+        let sourceActive = try isLiveMinecraftVersion()
         var statements: [String] = ["BEGIN TRANSACTION;"]
         for source in sources {
             statements.append("""
@@ -866,7 +892,7 @@ public struct ModUpdateScanner: Sendable {
                 updated_at = now()
             WHERE failed_mod_id = \(Self.sqlLiteral(String(result.source.sourceID.dropFirst("failed_".count))));
             """)
-        } else if try liveReferenceMinecraftVersion() != config.minecraftVersion {
+        } else if try isStagingMinecraftVersion() {
             let scanCompatible = ["current", "update_available", "unknown_installed_version"].contains(result.status)
             try execute("""
             UPDATE core.mod_sources
@@ -970,19 +996,31 @@ public struct ModUpdateScanner: Sendable {
         return normalizedVersion(installedVersion) == normalizedVersion(latestVersion) ? "current" : "update_available"
     }
 
-    private static func modrinthSlug(from url: URL) -> String? {
+    public static func modrinthCategory(from url: URL) -> String? {
         let parts = url.path.split(separator: "/").map(String.init)
-        guard let index = parts.firstIndex(of: "mod"), parts.indices.contains(index + 1) else {
-            return nil
-        }
+        return parts.first { ["mod", "shader", "datapack", "resourcepack", "plugin", "modpack"].contains($0) }
+    }
+
+    public static func modrinthSlug(from url: URL) -> String? {
+        let parts = url.path.split(separator: "/").map(String.init)
+        guard let category = modrinthCategory(from: url),
+              let index = parts.firstIndex(of: category),
+              parts.indices.contains(index + 1) else { return nil }
         return parts[index + 1]
+    }
+
+    public static func curseForgeCategory(from url: URL) -> String? {
+        let parts = url.path.split(separator: "/").map(String.init)
+        guard let minecraftIndex = parts.firstIndex(of: "minecraft"),
+              parts.indices.contains(minecraftIndex + 1) else { return nil }
+        return parts[minecraftIndex + 1]
     }
 
     public static func curseForgeSlug(from url: URL) -> String? {
         let parts = url.path.split(separator: "/").map(String.init)
-        guard let index = parts.firstIndex(of: "mc-mods"), parts.indices.contains(index + 1) else {
-            return nil
-        }
+        guard let category = curseForgeCategory(from: url),
+              let index = parts.firstIndex(of: category),
+              parts.indices.contains(index + 1) else { return nil }
         return parts[index + 1]
     }
 
@@ -994,12 +1032,14 @@ public struct ModUpdateScanner: Sendable {
         return Int(value)
     }
 
-    public static func bestCurseForgeFile(from files: [[String: Any]], loader: String, minecraftVersion: String) -> [String: Any]? {
-        let loaderName = loader.lowercased() == "neoforge" ? "neoforge" : loader.lowercased()
+    public static func bestCurseForgeFile(from files: [[String: Any]], loader: String?, minecraftVersion: String) -> [String: Any]? {
+        let loaderName = loader?.lowercased() == "neoforge" ? "neoforge" : loader?.lowercased()
         return files.first { file in
             guard let versions = file["gameVersions"] as? [String] else { return false }
             let normalized = versions.map { $0.lowercased() }
-            return normalized.contains(minecraftVersion.lowercased()) && normalized.contains(loaderName)
+            guard normalized.contains(minecraftVersion.lowercased()) else { return false }
+            guard let loaderName else { return true }
+            return normalized.contains(loaderName)
         }
     }
 

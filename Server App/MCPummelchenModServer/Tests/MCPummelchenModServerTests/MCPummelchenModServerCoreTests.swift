@@ -385,6 +385,93 @@ struct MCPummelchenModServerCoreTests {
         #expect(row[4] == "false")
     }
 
+    @Test("mod update scanner skips inactive live rows but scans staging candidates")
+    func modUpdateScannerSkipsInactiveLiveRowsButScansStagingCandidates() throws {
+        try requireDuckDB()
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-mod-scan-active-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let webRoot = root.appendingPathComponent("web", isDirectory: true)
+        try FileManager.default.createDirectory(at: webRoot, withIntermediateDirectories: true)
+        try #"{"latestVersion":"1.0.0"}"#.write(to: webRoot.appendingPathComponent("active.html"), atomically: true, encoding: .utf8)
+        try #"{"latestVersion":"2.0.0"}"#.write(to: webRoot.appendingPathComponent("staging.html"), atomically: true, encoding: .utf8)
+        let http = try LocalHTTPServer(root: webRoot)
+        try http.start()
+        defer { http.stop() }
+
+        let database = root.appendingPathComponent("scan-active.duckdb")
+        try DuckDBDatabase(databaseURL: database).execute("""
+        CREATE SCHEMA IF NOT EXISTS core;
+        CREATE TABLE core.minecraft_server_versions (
+          minecraft_version VARCHAR PRIMARY KEY,
+          loader VARCHAR NOT NULL,
+          loader_version VARCHAR NOT NULL,
+          server_name VARCHAR NOT NULL,
+          server_address VARCHAR NOT NULL,
+          server_dir VARCHAR,
+          status VARCHAR NOT NULL,
+          is_live BOOLEAN NOT NULL,
+          sort_order INTEGER NOT NULL,
+          updated_at TIMESTAMP NOT NULL DEFAULT now(),
+          notes VARCHAR
+        );
+        INSERT INTO core.minecraft_server_versions VALUES
+          ('26.1.2', 'neoforge', '26.1.2.76', 'Pummelchen Server 26.1.2', '127.0.0.1:25565', '/srv/live', 'live', true, 10, now(), 'live'),
+          ('26.2', 'neoforge', '26.2.0.3-beta', 'Pummelchen Server 26.2', '127.0.0.1:25566', '/srv/staging', 'staging', false, 20, now(), 'staging');
+        CREATE TABLE core.mod_sources(
+          source_id VARCHAR PRIMARY KEY,
+          mod_key VARCHAR,
+          display_name VARCHAR,
+          installed_file VARCHAR,
+          installed_version VARCHAR,
+          provider VARCHAR,
+          source_url VARCHAR,
+          priority INTEGER,
+          active BOOLEAN,
+          created_at TIMESTAMP DEFAULT now(),
+          updated_at TIMESTAMP DEFAULT now(),
+          minecraft_version VARCHAR,
+          loader VARCHAR,
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mod_sources(
+          source_id, mod_key, display_name, installed_file, installed_version,
+          provider, source_url, priority, active, minecraft_version, loader, loader_version
+        ) VALUES
+          ('live_active', 'active-mod', 'Active Mod', 'active.jar', '1.0.0', 'web', 'http://127.0.0.1:\(http.port)/active.html', 100, true, '26.1.2', 'neoforge', '26.1.2.76'),
+          ('live_inactive', 'inactive-mod', 'Inactive Mod', 'inactive.jar', '1.0.0', 'web', 'http://127.0.0.1:1/inactive.html', 100, false, '26.1.2', 'neoforge', '26.1.2.76'),
+          ('staging_inactive', 'staging-mod', 'Staging Mod', 'staging.jar', '1.0.0', 'web', 'http://127.0.0.1:\(http.port)/staging.html', 100, false, '26.2', 'neoforge', '26.2.0.3-beta');
+        """)
+
+        let liveSummary = try ModUpdateScanner(config: ModUpdateScannerConfig(
+            projectRoot: root,
+            databaseURL: database,
+            minecraftVersion: "26.1.2",
+            loader: "neoforge",
+            loaderVersion: "26.1.2.76",
+            maxURLsPerWindow: 5,
+            windowSeconds: 0,
+            seedFromProjectData: false,
+            dryRun: true
+        )).run()
+        #expect(liveSummary.sourcesChecked == 1)
+        #expect(liveSummary.unresolved == 0)
+
+        let stagingSummary = try ModUpdateScanner(config: ModUpdateScannerConfig(
+            projectRoot: root,
+            databaseURL: database,
+            minecraftVersion: "26.2",
+            loader: "neoforge",
+            loaderVersion: "26.2.0.3-beta",
+            maxURLsPerWindow: 5,
+            windowSeconds: 0,
+            seedFromProjectData: false,
+            dryRun: true
+        )).run()
+        #expect(stagingSummary.sourcesChecked == 1)
+        #expect(stagingSummary.candidatesFound == 1)
+    }
+
     @Test("serves version-tagged mod inventory tables through Swift API")
     func servesVersionTaggedModInventoryTables() throws {
         try requireDuckDB()
@@ -1553,7 +1640,11 @@ struct MCPummelchenModServerCoreTests {
 
         #expect(ModUpdateScanner.provider(for: "https://modrinth.com/mod/betterf3") == "modrinth")
         #expect(ModUpdateScanner.provider(for: "https://www.curseforge.com/minecraft/mc-mods/betterf3") == "curseforge")
+        #expect(ModUpdateScanner.modrinthSlug(from: URL(string: "https://modrinth.com/shader/bsl-shaders")!) == "bsl-shaders")
+        #expect(ModUpdateScanner.modrinthSlug(from: URL(string: "https://modrinth.com/datapack/ketkets-furnicraft/changelog?l=neoforge")!) == "ketkets-furnicraft")
         #expect(ModUpdateScanner.curseForgeSlug(from: URL(string: "https://www.curseforge.com/minecraft/mc-mods/betterf3")!) == "betterf3")
+        #expect(ModUpdateScanner.curseForgeSlug(from: URL(string: "https://www.curseforge.com/minecraft/texture-packs/modernarch/files/all")!) == "modernarch")
+        #expect(ModUpdateScanner.curseForgeSlug(from: URL(string: "https://www.curseforge.com/minecraft/data-packs/ruined-brick-cities/files/all?page=1&pageSize=20")!) == "ruined-brick-cities")
         #expect(ModUpdateScanner.curseForgeProjectID(fromSourceID: "curseforge_1573986_8241269") == 1573986)
         #expect(ModUpdateScanner.bestCurseForgeFile(
             from: [
@@ -1571,6 +1662,14 @@ struct MCPummelchenModServerCoreTests {
             loader: "neoforge",
             minecraftVersion: "26.2"
         ) == nil)
+        #expect(ModUpdateScanner.bestCurseForgeFile(
+            from: [
+                ["fileName": "resourcepack-26.2.zip", "gameVersions": ["26.2"]],
+                ["fileName": "resourcepack-26.1.2.zip", "gameVersions": ["26.1.2"]]
+            ],
+            loader: nil,
+            minecraftVersion: "26.2"
+        )?["fileName"] as? String == "resourcepack-26.2.zip")
         #expect(ModUpdateScanner.curseForgeVersion(
             fileName: "low_latency-neoforge-26.1.2-1.0.5.jar",
             installedFile: "low_latency-neoforge-26.1.2-1.0.5.jar",
