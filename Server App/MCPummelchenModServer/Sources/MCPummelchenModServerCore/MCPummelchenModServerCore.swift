@@ -29,6 +29,7 @@ private struct LiveModSourceInventory {
     let sourceURL: String
     let installedFiles: String
     let installedVersions: String
+    let latestStatuses: String
 }
 
 public struct HTTPRequest: Equatable, Sendable {
@@ -509,6 +510,15 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         }
     }
 
+    private static func hasCompatibleScanEvidence(_ statuses: String) -> Bool {
+        let values = statuses
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        return values.contains("current")
+            || values.contains("update_available")
+            || values.contains("unknown_installed_version")
+    }
+
     private static func modInventoryPlacementLabel(server: Bool, client: Bool) -> String {
         switch (server, client) {
         case (true, true): return "Server & Client Mod"
@@ -643,10 +653,10 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             let versionStatus = (version["status"] as? String)?.lowercased() ?? ""
             if minecraftVersion == currentVersion && (sourceByVersion[minecraftVersion] != nil || inCurrentManifest) {
                 compatibility[minecraftVersion] = "Active"
-            } else if sourceByVersion[minecraftVersion] != nil && versionStatus == "staging" {
-                compatibility[minecraftVersion] = "Staged"
-            } else if sourceByVersion[minecraftVersion] != nil {
-                compatibility[minecraftVersion] = "Compatible"
+            } else if let versionSource = sourceByVersion[minecraftVersion], versionStatus == "staging" {
+                compatibility[minecraftVersion] = Self.hasCompatibleScanEvidence(versionSource.latestStatuses) ? "Compatible" : "Needs test"
+            } else if let versionSource = sourceByVersion[minecraftVersion] {
+                compatibility[minecraftVersion] = Self.hasCompatibleScanEvidence(versionSource.latestStatuses) ? "Compatible" : "Needs test"
             } else if Self.modInventoryText(searchable, mentionsMinecraftVersion: minecraftVersion),
                       minecraftVersion != currentVersion {
                 compatibility[minecraftVersion] = versionStatus == "staging" ? "Needs test" : "Compatible by file"
@@ -726,25 +736,74 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         return false
     }
 
+    private func modSourceLatestScanResultCTE(whereClause: String) throws -> String {
+        if try duckDBTableExists(schema: "core", table: "mod_update_scan_results") {
+            return """
+            WITH latest_scan_result AS (
+              SELECT source_id, minecraft_version, status
+              FROM (
+                SELECT
+                  source_id,
+                  minecraft_version,
+                  status,
+                  row_number() OVER (
+                    PARTITION BY source_id, minecraft_version
+                    ORDER BY checked_at DESC
+                  ) AS rn
+                FROM core.mod_update_scan_results
+                WHERE \(whereClause)
+              )
+              WHERE rn = 1
+            )
+            """
+        }
+        return """
+        WITH latest_scan_result AS (
+          SELECT
+            CAST(NULL AS VARCHAR) AS source_id,
+            CAST(NULL AS VARCHAR) AS minecraft_version,
+            CAST(NULL AS VARCHAR) AS status
+          WHERE false
+        )
+        """
+    }
+
+    private func duckDBTableExists(schema: String, table: String) throws -> Bool {
+        let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+        SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_schema = \(Self.sqlLiteral(schema))
+          AND table_name = \(Self.sqlLiteral(table));
+        """)
+        return Self.parseCSV(csv).first?["count_star()"] == "1"
+    }
+
     private func versionedModSourceInventory(supportedVersions: [[String: Any]]) throws -> [String: [String: LiveModSourceInventory]] {
         let versions = supportedVersions.compactMap { $0["minecraft_version"] as? String }.filter { !$0.isEmpty }
         guard !versions.isEmpty else {
             return [:]
         }
         let versionList = versions.map(Self.sqlLiteral).joined(separator: ", ")
+        let latestScanCTE = try modSourceLatestScanResultCTE(whereClause: "minecraft_version IN (\(versionList))")
         let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+              \(latestScanCTE)
               SELECT
-                lower(source_url) AS source_url_key,
-                source_url,
-                display_name,
-                regexp_replace(lower(display_name), '[^a-z0-9]+', '-', 'g') AS name_key,
-                minecraft_version,
-                string_agg(DISTINCT installed_file, ', ' ORDER BY installed_file) AS installed_files,
-                string_agg(DISTINCT COALESCE(installed_version, ''), ', ' ORDER BY COALESCE(installed_version, '')) AS installed_versions
+                lower(s.source_url) AS source_url_key,
+                s.source_url,
+                s.display_name,
+                regexp_replace(lower(s.display_name), '[^a-z0-9]+', '-', 'g') AS name_key,
+                s.minecraft_version,
+                string_agg(DISTINCT s.installed_file, ', ' ORDER BY s.installed_file) AS installed_files,
+                string_agg(DISTINCT COALESCE(s.installed_version, ''), ', ' ORDER BY COALESCE(s.installed_version, '')) AS installed_versions,
+                string_agg(DISTINCT COALESCE(r.status, ''), ', ' ORDER BY COALESCE(r.status, '')) AS latest_statuses
               FROM core.mod_sources
-              WHERE active
-                AND minecraft_version IN (\(versionList))
-                AND COALESCE(installed_file, '') <> ''
+              s
+              LEFT JOIN latest_scan_result r
+                ON r.source_id = s.source_id
+               AND r.minecraft_version = s.minecraft_version
+              WHERE s.active
+                AND s.minecraft_version IN (\(versionList))
+                AND COALESCE(s.installed_file, '') <> ''
               GROUP BY 1, 2, 3, 4, 5;
               """)
 
@@ -757,7 +816,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 displayName: row["display_name"] ?? "",
                 sourceURL: row["source_url"] ?? "",
                 installedFiles: row["installed_files"] ?? "",
-                installedVersions: row["installed_versions"] ?? ""
+                installedVersions: row["installed_versions"] ?? "",
+                latestStatuses: row["latest_statuses"] ?? ""
             )
             if let sourceURL = row["source_url_key"], !sourceURL.isEmpty {
                 values["url:\(sourceURL)", default: [:]][minecraftVersion] = inventory
@@ -779,18 +839,25 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         guard !minecraftVersion.isEmpty else {
             return [:]
         }
+        let latestScanCTE = try modSourceLatestScanResultCTE(whereClause: "minecraft_version = \(Self.sqlLiteral(minecraftVersion))")
         let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+              \(latestScanCTE)
               SELECT
-                lower(source_url) AS source_url_key,
-                source_url,
-                display_name,
-                regexp_replace(lower(display_name), '[^a-z0-9]+', '-', 'g') AS name_key,
-                string_agg(DISTINCT installed_file, ', ' ORDER BY installed_file) AS installed_files,
-                string_agg(DISTINCT COALESCE(installed_version, ''), ', ' ORDER BY COALESCE(installed_version, '')) AS installed_versions
+                lower(s.source_url) AS source_url_key,
+                s.source_url,
+                s.display_name,
+                regexp_replace(lower(s.display_name), '[^a-z0-9]+', '-', 'g') AS name_key,
+                string_agg(DISTINCT s.installed_file, ', ' ORDER BY s.installed_file) AS installed_files,
+                string_agg(DISTINCT COALESCE(s.installed_version, ''), ', ' ORDER BY COALESCE(s.installed_version, '')) AS installed_versions,
+                string_agg(DISTINCT COALESCE(r.status, ''), ', ' ORDER BY COALESCE(r.status, '')) AS latest_statuses
               FROM core.mod_sources
-              WHERE active
-                AND minecraft_version = \(Self.sqlLiteral(minecraftVersion))
-                AND COALESCE(installed_file, '') <> ''
+              s
+              LEFT JOIN latest_scan_result r
+                ON r.source_id = s.source_id
+               AND r.minecraft_version = s.minecraft_version
+              WHERE s.active
+                AND s.minecraft_version = \(Self.sqlLiteral(minecraftVersion))
+                AND COALESCE(s.installed_file, '') <> ''
               GROUP BY 1, 2, 3, 4;
               """)
         var values: [String: LiveModSourceInventory] = [:]
@@ -799,7 +866,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 displayName: row["display_name"] ?? "",
                 sourceURL: row["source_url"] ?? "",
                 installedFiles: row["installed_files"] ?? "",
-                installedVersions: row["installed_versions"] ?? ""
+                installedVersions: row["installed_versions"] ?? "",
+                latestStatuses: row["latest_statuses"] ?? ""
             )
             if let sourceURL = row["source_url_key"], !sourceURL.isEmpty {
                 values["url:\(sourceURL)"] = inventory

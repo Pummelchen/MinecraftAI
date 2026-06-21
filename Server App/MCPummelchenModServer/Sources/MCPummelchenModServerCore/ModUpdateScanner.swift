@@ -324,7 +324,206 @@ public struct ModUpdateScanner: Sendable {
         seeded += try seedSourcesFromSiteInventory()
         seeded += try seedSourcesFromReleaseManifests()
         seeded += try seedFailedModsFromStaticPage()
+        seeded += try seedTargetVersionCandidatesFromLiveBaseline()
         return seeded
+    }
+
+    private func seedTargetVersionCandidatesFromLiveBaseline() throws -> Int {
+        guard let referenceVersion = try liveReferenceMinecraftVersion(),
+              referenceVersion != config.minecraftVersion else {
+            return 0
+        }
+
+        let targetVersion = config.minecraftVersion
+        let referenceLiteral = Self.sqlLiteral(referenceVersion)
+        let targetLiteral = Self.sqlLiteral(targetVersion)
+        let loaderLiteral = Self.sqlLiteral(config.loader)
+        let loaderVersionLiteral = Self.sqlLiteral(config.loaderVersion)
+        let targetNote = Self.sqlLiteral("Copied from \(referenceVersion) as a \(targetVersion) update-tracking candidate; requires compatibility scan and validation before deployment.")
+
+        let seededSourcesCSV = try query("""
+        SELECT COUNT(*)
+        FROM core.mod_sources s
+        WHERE s.active = true
+          AND COALESCE(s.minecraft_version, \(referenceLiteral)) = \(referenceLiteral)
+          AND NOT EXISTS (
+            SELECT 1
+            FROM core.mod_sources t
+            WHERE COALESCE(t.minecraft_version, \(targetLiteral)) = \(targetLiteral)
+              AND t.mod_key = s.mod_key
+              AND COALESCE(t.source_url, '') = COALESCE(s.source_url, '')
+              AND COALESCE(t.installed_file, '') = COALESCE(s.installed_file, '')
+          );
+        """)
+        let seededSources = Int(csvRows(seededSourcesCSV).first?.first ?? "0") ?? 0
+
+        try execute("""
+        BEGIN TRANSACTION;
+
+        INSERT INTO core.mod_sources(
+          source_id, mod_key, display_name, installed_file, installed_version,
+          provider, source_url, priority, active, created_at, updated_at,
+          minecraft_version, loader, loader_version
+        )
+        SELECT
+          'src_' || md5(s.mod_key || '|' || COALESCE(s.source_url, '') || '|' || COALESCE(s.installed_file, '') || '|' || \(targetLiteral)) AS source_id,
+          s.mod_key,
+          s.display_name,
+          s.installed_file,
+          s.installed_version,
+          s.provider,
+          s.source_url,
+          s.priority,
+          false,
+          now(),
+          now(),
+          \(targetLiteral),
+          \(loaderLiteral),
+          \(loaderVersionLiteral)
+        FROM core.mod_sources s
+        WHERE s.active = true
+          AND COALESCE(s.minecraft_version, \(referenceLiteral)) = \(referenceLiteral)
+          AND NOT EXISTS (
+            SELECT 1
+            FROM core.mod_sources t
+            WHERE COALESCE(t.minecraft_version, \(targetLiteral)) = \(targetLiteral)
+              AND t.mod_key = s.mod_key
+              AND COALESCE(t.source_url, '') = COALESCE(s.source_url, '')
+              AND COALESCE(t.installed_file, '') = COALESCE(s.installed_file, '')
+          );
+
+        CREATE OR REPLACE TEMP TABLE pummelchen_target_mod_copy_map AS
+        SELECT
+          m.id AS source_mod_id,
+          (SELECT COALESCE(MAX(id), 0) FROM core.mods)
+            + row_number() OVER (ORDER BY m.id) AS target_mod_id,
+          m.canonical_key,
+          m.name,
+          m.category,
+          m.active_status,
+          m.server_status,
+          m.client_package,
+          m.primary_url,
+          m.loader AS source_loader,
+          m.loader_version AS source_loader_version
+        FROM core.mods m
+        WHERE COALESCE(m.minecraft_version, \(referenceLiteral)) = \(referenceLiteral)
+          AND NOT EXISTS (
+            SELECT 1
+            FROM core.mods t
+            WHERE COALESCE(t.minecraft_version, \(targetLiteral)) = \(targetLiteral)
+              AND t.canonical_key = m.canonical_key
+          );
+
+        INSERT INTO core.mods(
+          id, canonical_key, name, category, active_status, server_status,
+          client_package, primary_url, updated_at, minecraft_version, loader, loader_version
+        )
+        SELECT
+          target_mod_id,
+          canonical_key,
+          name,
+          category,
+          CASE WHEN lower(active_status) = 'ok' THEN 'awaiting_compatible_release' ELSE active_status END,
+          CASE
+            WHEN lower(active_status) = 'ok' THEN \(targetNote)
+            ELSE server_status
+          END,
+          client_package,
+          primary_url,
+          now(),
+          \(targetLiteral),
+          \(loaderLiteral),
+          \(loaderVersionLiteral)
+        FROM pummelchen_target_mod_copy_map;
+
+        INSERT INTO core.mod_files(
+          id, mod_id, role, file_name, path_hint, installed_on_server,
+          included_in_client, status, minecraft_version, loader, loader_version
+        )
+        SELECT
+          (SELECT COALESCE(MAX(id), 0) FROM core.mod_files)
+            + row_number() OVER (ORDER BY mf.id),
+          map.target_mod_id,
+          mf.role,
+          mf.file_name,
+          mf.path_hint,
+          false,
+          false,
+          CASE
+            WHEN lower(COALESCE(mf.status, '')) IN ('ok', 'runtime ok', 'installed', 'client-only: included', 'client dependency: included') THEN 'Needs 26.2 compatibility test'
+            ELSE mf.status
+          END,
+          \(targetLiteral),
+          \(loaderLiteral),
+          \(loaderVersionLiteral)
+        FROM core.mod_files mf
+        JOIN pummelchen_target_mod_copy_map map ON map.source_mod_id = mf.mod_id
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM core.mod_files existing
+          WHERE existing.mod_id = map.target_mod_id
+            AND existing.file_name = mf.file_name
+            AND COALESCE(existing.minecraft_version, \(targetLiteral)) = \(targetLiteral)
+        );
+
+        INSERT INTO core.mod_server_files(
+          id, mod_id, file_name, role, source_url, compatibility_status,
+          installed_on_server, included_in_client, selected, file_sha256,
+          file_size_bytes, last_synced, notes, minecraft_version, loader, loader_version
+        )
+        SELECT
+          (SELECT COALESCE(MAX(id), 0) FROM core.mod_server_files)
+            + row_number() OVER (ORDER BY msf.id),
+          map.target_mod_id,
+          msf.file_name,
+          msf.role,
+          msf.source_url,
+          CASE WHEN lower(msf.compatibility_status) = 'ok' THEN 'awaiting_compatible_release' ELSE msf.compatibility_status END,
+          false,
+          false,
+          false,
+          msf.file_sha256,
+          msf.file_size_bytes,
+          now(),
+          concat_ws(' ', NULLIF(msf.notes, ''), \(targetNote)),
+          \(targetLiteral),
+          \(loaderLiteral),
+          \(loaderVersionLiteral)
+        FROM core.mod_server_files msf
+        JOIN pummelchen_target_mod_copy_map map ON map.source_mod_id = msf.mod_id
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM core.mod_server_files existing
+          WHERE existing.mod_id = map.target_mod_id
+            AND existing.file_name = msf.file_name
+            AND COALESCE(existing.minecraft_version, \(targetLiteral)) = \(targetLiteral)
+        );
+
+        DROP TABLE IF EXISTS pummelchen_target_mod_copy_map;
+        COMMIT;
+        """)
+
+        return seededSources
+    }
+
+    private func liveReferenceMinecraftVersion() throws -> String? {
+        let csv: String
+        do {
+            csv = try query("""
+            SELECT minecraft_version
+            FROM core.minecraft_server_versions
+            WHERE is_live = true
+            ORDER BY sort_order, minecraft_version
+            LIMIT 1;
+            """)
+        } catch {
+            return nil
+        }
+        if let value = csvRows(csv).first?.first, !value.isEmpty {
+            return value
+        }
+        return config.minecraftVersion == "26.1.2" ? nil : "26.1.2"
     }
 
     private func seedSourcesFromSiteInventory() throws -> Int {
@@ -454,8 +653,7 @@ public struct ModUpdateScanner: Sendable {
         let csv = try query("""
         SELECT source_id, mod_key, display_name, COALESCE(installed_file, ''), COALESCE(installed_version, ''), provider, source_url, priority
         FROM core.mod_sources
-        WHERE active = true
-          AND COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
+        WHERE COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
         UNION ALL
         SELECT
           'failed_' || failed_mod_id AS source_id,
@@ -599,6 +797,7 @@ public struct ModUpdateScanner: Sendable {
 
     private func upsert(sources: [ModSourceRecord]) throws {
         guard !sources.isEmpty else { return }
+        let sourceActive = (try? liveReferenceMinecraftVersion()) == config.minecraftVersion
         var statements: [String] = ["BEGIN TRANSACTION;"]
         for source in sources {
             statements.append("""
@@ -617,7 +816,7 @@ public struct ModUpdateScanner: Sendable {
               \(Self.sqlLiteral(source.provider)),
               \(Self.sqlLiteral(source.sourceURL)),
               100,
-              true,
+              \(sourceActive ? "true" : "false"),
               now(),
               \(Self.sqlLiteral(config.minecraftVersion)),
               \(Self.sqlLiteral(config.loader)),
@@ -667,6 +866,15 @@ public struct ModUpdateScanner: Sendable {
                 updated_at = now()
             WHERE failed_mod_id = \(Self.sqlLiteral(String(result.source.sourceID.dropFirst("failed_".count))));
             """)
+        } else if try liveReferenceMinecraftVersion() != config.minecraftVersion {
+            let scanCompatible = ["current", "update_available", "unknown_installed_version"].contains(result.status)
+            try execute("""
+            UPDATE core.mod_sources
+            SET active = \(scanCompatible ? "true" : "false"),
+                updated_at = now()
+            WHERE source_id = \(Self.sqlLiteral(result.source.sourceID))
+              AND COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion));
+            """)
         }
     }
 
@@ -715,8 +923,7 @@ public struct ModUpdateScanner: Sendable {
         let csv = try query("""
         SELECT DISTINCT lower(COALESCE(installed_file, '')) AS installed_file
         FROM core.mod_sources
-        WHERE active = true
-          AND COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
+        WHERE COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
           AND COALESCE(installed_file, '') <> '';
         """)
         return Set(csvRows(csv).compactMap { row in
@@ -1033,7 +1240,11 @@ public struct ModUpdateScanner: Sendable {
     }
 
     private static func versionedSourceID(_ sourceID: String, minecraftVersion: String) -> String {
-        "\(sourceID)_mc_\(minecraftVersion.replacingOccurrences(of: ".", with: "_"))"
+        "\(sourceID)_mc_\(versionIDComponent(minecraftVersion))"
+    }
+
+    private static func versionIDComponent(_ minecraftVersion: String) -> String {
+        minecraftVersion.replacingOccurrences(of: ".", with: "_")
     }
 
     private static func sqlLiteral(_ value: String?) -> String {

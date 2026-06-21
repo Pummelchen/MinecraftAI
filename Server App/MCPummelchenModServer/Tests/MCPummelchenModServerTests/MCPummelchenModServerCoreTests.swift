@@ -227,6 +227,164 @@ struct MCPummelchenModServerCoreTests {
         #expect(row["failure_reason"] as? String == "Rejected: incompatible jar metadata")
     }
 
+    @Test("mod update scanner seeds staging version candidates from live inventory")
+    func modUpdateScannerSeedsStagingVersionCandidatesFromLiveInventory() throws {
+        try requireDuckDB()
+        let fixture = try makeProjectFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let database = fixture.root.appendingPathComponent("data/test-version-seed.duckdb")
+        let duckDB = DuckDBDatabase(databaseURL: database)
+        try duckDB.execute("""
+        CREATE SCHEMA IF NOT EXISTS core;
+        CREATE TABLE core.minecraft_server_versions (
+          minecraft_version VARCHAR PRIMARY KEY,
+          loader VARCHAR NOT NULL DEFAULT 'neoforge',
+          loader_version VARCHAR NOT NULL,
+          server_name VARCHAR NOT NULL,
+          server_address VARCHAR NOT NULL,
+          server_dir VARCHAR,
+          status VARCHAR NOT NULL,
+          is_live BOOLEAN NOT NULL DEFAULT false,
+          sort_order INTEGER NOT NULL DEFAULT 100,
+          updated_at TIMESTAMP NOT NULL DEFAULT now(),
+          notes VARCHAR
+        );
+        INSERT INTO core.minecraft_server_versions(
+          minecraft_version, loader, loader_version, server_name, server_address,
+          server_dir, status, is_live, sort_order, updated_at, notes
+        )
+        VALUES
+          ('26.1.2', 'neoforge', '26.1.2.76', 'Pummelchen Server 26.1.2', '127.0.0.1:25565', '/srv/minecraft-26.1.2', 'live', true, 10, now(), 'live'),
+          ('26.2', 'neoforge', '26.2.0.3-beta', 'Pummelchen Server 26.2', '127.0.0.1:25566', '/srv/minecraft-26.2', 'staging', false, 20, now(), 'staging');
+        CREATE TABLE core.mods (
+          id BIGINT PRIMARY KEY,
+          canonical_key VARCHAR NOT NULL,
+          name VARCHAR NOT NULL,
+          category VARCHAR,
+          active_status VARCHAR NOT NULL,
+          server_status VARCHAR,
+          client_package VARCHAR,
+          primary_url VARCHAR,
+          updated_at TIMESTAMP,
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader VARCHAR DEFAULT 'neoforge',
+          loader_version VARCHAR
+        );
+        CREATE TABLE core.mod_files (
+          id BIGINT PRIMARY KEY,
+          mod_id BIGINT NOT NULL,
+          role VARCHAR NOT NULL,
+          file_name VARCHAR NOT NULL,
+          path_hint VARCHAR,
+          installed_on_server BOOLEAN NOT NULL DEFAULT false,
+          included_in_client BOOLEAN NOT NULL DEFAULT false,
+          status VARCHAR,
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader VARCHAR DEFAULT 'neoforge',
+          loader_version VARCHAR
+        );
+        CREATE TABLE core.mod_server_files (
+          id BIGINT PRIMARY KEY,
+          mod_id BIGINT NOT NULL,
+          file_name VARCHAR NOT NULL,
+          role VARCHAR NOT NULL,
+          source_url VARCHAR,
+          compatibility_status VARCHAR NOT NULL,
+          installed_on_server BOOLEAN NOT NULL DEFAULT false,
+          included_in_client BOOLEAN NOT NULL DEFAULT false,
+          selected BOOLEAN NOT NULL DEFAULT true,
+          file_sha256 VARCHAR,
+          file_size_bytes BIGINT,
+          last_synced TIMESTAMP,
+          notes VARCHAR,
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader VARCHAR DEFAULT 'neoforge',
+          loader_version VARCHAR
+        );
+        CREATE TABLE core.mod_sources (
+          source_id VARCHAR PRIMARY KEY,
+          mod_key VARCHAR NOT NULL,
+          display_name VARCHAR NOT NULL,
+          installed_file VARCHAR,
+          installed_version VARCHAR,
+          provider VARCHAR NOT NULL,
+          source_url VARCHAR NOT NULL,
+          priority INTEGER NOT NULL DEFAULT 100,
+          active BOOLEAN NOT NULL DEFAULT true,
+          created_at TIMESTAMP NOT NULL DEFAULT now(),
+          updated_at TIMESTAMP NOT NULL DEFAULT now(),
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader VARCHAR DEFAULT 'neoforge',
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mods(
+          id, canonical_key, name, category, active_status, server_status,
+          client_package, primary_url, updated_at, minecraft_version, loader, loader_version
+        )
+        VALUES (
+          1, 'chunky', 'Chunky', 'Utility and World Generation', 'ok', 'Installed on 26.1.2',
+          'Server-only', 'https://www.curseforge.com/minecraft/mc-mods/chunky-pregenerator-forge',
+          now(), '26.1.2', 'neoforge', '26.1.2.76'
+        );
+        INSERT INTO core.mod_files(
+          id, mod_id, role, file_name, path_hint, installed_on_server,
+          included_in_client, status, minecraft_version, loader, loader_version
+        )
+        VALUES (
+          1, 1, 'server_file', 'Chunky-NeoForge-1.5.3.jar', 'mods/Chunky-NeoForge-1.5.3.jar',
+          true, false, 'OK', '26.1.2', 'neoforge', '26.1.2.76'
+        );
+        INSERT INTO core.mod_server_files(
+          id, mod_id, file_name, role, source_url, compatibility_status,
+          installed_on_server, included_in_client, selected, file_sha256,
+          file_size_bytes, last_synced, notes, minecraft_version, loader, loader_version
+        )
+        VALUES (
+          1, 1, 'Chunky-NeoForge-1.5.3.jar', 'server_file',
+          'https://www.curseforge.com/minecraft/mc-mods/chunky-pregenerator-forge',
+          'ok', true, false, true, 'abc', 123, now(), 'live file',
+          '26.1.2', 'neoforge', '26.1.2.76'
+        );
+        INSERT INTO core.mod_sources(
+          source_id, mod_key, display_name, installed_file, installed_version,
+          provider, source_url, priority, active, minecraft_version, loader, loader_version
+        )
+        VALUES (
+          'src_chunky_mc_26_1_2', 'chunky', 'Chunky', 'Chunky-NeoForge-1.5.3.jar', '1.5.3',
+          'curseforge', 'https://www.curseforge.com/minecraft/mc-mods/chunky-pregenerator-forge',
+          100, true, '26.1.2', 'neoforge', '26.1.2.76'
+        );
+        """)
+
+        let summary = try ModUpdateScanner(config: ModUpdateScannerConfig(
+            projectRoot: fixture.root,
+            databaseURL: database,
+            minecraftVersion: "26.2",
+            loader: "neoforge",
+            loaderVersion: "26.2.0.3-beta",
+            maxURLsPerWindow: 5,
+            windowSeconds: 0,
+            limit: 0,
+            seedFromProjectData: true
+        )).run()
+
+        #expect(summary.seededSources == 1)
+        let csv = try duckDB.queryCSV("""
+        SELECT
+          (SELECT COUNT(*) FROM core.mod_sources WHERE minecraft_version = '26.2' AND mod_key = 'chunky') AS source_count,
+          (SELECT active_status FROM core.mods WHERE minecraft_version = '26.2' AND canonical_key = 'chunky') AS active_status,
+          (SELECT installed_on_server FROM core.mod_files WHERE minecraft_version = '26.2' AND file_name = 'Chunky-NeoForge-1.5.3.jar') AS file_installed,
+          (SELECT compatibility_status FROM core.mod_server_files WHERE minecraft_version = '26.2' AND file_name = 'Chunky-NeoForge-1.5.3.jar') AS compatibility_status,
+          (SELECT selected FROM core.mod_server_files WHERE minecraft_version = '26.2' AND file_name = 'Chunky-NeoForge-1.5.3.jar') AS selected;
+        """)
+        let row = try #require(parseTestCSVRows(csv).first)
+        #expect(row[0] == "1")
+        #expect(row[1] == "awaiting_compatible_release")
+        #expect(row[2] == "false")
+        #expect(row[3] == "awaiting_compatible_release")
+        #expect(row[4] == "false")
+    }
+
     @Test("serves version-tagged mod inventory tables through Swift API")
     func servesVersionTaggedModInventoryTables() throws {
         try requireDuckDB()
@@ -332,7 +490,7 @@ struct MCPummelchenModServerCoreTests {
         #expect(supportedVersions.count == 2)
         #expect(serverRows.first?["name"] as? String == "Fixture Server Mod")
         #expect(serverCompatibility["26.1.2"] == "Active")
-        #expect(serverCompatibility["26.2"] == "Staged")
+        #expect(serverCompatibility["26.2"] == "Needs test")
         #expect(serverRows.first?["files"] as? String == "server-26.1.2.jar")
         #expect(serverRows.allSatisfy { (($0["type"] as? String) ?? "").localizedCaseInsensitiveContains("source") == false })
         #expect(clientObject?["scope"] as? String == "client")
@@ -427,7 +585,7 @@ struct MCPummelchenModServerCoreTests {
         #expect(versions.last?["minecraft_version"] as? String == "26.2")
         #expect(versions.last?["status"] as? String == "staging")
         #expect(versions.last?["page_url"] as? String == "server-26.2.html")
-        #expect(versions.last?["server_mod_count"] as? Int == 2)
+        #expect(versions.last?["server_mod_count"] as? Int == 0)
         #expect(versions.last?["client_mod_count"] as? Int == 0)
     }
 
@@ -2391,6 +2549,12 @@ struct MCPummelchenModServerCoreTests {
 
     private func sqlLiteral(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "''"))'"
+    }
+}
+
+private func parseTestCSVRows(_ csv: String) -> [[String]] {
+    csv.split(separator: "\n").dropFirst().map { line in
+        String(line).split(separator: ",", omittingEmptySubsequences: false).map(String.init)
     }
 }
 
