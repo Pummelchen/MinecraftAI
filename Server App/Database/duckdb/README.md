@@ -17,6 +17,7 @@ DuckDB is the production database and the only supported project database.
 - `migrations/008_mod_source_discovery_results.sql`: records source-link discovery attempts and outcomes.
 - `migrations/009_priority_mod_status.sql`: treats `Priority Mod` as an accepted active status for reporting and update-release accounting.
 - `migrations/010_server_version_installer_metadata.sql`: adds per-version NeoForge installer name, URL, and SHA256 fields for server-driven macOS client setup.
+- `migrations/011_admin_locked_status.sql`: treats `Admin Locked` as an accepted active status so admin-forced mods remain visible and protected during version carry-forward.
 
 ## Apply Migrations
 
@@ -63,7 +64,7 @@ The Swift server app, client app, and database helper tools read and write DuckD
 
 `core.minecraft_server_versions` is the source of truth for supported server versions, server addresses, live/staging state, and NeoForge installer requirements published to macOS clients. Clients fetch `/api/v1/minecraft/server-versions`, persist that list locally, and use the app-bundled versions only as a bootstrap fallback when the server cannot be reached.
 
-`core.mod_sources`, `core.mod_source_links`, `core.mods`, `core.mod_files`, and `core.mod_server_files` are version-aware. `core.mod_sources` keeps the installed artifact/source row used by compatibility scans, while `core.mod_source_links` stores the normalized set of provider links for that source, including `primary`, `modrinth`, `curseforge`, and `official` link roles. The daily Swift update scan treats the live Minecraft version as the baseline and seeds missing staging-version candidates before crawling Modrinth and CurseForge. Seeded staging rows are marked as compatibility candidates, not deployed installs; scan results then record whether a real upstream file exists for that Minecraft/NeoForge version.
+`core.mod_sources`, `core.mod_source_links`, `core.mods`, `core.mod_files`, and `core.mod_server_files` are version-aware. `core.mod_sources` keeps the installed artifact/source row used by compatibility scans, while `core.mod_source_links` stores the normalized set of provider links for that source, including `primary`, `modrinth`, `curseforge`, and `official` link roles. The daily Swift update scan treats the live Minecraft version as the baseline and seeds missing staging-version candidates before crawling Modrinth and CurseForge. Seeded staging rows are marked as compatibility candidates, not deployed installs; scan results then record whether a real upstream file exists for that Minecraft/NeoForge version. `server-version-bootstrap` makes that carry-forward explicit for new Minecraft versions: it copies working previous-version files into the new server package as validation candidates, preserves `Priority Mod` and `Admin Locked` rows as protected, and can then hand off to the normal apply/release pipeline.
 
 When enabled, source-link discovery fills missing redundant provider links through three ordered search paths: Modrinth/CurseForge APIs, direct provider-site HTML searches, and Google result pages filtered to accepted Modrinth/CurseForge result URLs only. Discovery is capped at 2 searches per second and records attempts in `core.mod_source_discovery_results`.
 

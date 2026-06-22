@@ -11,3 +11,4 @@
 .read database/duckdb/migrations/008_mod_source_discovery_results.sql
 .read database/duckdb/migrations/009_priority_mod_status.sql
 .read database/duckdb/migrations/010_server_version_installer_metadata.sql
+.read database/duckdb/migrations/011_admin_locked_status.sql

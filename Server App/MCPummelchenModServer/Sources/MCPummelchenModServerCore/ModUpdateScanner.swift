@@ -452,12 +452,26 @@ public struct ModUpdateScanner: Sendable {
         let loaderLiteral = Self.sqlLiteral(config.loader)
         let loaderVersionLiteral = Self.sqlLiteral(config.loaderVersion)
         let targetNote = Self.sqlLiteral("Copied from \(referenceVersion) as a \(targetVersion) update-tracking candidate; requires compatibility scan and validation before deployment.")
+        let targetStatus = Self.sqlLiteral("Needs \(targetVersion) compatibility test")
+        let workingStatusSQL = "'active', 'ok', 'priority mod', 'admin locked'"
+        let protectedStatusSQL = "'priority mod', 'admin locked'"
 
         let seededSourcesCSV = try query("""
         SELECT COUNT(*)
         FROM core.mod_sources s
         WHERE s.active = true
           AND COALESCE(s.minecraft_version, \(referenceLiteral)) = \(referenceLiteral)
+          AND EXISTS (
+            SELECT 1
+            FROM core.mods m
+            WHERE COALESCE(m.minecraft_version, \(referenceLiteral)) = \(referenceLiteral)
+              AND lower(COALESCE(m.active_status, '')) IN (\(workingStatusSQL))
+              AND (
+                   lower(COALESCE(m.canonical_key, '')) = lower(COALESCE(s.mod_key, ''))
+                OR lower(COALESCE(m.primary_url, '')) = lower(COALESCE(s.source_url, ''))
+                OR lower(COALESCE(m.name, '')) = lower(COALESCE(s.display_name, ''))
+              )
+          )
           AND NOT EXISTS (
             SELECT 1
             FROM core.mod_sources t
@@ -468,6 +482,9 @@ public struct ModUpdateScanner: Sendable {
           );
         """)
         let seededSources = Int(csvRows(seededSourcesCSV).first?.first ?? "0") ?? 0
+        guard !config.dryRun else {
+            return seededSources
+        }
 
         try execute("""
         BEGIN TRANSACTION;
@@ -485,7 +502,20 @@ public struct ModUpdateScanner: Sendable {
           s.installed_version,
           s.provider,
           s.source_url,
-          s.priority,
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM core.mods m
+              WHERE COALESCE(m.minecraft_version, \(referenceLiteral)) = \(referenceLiteral)
+                AND lower(COALESCE(m.active_status, '')) IN (\(protectedStatusSQL))
+                AND (
+                     lower(COALESCE(m.canonical_key, '')) = lower(COALESCE(s.mod_key, ''))
+                  OR lower(COALESCE(m.primary_url, '')) = lower(COALESCE(s.source_url, ''))
+                  OR lower(COALESCE(m.name, '')) = lower(COALESCE(s.display_name, ''))
+                )
+            ) THEN 1
+            ELSE LEAST(COALESCE(s.priority, 100), 25)
+          END AS priority,
           false,
           now(),
           now(),
@@ -495,6 +525,17 @@ public struct ModUpdateScanner: Sendable {
         FROM core.mod_sources s
         WHERE s.active = true
           AND COALESCE(s.minecraft_version, \(referenceLiteral)) = \(referenceLiteral)
+          AND EXISTS (
+            SELECT 1
+            FROM core.mods m
+            WHERE COALESCE(m.minecraft_version, \(referenceLiteral)) = \(referenceLiteral)
+              AND lower(COALESCE(m.active_status, '')) IN (\(workingStatusSQL))
+              AND (
+                   lower(COALESCE(m.canonical_key, '')) = lower(COALESCE(s.mod_key, ''))
+                OR lower(COALESCE(m.primary_url, '')) = lower(COALESCE(s.source_url, ''))
+                OR lower(COALESCE(m.name, '')) = lower(COALESCE(s.display_name, ''))
+              )
+          )
           AND NOT EXISTS (
             SELECT 1
             FROM core.mod_sources t
@@ -520,6 +561,7 @@ public struct ModUpdateScanner: Sendable {
           m.loader_version AS source_loader_version
         FROM core.mods m
         WHERE COALESCE(m.minecraft_version, \(referenceLiteral)) = \(referenceLiteral)
+          AND lower(COALESCE(m.active_status, '')) IN (\(workingStatusSQL))
           AND NOT EXISTS (
             SELECT 1
             FROM core.mods t
@@ -536,10 +578,13 @@ public struct ModUpdateScanner: Sendable {
           canonical_key,
           name,
           category,
-          CASE WHEN lower(active_status) = 'ok' THEN 'awaiting_compatible_release' ELSE active_status END,
           CASE
-            WHEN lower(active_status) = 'ok' THEN \(targetNote)
-            ELSE server_status
+            WHEN lower(COALESCE(active_status, '')) IN (\(protectedStatusSQL)) THEN active_status
+            ELSE 'awaiting_compatible_release'
+          END,
+          CASE
+            WHEN lower(COALESCE(active_status, '')) IN (\(protectedStatusSQL)) THEN concat_ws(' ', NULLIF(server_status, ''), \(targetNote))
+            ELSE \(targetNote)
           END,
           client_package,
           primary_url,
@@ -563,7 +608,7 @@ public struct ModUpdateScanner: Sendable {
           false,
           false,
           CASE
-            WHEN lower(COALESCE(mf.status, '')) IN ('ok', 'runtime ok', 'installed', 'client-only: included', 'client dependency: included') THEN 'Needs 26.2 compatibility test'
+            WHEN lower(COALESCE(mf.status, '')) IN ('ok', 'runtime ok', 'installed', 'client-only: included', 'client dependency: included') THEN \(targetStatus)
             ELSE mf.status
           END,
           \(targetLiteral),
@@ -591,7 +636,11 @@ public struct ModUpdateScanner: Sendable {
           msf.file_name,
           msf.role,
           msf.source_url,
-          CASE WHEN lower(msf.compatibility_status) = 'ok' THEN 'awaiting_compatible_release' ELSE msf.compatibility_status END,
+          CASE
+            WHEN lower(COALESCE(map.active_status, '')) IN (\(protectedStatusSQL)) THEN 'admin_forced_carry_forward_candidate'
+            WHEN lower(COALESCE(msf.compatibility_status, '')) = 'ok' THEN 'carry_forward_candidate'
+            ELSE msf.compatibility_status
+          END,
           false,
           false,
           false,
@@ -1041,7 +1090,7 @@ public struct ModUpdateScanner: Sendable {
             """)
         }
         statements.append("COMMIT;")
-        if !rows.isEmpty {
+        if !rows.isEmpty, !config.dryRun {
             try execute(statements.joined(separator: "\n"))
         }
         return rows.count
@@ -1261,6 +1310,7 @@ public struct ModUpdateScanner: Sendable {
 
     private func upsert(sources: [ModSourceRecord]) throws {
         guard !sources.isEmpty else { return }
+        guard !config.dryRun else { return }
         let sourceActive = try isLiveMinecraftVersion()
         var statements: [String] = ["BEGIN TRANSACTION;"]
         for source in sources {

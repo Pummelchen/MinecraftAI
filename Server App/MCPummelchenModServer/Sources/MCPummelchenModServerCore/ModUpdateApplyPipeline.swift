@@ -349,7 +349,7 @@ public struct ModUpdateApplyPipeline: Sendable {
                )
               WHERE s.source_id = r.source_id
                 AND COALESCE(s.minecraft_version, \(Self.sqlLiteral(version.minecraftVersion))) = \(Self.sqlLiteral(version.minecraftVersion))
-                AND lower(COALESCE(m.active_status, '')) = 'priority mod'
+                AND lower(COALESCE(m.active_status, '')) IN ('priority mod', 'admin locked')
             ) THEN 1
             ELSE 0
           END AS is_priority

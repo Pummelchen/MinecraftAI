@@ -30,6 +30,7 @@ enum ServerCommandError: Error, CustomStringConvertible {
               MCPummelchenModServer ban-mod --project-root <repo> --duckdb <file> --name <display-name> --file-pattern <jar-name-or-pattern> [--source-url <url>] [--reason "Banned by Admin"] [--dry-run true]
               MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--all-supported true] [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-project-data true] [--discover-source-links true] [--discovery-limit <n>] [--discovery-searches-per-second 2] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
               MCPummelchenModServer mod-update-apply --project-root <repo> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id-prefix <id> [--server-package <dir>] [--all-supported true] [--minecraft-version 26.1.2] [--dry-run true] [--activate-live true] [--service <systemd-unit>] [--client-api-token <token>] [--require-client-token true|false]
+              MCPummelchenModServer server-version-bootstrap --project-root <repo> --duckdb <file> --minecraft-version <target> [--reference-minecraft-version <version>] [--discover-source-links true] [--discovery-limit <n>] [--discovery-searches-per-second 2] [--max-urls-per-window 5] [--window-seconds 10] [--apply-updates true] [--release-root <dir>] [--public-downloads <dir>] [--release-id-prefix <id>] [--server-package <dir>] [--service <systemd-unit>] [--dry-run true] [--client-api-token <token>] [--require-client-token true|false]
               MCPummelchenModServer client-force-update --project-root <repo> --duckdb <file> [--release-id <id>] [--target-client-id <id>]
               MCPummelchenModServer world-reset --project-root <repo> --server-dir <dir> --duckdb <file> [--seed <seed>] [--dry-run true] [--yes true] [--service <systemd-unit>] [--radius-blocks 1000] [--delete-backup-after-success true] [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>] [--rcon-ready-timeout-seconds 600] [--pregeneration-batch-size 384]
               MCPummelchenModServer rcon-command --project-root <repo> --server-dir <dir> --command <minecraft command> [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>]
@@ -373,6 +374,26 @@ func run(arguments: [String]) throws {
                 print("mod_update_applied=\(version.minecraftVersion) old=\(update.oldFiles.joined(separator: "|")) new=\(update.newFile) latest=\(update.latestVersion) sha256=\(update.sha256)")
             }
         }
+    case "server-version-bootstrap":
+        let pipeline = try serverVersionBootstrapPipeline(args: args, projectRoot: projectRoot)
+        let result = try pipeline.run()
+        print("server_version_bootstrap=ok")
+        print("server_version_bootstrap_dry_run=\(result.dryRun)")
+        print("target_minecraft_version=\(result.targetMinecraftVersion)")
+        print("reference_minecraft_version=\(result.referenceMinecraftVersion)")
+        print("scanned_sources=\(result.scannedSources)")
+        print("seeded_sources=\(result.seededSources)")
+        print("update_candidates_found=\(result.updateCandidatesFound)")
+        print("protected_mods=\(result.protectedMods)")
+        print("copied_files=\(result.copiedFiles.count)")
+        for copied in result.copiedFiles {
+            print("bootstrap_copied=\(copied.fileName) mod=\(copied.modName) server=\(copied.copiedToServer) client=\(copied.copiedToClient) protected=\(copied.protected)")
+        }
+        if let apply = result.applyResult {
+            for version in apply.versions {
+                print("bootstrap_apply_version=\(version.minecraftVersion) status=\(version.status) release_id=\(version.releaseID ?? "") updates=\(version.appliedUpdates.count) skipped=\(version.skippedReason ?? "")")
+            }
+        }
     case "build-client-dmg":
         let command = try buildClientDMGCommand(args: args, projectRoot: projectRoot)
         let result = try ClientDMGBuilder(config: command).build()
@@ -645,6 +666,45 @@ private func modUpdateApplyPipeline(args: Arguments, projectRoot: URL) throws ->
         activateLiveVersions: args.options["--activate-live"] != "false",
         dryRun: args.options["--dry-run"] != "false",
         serverPackageDirectory: URL(fileURLWithPath: args.options["--server-package"] ?? envOrDefault("PUMMELCHEN_SERVER_PACKAGE_DIR", defaultPath: projectRoot.appendingPathComponent("Server App/MCPummelchenModServer").path)),
+        serviceName: args.options["--service"],
+        clientAPIToken: args.options["--client-api-token"],
+        requireClientToken: optionBool(args.options["--require-client-token"], defaultValue: optionBool(ProcessInfo.processInfo.environment["PUMMELCHEN_REQUIRE_CLIENT_TOKEN"]))
+    ))
+}
+
+private func serverVersionBootstrapPipeline(args: Arguments, projectRoot: URL) throws -> ServerVersionBootstrapPipeline {
+    let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
+    let maxURLs = Int(args.options["--max-urls-per-window"] ?? "5") ?? 5
+    let windowSeconds = Double(args.options["--window-seconds"] ?? "10") ?? 10
+    let discoverySearchesPerSecond = Double(args.options["--discovery-searches-per-second"] ?? "2") ?? 2
+    guard maxURLs > 0 else {
+        throw ServerCommandError.invalidValue("--max-urls-per-window must be greater than zero")
+    }
+    guard windowSeconds >= 0 else {
+        throw ServerCommandError.invalidValue("--window-seconds must be zero or greater")
+    }
+    guard discoverySearchesPerSecond > 0, discoverySearchesPerSecond <= 2 else {
+        throw ServerCommandError.invalidValue("--discovery-searches-per-second must be greater than zero and at most 2")
+    }
+    let releaseRoot = args.options["--release-root"].map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
+    let publicDownloads = args.options["--public-downloads"].map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
+    let serverPackage = args.options["--server-package"].map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
+    return ServerVersionBootstrapPipeline(config: ServerVersionBootstrapPipelineConfig(
+        projectRoot: projectRoot,
+        databaseURL: duckDB,
+        targetMinecraftVersion: try args.require("--minecraft-version"),
+        referenceMinecraftVersion: args.options["--reference-minecraft-version"],
+        discoverSourceLinks: optionBool(args.options["--discover-source-links"], defaultValue: true),
+        discoveryLimit: args.options["--discovery-limit"].flatMap(Int.init),
+        discoverySearchesPerSecond: discoverySearchesPerSecond,
+        maxURLsPerWindow: maxURLs,
+        windowSeconds: windowSeconds,
+        dryRun: args.options["--dry-run"] != "false",
+        applyUpdates: optionBool(args.options["--apply-updates"]),
+        releaseRoot: releaseRoot,
+        publicDownloads: publicDownloads,
+        releaseIDPrefix: args.options["--release-id-prefix"],
+        serverPackageDirectory: serverPackage,
         serviceName: args.options["--service"],
         clientAPIToken: args.options["--client-api-token"],
         requireClientToken: optionBool(args.options["--require-client-token"], defaultValue: optionBool(ProcessInfo.processInfo.environment["PUMMELCHEN_REQUIRE_CLIENT_TOKEN"]))

@@ -326,6 +326,16 @@ struct MCPummelchenModServerCoreTests {
           1, 'chunky', 'Chunky', 'Utility and World Generation', 'ok', 'Installed on 26.1.2',
           'Server-only', 'https://www.curseforge.com/minecraft/mc-mods/chunky-pregenerator-forge',
           now(), '26.1.2', 'neoforge', '26.1.2.76'
+        ),
+        (
+          2, 'locked-plane', 'Locked Plane', 'Player Transport', 'Admin Locked', 'Admin forced inclusion',
+          'Server & Client', 'https://www.curseforge.com/minecraft/mc-mods/locked-plane',
+          now(), '26.1.2', 'neoforge', '26.1.2.76'
+        ),
+        (
+          3, 'banned-islands', 'Banned Islands', 'Worldgen', 'Banned by Admin', 'Removed by admin',
+          'Server-only', 'https://www.curseforge.com/minecraft/mc-mods/banned-islands',
+          now(), '26.1.2', 'neoforge', '26.1.2.76'
         );
         INSERT INTO core.mod_files(
           id, mod_id, role, file_name, path_hint, installed_on_server,
@@ -334,6 +344,14 @@ struct MCPummelchenModServerCoreTests {
         VALUES (
           1, 1, 'server_file', 'Chunky-NeoForge-1.5.3.jar', 'mods/Chunky-NeoForge-1.5.3.jar',
           true, false, 'OK', '26.1.2', 'neoforge', '26.1.2.76'
+        ),
+        (
+          2, 2, 'mod_file', 'locked-plane-1.0.0.jar', 'mods/locked-plane-1.0.0.jar',
+          true, true, 'OK', '26.1.2', 'neoforge', '26.1.2.76'
+        ),
+        (
+          3, 3, 'server_file', 'banned-islands-1.0.0.jar', 'mods/banned-islands-1.0.0.jar',
+          true, false, 'Banned by Admin', '26.1.2', 'neoforge', '26.1.2.76'
         );
         INSERT INTO core.mod_server_files(
           id, mod_id, file_name, role, source_url, compatibility_status,
@@ -345,14 +363,37 @@ struct MCPummelchenModServerCoreTests {
           'https://www.curseforge.com/minecraft/mc-mods/chunky-pregenerator-forge',
           'ok', true, false, true, 'abc', 123, now(), 'live file',
           '26.1.2', 'neoforge', '26.1.2.76'
+        ),
+        (
+          2, 2, 'locked-plane-1.0.0.jar', 'mod_file',
+          'https://www.curseforge.com/minecraft/mc-mods/locked-plane',
+          'ok', true, true, true, 'def', 456, now(), 'required file',
+          '26.1.2', 'neoforge', '26.1.2.76'
+        ),
+        (
+          3, 3, 'banned-islands-1.0.0.jar', 'server_file',
+          'https://www.curseforge.com/minecraft/mc-mods/banned-islands',
+          'Banned by Admin', true, false, false, 'ghi', 789, now(), 'banned file',
+          '26.1.2', 'neoforge', '26.1.2.76'
         );
         INSERT INTO core.mod_sources(
           source_id, mod_key, display_name, installed_file, installed_version,
           provider, source_url, priority, active, minecraft_version, loader, loader_version
         )
-        VALUES (
+        VALUES
+        (
           'src_chunky_mc_26_1_2', 'chunky', 'Chunky', 'Chunky-NeoForge-1.5.3.jar', '1.5.3',
           'curseforge', 'https://www.curseforge.com/minecraft/mc-mods/chunky-pregenerator-forge',
+          100, true, '26.1.2', 'neoforge', '26.1.2.76'
+        ),
+        (
+          'src_locked_plane_mc_26_1_2', 'locked-plane', 'Locked Plane', 'locked-plane-1.0.0.jar', '1.0.0',
+          'curseforge', 'https://www.curseforge.com/minecraft/mc-mods/locked-plane',
+          100, true, '26.1.2', 'neoforge', '26.1.2.76'
+        ),
+        (
+          'src_banned_islands_mc_26_1_2', 'banned-islands', 'Banned Islands', 'banned-islands-1.0.0.jar', '1.0.0',
+          'curseforge', 'https://www.curseforge.com/minecraft/mc-mods/banned-islands',
           100, true, '26.1.2', 'neoforge', '26.1.2.76'
         );
         """)
@@ -369,21 +410,205 @@ struct MCPummelchenModServerCoreTests {
             seedFromProjectData: true
         )).run()
 
-        #expect(summary.seededSources == 1)
+        #expect(summary.seededSources == 2)
         let csv = try duckDB.queryCSV("""
         SELECT
           (SELECT COUNT(*) FROM core.mod_sources WHERE minecraft_version = '26.2' AND mod_key = 'chunky') AS source_count,
           (SELECT active_status FROM core.mods WHERE minecraft_version = '26.2' AND canonical_key = 'chunky') AS active_status,
           (SELECT installed_on_server FROM core.mod_files WHERE minecraft_version = '26.2' AND file_name = 'Chunky-NeoForge-1.5.3.jar') AS file_installed,
           (SELECT compatibility_status FROM core.mod_server_files WHERE minecraft_version = '26.2' AND file_name = 'Chunky-NeoForge-1.5.3.jar') AS compatibility_status,
-          (SELECT selected FROM core.mod_server_files WHERE minecraft_version = '26.2' AND file_name = 'Chunky-NeoForge-1.5.3.jar') AS selected;
+          (SELECT selected FROM core.mod_server_files WHERE minecraft_version = '26.2' AND file_name = 'Chunky-NeoForge-1.5.3.jar') AS selected,
+          (SELECT active_status FROM core.mods WHERE minecraft_version = '26.2' AND canonical_key = 'locked-plane') AS locked_status,
+          (SELECT compatibility_status FROM core.mod_server_files WHERE minecraft_version = '26.2' AND file_name = 'locked-plane-1.0.0.jar') AS locked_compatibility,
+          (SELECT priority FROM core.mod_sources WHERE minecraft_version = '26.2' AND mod_key = 'locked-plane') AS locked_priority,
+          (SELECT COUNT(*) FROM core.mod_sources WHERE minecraft_version = '26.2' AND mod_key = 'banned-islands') AS banned_source_count;
         """)
         let row = try #require(parseTestCSVRows(csv).first)
         #expect(row[0] == "1")
         #expect(row[1] == "awaiting_compatible_release")
         #expect(row[2] == "false")
-        #expect(row[3] == "awaiting_compatible_release")
+        #expect(row[3] == "carry_forward_candidate")
         #expect(row[4] == "false")
+        #expect(row[5] == "Admin Locked")
+        #expect(row[6] == "admin_forced_carry_forward_candidate")
+        #expect(row[7] == "1")
+        #expect(row[8] == "0")
+    }
+
+    @Test("server version bootstrap copies working baseline files and skips banned mods")
+    func serverVersionBootstrapCopiesWorkingBaselineFiles() throws {
+        try requireDuckDB()
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-version-bootstrap-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let referenceServer = root.appendingPathComponent("minecraft-26.1.2", isDirectory: true)
+        let targetServer = root.appendingPathComponent("minecraft-26.2", isDirectory: true)
+        for directory in [
+            referenceServer.appendingPathComponent("mods"),
+            referenceServer.appendingPathComponent("client-package/mods"),
+            targetServer.appendingPathComponent("mods"),
+            targetServer.appendingPathComponent("client-package/mods")
+        ] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        let utilityJar = try writeNeoForgeJar(root: root, fileName: "utility-1.0.0.jar", displayName: "Utility", version: "1.0.0", side: "BOTH")
+        let lockedJar = try writeNeoForgeJar(root: root, fileName: "locked-plane-1.0.0.jar", displayName: "Locked Plane", version: "1.0.0", side: "BOTH")
+        let bannedJar = try writeNeoForgeJar(root: root, fileName: "banned-islands-1.0.0.jar", displayName: "Banned Islands", version: "1.0.0", side: "BOTH")
+        try FileManager.default.copyItem(at: utilityJar, to: referenceServer.appendingPathComponent("mods/utility-1.0.0.jar"))
+        try FileManager.default.copyItem(at: utilityJar, to: referenceServer.appendingPathComponent("client-package/mods/utility-1.0.0.jar"))
+        try FileManager.default.copyItem(at: lockedJar, to: referenceServer.appendingPathComponent("mods/locked-plane-1.0.0.jar"))
+        try FileManager.default.copyItem(at: lockedJar, to: referenceServer.appendingPathComponent("client-package/mods/locked-plane-1.0.0.jar"))
+        try FileManager.default.copyItem(at: bannedJar, to: referenceServer.appendingPathComponent("mods/banned-islands-1.0.0.jar"))
+
+        let webRoot = root.appendingPathComponent("web", isDirectory: true)
+        try FileManager.default.createDirectory(at: webRoot, withIntermediateDirectories: true)
+        try #"{"version_number":"1.0.0","game_versions":["26.1.2"],"loaders":["neoforge"]}"#
+            .write(to: webRoot.appendingPathComponent("utility.html"), atomically: true, encoding: .utf8)
+        try #"{"version_number":"1.0.0","game_versions":["26.1.2"],"loaders":["neoforge"]}"#
+            .write(to: webRoot.appendingPathComponent("locked.html"), atomically: true, encoding: .utf8)
+        try #"{"version_number":"1.0.0","game_versions":["26.1.2"],"loaders":["neoforge"]}"#
+            .write(to: webRoot.appendingPathComponent("banned.html"), atomically: true, encoding: .utf8)
+        let http = try LocalHTTPServer(root: webRoot)
+        try http.start()
+        defer { http.stop() }
+
+        let database = root.appendingPathComponent("bootstrap.duckdb")
+        try DuckDBDatabase(databaseURL: database).execute("""
+        CREATE SCHEMA IF NOT EXISTS core;
+        CREATE TABLE core.minecraft_server_versions(
+          minecraft_version VARCHAR PRIMARY KEY,
+          loader VARCHAR,
+          loader_version VARCHAR,
+          server_name VARCHAR,
+          server_address VARCHAR,
+          server_dir VARCHAR,
+          status VARCHAR,
+          is_live BOOLEAN,
+          sort_order INTEGER,
+          created_at TIMESTAMP DEFAULT now(),
+          updated_at TIMESTAMP DEFAULT now(),
+          notes VARCHAR
+        );
+        INSERT INTO core.minecraft_server_versions VALUES
+          ('26.1.2', 'neoforge', '26.1.2.76', 'Pummelchen Server 26.1.2', '127.0.0.1:25565', \(sqlLiteral(referenceServer.path)), 'live', true, 10, now(), now(), 'live'),
+          ('26.2', 'neoforge', '26.2.0.3-beta', 'Pummelchen Server 26.2', '127.0.0.1:25566', \(sqlLiteral(targetServer.path)), 'staging', false, 20, now(), now(), 'staging');
+        CREATE TABLE core.mods(
+          id BIGINT PRIMARY KEY,
+          canonical_key VARCHAR,
+          name VARCHAR,
+          category VARCHAR,
+          active_status VARCHAR,
+          server_status VARCHAR,
+          client_package VARCHAR,
+          primary_url VARCHAR,
+          updated_at TIMESTAMP,
+          minecraft_version VARCHAR,
+          loader VARCHAR,
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mods VALUES
+          (1, 'utility', 'Utility', 'Utility', 'ok', 'Installed', 'Server & Client', 'http://127.0.0.1:\(http.port)/utility.html', now(), '26.1.2', 'neoforge', '26.1.2.76'),
+          (2, 'locked-plane', 'Locked Plane', 'Transport', 'Admin Locked', 'Admin forced', 'Server & Client', 'http://127.0.0.1:\(http.port)/locked.html', now(), '26.1.2', 'neoforge', '26.1.2.76'),
+          (3, 'banned-islands', 'Banned Islands', 'Worldgen', 'Banned by Admin', 'Removed', 'Server-only', 'http://127.0.0.1:\(http.port)/banned.html', now(), '26.1.2', 'neoforge', '26.1.2.76');
+        CREATE TABLE core.mod_files(
+          id BIGINT PRIMARY KEY,
+          mod_id BIGINT,
+          role VARCHAR,
+          file_name VARCHAR,
+          path_hint VARCHAR,
+          installed_on_server BOOLEAN,
+          included_in_client BOOLEAN,
+          status VARCHAR,
+          minecraft_version VARCHAR,
+          loader VARCHAR,
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mod_files VALUES
+          (1, 1, 'mod_file', 'utility-1.0.0.jar', 'mods/utility-1.0.0.jar', true, true, 'OK', '26.1.2', 'neoforge', '26.1.2.76'),
+          (2, 2, 'mod_file', 'locked-plane-1.0.0.jar', 'mods/locked-plane-1.0.0.jar', true, true, 'OK', '26.1.2', 'neoforge', '26.1.2.76'),
+          (3, 3, 'server_file', 'banned-islands-1.0.0.jar', 'mods/banned-islands-1.0.0.jar', true, false, 'Banned by Admin', '26.1.2', 'neoforge', '26.1.2.76');
+        CREATE TABLE core.mod_server_files(
+          id BIGINT PRIMARY KEY,
+          mod_id BIGINT,
+          file_name VARCHAR,
+          role VARCHAR,
+          source_url VARCHAR,
+          compatibility_status VARCHAR,
+          installed_on_server BOOLEAN,
+          included_in_client BOOLEAN,
+          selected BOOLEAN,
+          file_sha256 VARCHAR,
+          file_size_bytes BIGINT,
+          last_synced TIMESTAMP,
+          notes VARCHAR,
+          minecraft_version VARCHAR,
+          loader VARCHAR,
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mod_server_files VALUES
+          (1, 1, 'utility-1.0.0.jar', 'mod_file', 'http://127.0.0.1:\(http.port)/utility.html', 'ok', true, true, true, 'a', 10, now(), 'ok', '26.1.2', 'neoforge', '26.1.2.76'),
+          (2, 2, 'locked-plane-1.0.0.jar', 'mod_file', 'http://127.0.0.1:\(http.port)/locked.html', 'ok', true, true, true, 'b', 20, now(), 'ok', '26.1.2', 'neoforge', '26.1.2.76'),
+          (3, 3, 'banned-islands-1.0.0.jar', 'server_file', 'http://127.0.0.1:\(http.port)/banned.html', 'Banned by Admin', true, false, false, 'c', 30, now(), 'banned', '26.1.2', 'neoforge', '26.1.2.76');
+        CREATE TABLE core.mod_sources(
+          source_id VARCHAR PRIMARY KEY,
+          mod_key VARCHAR,
+          display_name VARCHAR,
+          installed_file VARCHAR,
+          installed_version VARCHAR,
+          provider VARCHAR,
+          source_url VARCHAR,
+          priority INTEGER,
+          active BOOLEAN,
+          created_at TIMESTAMP DEFAULT now(),
+          updated_at TIMESTAMP DEFAULT now(),
+          minecraft_version VARCHAR,
+          loader VARCHAR,
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mod_sources VALUES
+          ('src_utility', 'utility', 'Utility', 'utility-1.0.0.jar', '1.0.0', 'curseforge', 'http://127.0.0.1:\(http.port)/utility.html', 100, true, now(), now(), '26.1.2', 'neoforge', '26.1.2.76'),
+          ('src_locked', 'locked-plane', 'Locked Plane', 'locked-plane-1.0.0.jar', '1.0.0', 'curseforge', 'http://127.0.0.1:\(http.port)/locked.html', 100, true, now(), now(), '26.1.2', 'neoforge', '26.1.2.76'),
+          ('src_banned', 'banned-islands', 'Banned Islands', 'banned-islands-1.0.0.jar', '1.0.0', 'curseforge', 'http://127.0.0.1:\(http.port)/banned.html', 100, true, now(), now(), '26.1.2', 'neoforge', '26.1.2.76');
+        """)
+
+        let dryRun = try ServerVersionBootstrapPipeline(config: ServerVersionBootstrapPipelineConfig(
+            projectRoot: root,
+            databaseURL: database,
+            targetMinecraftVersion: "26.2",
+            referenceMinecraftVersion: "26.1.2",
+            discoverSourceLinks: false,
+            maxURLsPerWindow: 5,
+            windowSeconds: 0,
+            dryRun: true,
+            applyUpdates: false
+        )).run()
+
+        #expect(dryRun.seededSources == 2)
+        #expect(dryRun.copiedFiles.map(\.fileName).sorted() == ["locked-plane-1.0.0.jar", "utility-1.0.0.jar"])
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mods WHERE minecraft_version = '26.2';") == "0")
+        #expect(!FileManager.default.fileExists(atPath: targetServer.appendingPathComponent("mods/utility-1.0.0.jar").path))
+
+        let result = try ServerVersionBootstrapPipeline(config: ServerVersionBootstrapPipelineConfig(
+            projectRoot: root,
+            databaseURL: database,
+            targetMinecraftVersion: "26.2",
+            referenceMinecraftVersion: "26.1.2",
+            discoverSourceLinks: false,
+            maxURLsPerWindow: 5,
+            windowSeconds: 0,
+            dryRun: false,
+            applyUpdates: false
+        )).run()
+
+        #expect(result.seededSources == 2)
+        #expect(result.copiedFiles.map(\.fileName).sorted() == ["locked-plane-1.0.0.jar", "utility-1.0.0.jar"])
+        #expect(result.protectedMods == 1)
+        #expect(FileManager.default.fileExists(atPath: targetServer.appendingPathComponent("mods/utility-1.0.0.jar").path))
+        #expect(FileManager.default.fileExists(atPath: targetServer.appendingPathComponent("client-package/mods/locked-plane-1.0.0.jar").path))
+        #expect(!FileManager.default.fileExists(atPath: targetServer.appendingPathComponent("mods/banned-islands-1.0.0.jar").path))
+        #expect(try duckDBScalar(database: database, sql: "SELECT compatibility_status FROM core.mod_server_files WHERE minecraft_version = '26.2' AND file_name = 'locked-plane-1.0.0.jar';") == "admin_forced_carry_forward_candidate")
+        #expect(try duckDBScalar(database: database, sql: "SELECT compatibility_status FROM core.mod_server_files WHERE minecraft_version = '26.2' AND file_name = 'utility-1.0.0.jar';") == "carry_forward_candidate")
     }
 
     @Test("mod update scanner skips inactive live rows but scans staging candidates")
@@ -1614,7 +1839,7 @@ struct MCPummelchenModServerCoreTests {
         #expect(try duckDBScalar(database: database, sql: "SELECT installed_file FROM core.mod_sources WHERE source_id = 'curseforge_1_10_mc_26_1_2';") == "example-mod-2.0.0.jar")
     }
 
-    @Test("mod update apply isolates priority candidates from non-priority failures")
+    @Test("mod update apply isolates admin-forced candidates from non-priority failures")
     func modUpdateApplyIsolatesPriorityCandidatesFromNonPriorityFailures() throws {
         try requireDuckDB()
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -1677,7 +1902,7 @@ struct MCPummelchenModServerCoreTests {
           loader_version VARCHAR
         );
         INSERT INTO core.mods VALUES
-          (1, 'priority-plane', 'Priority Plane', 'Player Transport', 'Priority Mod', 'Priority release target', 'Server & Client', 'https://example.test/priority-plane', now(), '26.1.2', 'neoforge', '26.1.2.76'),
+          (1, 'priority-plane', 'Priority Plane', 'Player Transport', 'Admin Locked', 'Priority release target', 'Server & Client', 'https://example.test/priority-plane', now(), '26.1.2', 'neoforge', '26.1.2.76'),
           (2, 'regular-mod', 'Regular Mod', 'Gameplay', 'ok', 'Installed', 'Server & Client', 'https://example.test/regular-mod', now(), '26.1.2', 'neoforge', '26.1.2.76');
         CREATE TABLE core.mod_sources(
           source_id VARCHAR PRIMARY KEY,
