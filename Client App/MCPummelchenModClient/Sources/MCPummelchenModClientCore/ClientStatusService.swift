@@ -451,21 +451,36 @@ public struct ClientStatusService: Sendable {
     }
 
     private func defaultsForStatus() async -> MinecraftClientDefaults {
+        let supportedServers = await supportedServers()
+        let liveServer = supportedServers.first(where: \.isLive) ?? supportedServers.first
         guard configuration.manageRuntimeChecks else {
-            return MinecraftClientDefaults()
+            return MinecraftClientDefaults(supportedServers: supportedServers)
         }
         do {
             let java = try await JavaRuntimeManager.ensureInstalled(pummelchenHome: configuration.pummelchenHome)
-            let loader = NeoForgeClientRequirement.live
+            let requirements = NeoForgeClientRequirement.requirements(from: supportedServers)
             try await NeoForgeClientInstaller.ensureSupportedInstalled(
                 minecraftDirectory: configuration.minecraftDirectory,
                 pummelchenHome: configuration.pummelchenHome,
-                javaExecutable: java.javaExecutableURL
+                javaExecutable: java.javaExecutableURL,
+                requirements: requirements.isEmpty ? NeoForgeClientRequirement.supported : requirements
             )
-            return MinecraftClientDefaults(javaExecutablePath: java.javaExecutableURL.path, loaderVersion: loader.loaderVersion)
+            return MinecraftClientDefaults(
+                javaExecutablePath: java.javaExecutableURL.path,
+                loaderVersion: liveServer?.loaderVersion ?? NeoForgeClientRequirement.live.loaderVersion,
+                supportedServers: supportedServers
+            )
         } catch {
-            return MinecraftClientDefaults()
+            return MinecraftClientDefaults(supportedServers: supportedServers)
         }
+    }
+
+    private func supportedServers() async -> [MinecraftSupportedServer] {
+        await ClientSupportedVersionsResolver(
+            serverURL: configuration.serverURL,
+            http: http,
+            store: store
+        ).resolve()
     }
 
     private func fetchCurrentRelease() async throws -> CurrentRelease {

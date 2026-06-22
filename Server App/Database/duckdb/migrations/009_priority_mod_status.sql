@@ -1,5 +1,6 @@
--- Normalize accepted mod states in reporting views.
--- The production mod table uses `ok` for accepted active mods, not only `active`.
+-- Treat admin-prioritized mods as accepted active mods in reporting and release accounting.
+-- Priority status is intentionally stored in core.mods.active_status so it survives
+-- version seeding, update scans, and website inventory queries without a side table.
 
 CREATE OR REPLACE VIEW reporting.v_mods_by_minecraft_version AS
 SELECT

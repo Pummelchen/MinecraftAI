@@ -1207,6 +1207,18 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     }
 
     private func minecraftServerVersions() throws -> HTTPResponse {
+        let hasInstallerName = try reportingViewHasColumn("v_minecraft_server_versions", column: "installer_name")
+        let hasInstallerSHA256 = try reportingViewHasColumn("v_minecraft_server_versions", column: "installer_sha256")
+        let hasInstallerURL = try reportingViewHasColumn("v_minecraft_server_versions", column: "installer_url")
+        let installerNameSQL = hasInstallerName
+            ? "COALESCE(installer_name, '') AS installer_name"
+            : "'' AS installer_name"
+        let installerSHA256SQL = hasInstallerSHA256
+            ? "COALESCE(installer_sha256, '') AS installer_sha256"
+            : "'' AS installer_sha256"
+        let installerURLSQL = hasInstallerURL
+            ? "COALESCE(installer_url, '') AS installer_url"
+            : "'' AS installer_url"
         let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
         SELECT
           minecraft_version,
@@ -1219,16 +1231,22 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
           is_live,
           sort_order,
           CAST(updated_at AS VARCHAR) AS updated_at,
-          COALESCE(notes, '') AS notes
+          COALESCE(notes, '') AS notes,
+          \(installerNameSQL),
+          \(installerSHA256SQL),
+          \(installerURLSQL)
         FROM reporting.v_minecraft_server_versions
         ORDER BY sort_order, minecraft_version;
         """)
         var versions = Self.parseCSV(csv).map { row -> [String: Any] in
             let minecraftVersion = row["minecraft_version"] ?? ""
+            let loaderVersion = row["loader_version"] ?? ""
+            let installerName = row["installer_name"] ?? Self.neoForgeInstallerName(loaderVersion: loaderVersion)
+            let installerURL = row["installer_url"] ?? Self.neoForgeInstallerURL(loaderVersion: loaderVersion)
             return [
                 "minecraft_version": minecraftVersion,
                 "loader": row["loader"] ?? "neoforge",
-                "loader_version": row["loader_version"] ?? "",
+                "loader_version": loaderVersion,
                 "server_name": row["server_name"] ?? "Pummelchen Server \(minecraftVersion)",
                 "server_address": row["server_address"] ?? "",
                 "server_dir": row["server_dir"] ?? "",
@@ -1236,6 +1254,9 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 "is_live": Self.duckBool(row["is_live"] ?? ""),
                 "sort_order": Int(row["sort_order"] ?? "") ?? 100,
                 "updated_at": Self.isoTimestamp(fromDuckDB: row["updated_at"] ?? ""),
+                "installer_name": installerName.isEmpty ? Self.neoForgeInstallerName(loaderVersion: loaderVersion) : installerName,
+                "installer_sha256": row["installer_sha256"] ?? "",
+                "installer_url": installerURL.isEmpty ? Self.neoForgeInstallerURL(loaderVersion: loaderVersion) : installerURL,
                 "page_url": Self.versionPageURL(minecraftVersion: minecraftVersion),
                 "notes": row["notes"] ?? ""
             ]
@@ -1263,6 +1284,25 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             "Cache-Control": "no-store, max-age=0",
             "X-Pummelchen-Stats-Source": "swift-server-duckdb"
         ])
+    }
+
+    private func reportingViewHasColumn(_ view: String, column: String) throws -> Bool {
+        let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+        SELECT COUNT(*) AS c
+        FROM information_schema.columns
+        WHERE table_schema = 'reporting'
+          AND table_name = \(Self.sqlLiteral(view))
+          AND column_name = \(Self.sqlLiteral(column));
+        """)
+        return Self.parseCSV(csv).first?["c"] == "1"
+    }
+
+    private static func neoForgeInstallerName(loaderVersion: String) -> String {
+        loaderVersion.isEmpty ? "" : "neoforge-\(loaderVersion)-installer.jar"
+    }
+
+    private static func neoForgeInstallerURL(loaderVersion: String) -> String {
+        loaderVersion.isEmpty ? "" : "https://maven.neoforged.net/releases/net/neoforged/neoforge/\(loaderVersion)/neoforge-\(loaderVersion)-installer.jar"
     }
 
     private static func compatibleInventoryCountsByMinecraftVersion(rows: [[String: Any]]) -> [String: Int] {

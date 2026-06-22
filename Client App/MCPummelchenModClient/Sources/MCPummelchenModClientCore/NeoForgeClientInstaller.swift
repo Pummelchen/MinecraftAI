@@ -41,6 +41,34 @@ public struct NeoForgeClientRequirement: Equatable, Sendable {
             downloadURL: URL(string: "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.2.0.3-beta/neoforge-26.2.0.3-beta-installer.jar")!
         )
     ]
+
+    public static func requirements(from servers: [MinecraftSupportedServer]) -> [NeoForgeClientRequirement] {
+        let fallbackByLoaderVersion = Dictionary(uniqueKeysWithValues: supported.map { ($0.loaderVersion, $0) })
+        var seen = Set<String>()
+        return servers.compactMap { server in
+            guard server.loader.lowercased() == "neoforge",
+                  !server.minecraftVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !server.loaderVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  seen.insert(server.loaderVersion).inserted else {
+                return nil
+            }
+            if let installerName = server.installerName?.trimmingCharacters(in: .whitespacesAndNewlines),
+               let installerSHA256 = server.installerSHA256?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+               let installerURL = server.installerURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !installerName.isEmpty,
+               installerSHA256.range(of: #"^[0-9a-f]{64}$"#, options: .regularExpression) != nil,
+               let downloadURL = URL(string: installerURL) {
+                return NeoForgeClientRequirement(
+                    minecraftVersion: server.minecraftVersion,
+                    loaderVersion: server.loaderVersion,
+                    installerName: installerName,
+                    installerSHA256: installerSHA256,
+                    downloadURL: downloadURL
+                )
+            }
+            return fallbackByLoaderVersion[server.loaderVersion]
+        }
+    }
 }
 
 public enum NeoForgeClientInstallerError: Error, CustomStringConvertible {

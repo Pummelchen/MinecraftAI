@@ -13,6 +13,10 @@ DuckDB is the production database and the only supported project database.
 - `migrations/004_client_inventory_by_version.sql`: creates the canonical version-keyed client inventory table used when clients report multiple supported Minecraft versions.
 - `migrations/005_reporting_status_normalization.sql`: normalizes accepted mod states so reporting treats both `active` and `ok` as live accepted mods.
 - `migrations/006_release_history_source_of_truth.sql`: makes `release.pack_releases` the DuckDB source of truth for release-history reporting and retires the old tested-updates feed table.
+- `migrations/007_mod_source_links.sql`: stores multiple normalized provider links per mod source, such as primary, Modrinth, CurseForge, and official.
+- `migrations/008_mod_source_discovery_results.sql`: records source-link discovery attempts and outcomes.
+- `migrations/009_priority_mod_status.sql`: treats `Priority Mod` as an accepted active status for reporting and update-release accounting.
+- `migrations/010_server_version_installer_metadata.sql`: adds per-version NeoForge installer name, URL, and SHA256 fields for server-driven macOS client setup.
 
 ## Apply Migrations
 
@@ -56,6 +60,8 @@ swift run --package-path "Server App/MCPummelchenModServer" pummelchen-duckdb ve
 The Swift server app, client app, and database helper tools read and write DuckDB through the embedded DuckDB C API wrapper in `MCPummelchenModShared`. Runtime code should not shell out to the DuckDB CLI for normal database reads, writes, migrations, health checks, client reports, release state, world reset records, or Parquet exports.
 
 ## Versioned Mod Tracking
+
+`core.minecraft_server_versions` is the source of truth for supported server versions, server addresses, live/staging state, and NeoForge installer requirements published to macOS clients. Clients fetch `/api/v1/minecraft/server-versions`, persist that list locally, and use the app-bundled versions only as a bootstrap fallback when the server cannot be reached.
 
 `core.mod_sources`, `core.mod_source_links`, `core.mods`, `core.mod_files`, and `core.mod_server_files` are version-aware. `core.mod_sources` keeps the installed artifact/source row used by compatibility scans, while `core.mod_source_links` stores the normalized set of provider links for that source, including `primary`, `modrinth`, `curseforge`, and `official` link roles. The daily Swift update scan treats the live Minecraft version as the baseline and seeds missing staging-version candidates before crawling Modrinth and CurseForge. Seeded staging rows are marked as compatibility candidates, not deployed installs; scan results then record whether a real upstream file exists for that Minecraft/NeoForge version.
 

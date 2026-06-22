@@ -272,17 +272,32 @@ public struct ClientSyncEngine: Sendable {
     }
 
     private func minecraftDefaults() async throws -> MinecraftClientDefaults {
+        let supportedServers = await supportedServers()
+        let liveServer = supportedServers.first(where: \.isLive) ?? supportedServers.first
         guard configuration.manageJavaRuntime else {
-            return MinecraftClientDefaults()
+            return MinecraftClientDefaults(supportedServers: supportedServers)
         }
         let status = try await JavaRuntimeManager.ensureInstalled(pummelchenHome: configuration.pummelchenHome)
-        let loader = NeoForgeClientRequirement.live
+        let requirements = NeoForgeClientRequirement.requirements(from: supportedServers)
         try await NeoForgeClientInstaller.ensureSupportedInstalled(
             minecraftDirectory: configuration.minecraftDirectory,
             pummelchenHome: configuration.pummelchenHome,
-            javaExecutable: status.javaExecutableURL
+            javaExecutable: status.javaExecutableURL,
+            requirements: requirements.isEmpty ? NeoForgeClientRequirement.supported : requirements
         )
-        return MinecraftClientDefaults(javaExecutablePath: status.javaExecutableURL.path, loaderVersion: loader.loaderVersion)
+        return MinecraftClientDefaults(
+            javaExecutablePath: status.javaExecutableURL.path,
+            loaderVersion: liveServer?.loaderVersion ?? NeoForgeClientRequirement.live.loaderVersion,
+            supportedServers: supportedServers
+        )
+    }
+
+    private func supportedServers() async -> [MinecraftSupportedServer] {
+        await ClientSupportedVersionsResolver(
+            serverURL: configuration.serverURL,
+            http: http,
+            store: store
+        ).resolve()
     }
 
     private func fetchManifest(for release: CurrentRelease) async throws -> ClientSyncManifest {

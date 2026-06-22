@@ -435,6 +435,25 @@ struct MCPummelchenModServerCoreTests {
           loader VARCHAR,
           loader_version VARCHAR
         );
+        CREATE TABLE core.mods(
+          id BIGINT PRIMARY KEY,
+          canonical_key VARCHAR,
+          name VARCHAR,
+          category VARCHAR,
+          active_status VARCHAR,
+          server_status VARCHAR,
+          client_package VARCHAR,
+          primary_url VARCHAR,
+          updated_at TIMESTAMP,
+          minecraft_version VARCHAR,
+          loader VARCHAR,
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mods VALUES (
+          1, 'example-mod', 'Example Mod', 'Gameplay', 'ok', 'Installed',
+          'Server & Client', 'https://www.curseforge.com/minecraft/mc-mods/example-mod',
+          now(), '26.1.2', 'neoforge', '26.1.2.76'
+        );
         INSERT INTO core.mod_sources(
           source_id, mod_key, display_name, installed_file, installed_version,
           provider, source_url, priority, active, minecraft_version, loader, loader_version
@@ -698,11 +717,15 @@ struct MCPummelchenModServerCoreTests {
         #expect(versions.first?["minecraft_version"] as? String == "26.1.2")
         #expect(versions.first?["is_live"] as? Bool == true)
         #expect(versions.first?["page_url"] as? String == "server-26.1.2.html")
+        #expect(versions.first?["installer_name"] as? String == "neoforge-26.1.2.76-installer.jar")
+        #expect(versions.first?["installer_url"] as? String == "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.1.2.76/neoforge-26.1.2.76-installer.jar")
         #expect(versions.first?["server_mod_count"] as? Int == 4)
         #expect(versions.first?["client_mod_count"] as? Int == 4)
         #expect(versions.last?["minecraft_version"] as? String == "26.2")
         #expect(versions.last?["status"] as? String == "staging")
         #expect(versions.last?["page_url"] as? String == "server-26.2.html")
+        #expect(versions.last?["installer_name"] as? String == "neoforge-26.2.0.3-beta-installer.jar")
+        #expect(versions.last?["installer_url"] as? String == "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.2.0.3-beta/neoforge-26.2.0.3-beta-installer.jar")
         #expect(versions.last?["server_mod_count"] as? Int == 0)
         #expect(versions.last?["client_mod_count"] as? Int == 0)
     }
@@ -1482,6 +1505,25 @@ struct MCPummelchenModServerCoreTests {
           '26.1.2', 'neoforge', '26.1.2.76', 'Pummelchen Server 26.1.2',
           '127.0.0.1:25565', \(sqlLiteral(serverDir.path)), 'live', true, 10
         );
+        CREATE TABLE core.mods(
+          id BIGINT PRIMARY KEY,
+          canonical_key VARCHAR,
+          name VARCHAR,
+          category VARCHAR,
+          active_status VARCHAR,
+          server_status VARCHAR,
+          client_package VARCHAR,
+          primary_url VARCHAR,
+          updated_at TIMESTAMP,
+          minecraft_version VARCHAR,
+          loader VARCHAR,
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mods VALUES (
+          1, 'example-mod', 'Example Mod', 'Gameplay', 'ok', 'Installed',
+          'Server & Client', 'https://www.curseforge.com/minecraft/mc-mods/example-mod',
+          now(), '26.1.2', 'neoforge', '26.1.2.76'
+        );
         CREATE TABLE core.mod_sources(
           source_id VARCHAR PRIMARY KEY,
           mod_key VARCHAR,
@@ -1572,6 +1614,150 @@ struct MCPummelchenModServerCoreTests {
         #expect(try duckDBScalar(database: database, sql: "SELECT installed_file FROM core.mod_sources WHERE source_id = 'curseforge_1_10_mc_26_1_2';") == "example-mod-2.0.0.jar")
     }
 
+    @Test("mod update apply isolates priority candidates from non-priority failures")
+    func modUpdateApplyIsolatesPriorityCandidatesFromNonPriorityFailures() throws {
+        try requireDuckDB()
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-priority-mod-update-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let serverDir = root.appendingPathComponent("server", isDirectory: true)
+        try FileManager.default.createDirectory(at: serverDir.appendingPathComponent("mods"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: serverDir.appendingPathComponent("client-package/mods"), withIntermediateDirectories: true)
+        let priorityOld = try writeNeoForgeJar(root: root, fileName: "priority-plane-1.0.0.jar", displayName: "Priority Plane", version: "1.0.0", side: "BOTH")
+        let regularOld = try writeNeoForgeJar(root: root, fileName: "regular-mod-1.0.0.jar", displayName: "Regular Mod", version: "1.0.0", side: "BOTH")
+        try FileManager.default.copyItem(at: priorityOld, to: serverDir.appendingPathComponent("mods/priority-plane-1.0.0.jar"))
+        try FileManager.default.copyItem(at: priorityOld, to: serverDir.appendingPathComponent("client-package/mods/priority-plane-1.0.0.jar"))
+        try FileManager.default.copyItem(at: regularOld, to: serverDir.appendingPathComponent("mods/regular-mod-1.0.0.jar"))
+        try FileManager.default.copyItem(at: regularOld, to: serverDir.appendingPathComponent("client-package/mods/regular-mod-1.0.0.jar"))
+
+        let downloads = root.appendingPathComponent("downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+        _ = try writeNeoForgeJar(root: downloads, fileName: "priority-plane-2.0.0.jar", displayName: "Priority Plane", version: "2.0.0", side: "BOTH")
+        let http = try LocalHTTPServer(root: downloads)
+        try http.start()
+        defer { http.stop() }
+
+        let database = root.appendingPathComponent("priority-updates.duckdb")
+        try DuckDBDatabase(databaseURL: database).execute("""
+        CREATE SCHEMA IF NOT EXISTS core;
+        CREATE TABLE core.minecraft_server_versions(
+          minecraft_version VARCHAR PRIMARY KEY,
+          loader VARCHAR,
+          loader_version VARCHAR,
+          server_name VARCHAR,
+          server_address VARCHAR,
+          server_dir VARCHAR,
+          status VARCHAR,
+          is_live BOOLEAN,
+          sort_order INTEGER,
+          created_at TIMESTAMP DEFAULT now(),
+          updated_at TIMESTAMP DEFAULT now(),
+          notes VARCHAR
+        );
+        INSERT INTO core.minecraft_server_versions(
+          minecraft_version, loader, loader_version, server_name, server_address,
+          server_dir, status, is_live, sort_order
+        ) VALUES (
+          '26.1.2', 'neoforge', '26.1.2.76', 'Pummelchen Server 26.1.2',
+          '127.0.0.1:25565', \(sqlLiteral(serverDir.path)), 'live', true, 10
+        );
+        CREATE TABLE core.mods(
+          id BIGINT PRIMARY KEY,
+          canonical_key VARCHAR,
+          name VARCHAR,
+          category VARCHAR,
+          active_status VARCHAR,
+          server_status VARCHAR,
+          client_package VARCHAR,
+          primary_url VARCHAR,
+          updated_at TIMESTAMP,
+          minecraft_version VARCHAR,
+          loader VARCHAR,
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mods VALUES
+          (1, 'priority-plane', 'Priority Plane', 'Player Transport', 'Priority Mod', 'Priority release target', 'Server & Client', 'https://example.test/priority-plane', now(), '26.1.2', 'neoforge', '26.1.2.76'),
+          (2, 'regular-mod', 'Regular Mod', 'Gameplay', 'ok', 'Installed', 'Server & Client', 'https://example.test/regular-mod', now(), '26.1.2', 'neoforge', '26.1.2.76');
+        CREATE TABLE core.mod_sources(
+          source_id VARCHAR PRIMARY KEY,
+          mod_key VARCHAR,
+          display_name VARCHAR,
+          installed_file VARCHAR,
+          installed_version VARCHAR,
+          provider VARCHAR,
+          source_url VARCHAR,
+          priority INTEGER,
+          active BOOLEAN,
+          created_at TIMESTAMP DEFAULT now(),
+          updated_at TIMESTAMP DEFAULT now(),
+          minecraft_version VARCHAR,
+          loader VARCHAR,
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mod_sources(
+          source_id, mod_key, display_name, installed_file, installed_version,
+          provider, source_url, priority, active, minecraft_version, loader, loader_version
+        ) VALUES
+          ('priority_source', 'priority-plane', 'Priority Plane', 'priority-plane-1.0.0.jar', '1.0.0', 'curseforge', 'https://example.test/priority-plane', 1, true, '26.1.2', 'neoforge', '26.1.2.76'),
+          ('regular_source', 'regular-mod', 'Regular Mod', 'regular-mod-1.0.0.jar', '1.0.0', 'curseforge', 'https://example.test/regular-mod', 100, true, '26.1.2', 'neoforge', '26.1.2.76');
+        CREATE TABLE core.mod_update_scans(
+          scan_id VARCHAR PRIMARY KEY,
+          started_at TIMESTAMP,
+          finished_at TIMESTAMP,
+          status VARCHAR,
+          urls_checked INTEGER,
+          candidates_found INTEGER,
+          unresolved INTEGER,
+          notes VARCHAR,
+          minecraft_version VARCHAR,
+          loader VARCHAR,
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mod_update_scans VALUES (
+          'scan_priority', TIMESTAMP '2026-06-19 12:00:00', TIMESTAMP '2026-06-19 12:00:10',
+          'completed', 2, 2, 0, 'test', '26.1.2', 'neoforge', '26.1.2.76'
+        );
+        CREATE TABLE core.mod_update_scan_results(
+          result_id VARCHAR PRIMARY KEY,
+          scan_id VARCHAR,
+          source_id VARCHAR,
+          checked_at TIMESTAMP,
+          provider VARCHAR,
+          source_url VARCHAR,
+          status VARCHAR,
+          installed_file VARCHAR,
+          installed_version VARCHAR,
+          latest_version VARCHAR,
+          latest_url VARCHAR,
+          details VARCHAR,
+          minecraft_version VARCHAR,
+          loader VARCHAR,
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mod_update_scan_results VALUES
+          ('priority_result', 'scan_priority', 'priority_source', now(), 'curseforge', 'https://example.test/priority-plane', 'update_available', 'priority-plane-1.0.0.jar', '1.0.0', '2.0.0', 'http://127.0.0.1:\(http.port)/priority-plane-2.0.0.jar', 'priority candidate', '26.1.2', 'neoforge', '26.1.2.76'),
+          ('regular_result', 'scan_priority', 'regular_source', now(), 'curseforge', 'https://example.test/regular-mod', 'update_available', 'regular-mod-1.0.0.jar', '1.0.0', '2.0.0', 'http://127.0.0.1:1/regular-mod-2.0.0.jar', 'non-priority candidate with broken URL', '26.1.2', 'neoforge', '26.1.2.76');
+        """)
+
+        let result = try ModUpdateApplyPipeline(config: ModUpdateApplyPipelineConfig(
+            projectRoot: root,
+            releaseRoot: root.appendingPathComponent("releases", isDirectory: true),
+            publicDownloads: root.appendingPathComponent("site/public/downloads", isDirectory: true),
+            databaseURL: database,
+            minecraftVersion: "26.1.2",
+            releaseIDPrefix: "release_20260619_V103_priority_mod_updates",
+            activateLiveVersions: true,
+            dryRun: false
+        )).run()
+
+        #expect(result.versions.first?.status == "active")
+        #expect(result.versions.first?.appliedUpdates.map(\.newFile) == ["priority-plane-2.0.0.jar"])
+        #expect(FileManager.default.fileExists(atPath: serverDir.appendingPathComponent("mods/priority-plane-2.0.0.jar").path))
+        #expect(FileManager.default.fileExists(atPath: serverDir.appendingPathComponent("mods/regular-mod-1.0.0.jar").path))
+        #expect(!FileManager.default.fileExists(atPath: serverDir.appendingPathComponent("mods/regular-mod-2.0.0.jar").path))
+    }
+
     @Test("mod update apply blocks incomplete staging packages")
     func modUpdateApplyBlocksIncompleteStagingPackage() throws {
         try requireDuckDB()
@@ -1601,6 +1787,49 @@ struct MCPummelchenModServerCoreTests {
           '26.2', 'neoforge', '26.2.0.3-beta', 'Pummelchen Server 26.2',
           '127.0.0.1:25566', \(sqlLiteral(serverDir.path)), 'staging',
           false, 20, now(), now(), 'test'
+        );
+        CREATE TABLE core.mods(
+          id BIGINT PRIMARY KEY,
+          canonical_key VARCHAR,
+          name VARCHAR,
+          category VARCHAR,
+          active_status VARCHAR,
+          server_status VARCHAR,
+          client_package VARCHAR,
+          primary_url VARCHAR,
+          updated_at TIMESTAMP,
+          minecraft_version VARCHAR,
+          loader VARCHAR,
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mods VALUES (
+          1, 'dependency', 'Dependency', 'Dependency', 'ok', 'Installed',
+          'Server & Client', 'https://www.curseforge.com/minecraft/mc-mods/dependency',
+          now(), '26.2', 'neoforge', '26.2.0.3-beta'
+        );
+        CREATE TABLE core.mod_sources(
+          source_id VARCHAR PRIMARY KEY,
+          mod_key VARCHAR,
+          display_name VARCHAR,
+          installed_file VARCHAR,
+          installed_version VARCHAR,
+          provider VARCHAR,
+          source_url VARCHAR,
+          priority INTEGER,
+          active BOOLEAN,
+          created_at TIMESTAMP DEFAULT now(),
+          updated_at TIMESTAMP DEFAULT now(),
+          minecraft_version VARCHAR,
+          loader VARCHAR,
+          loader_version VARCHAR
+        );
+        INSERT INTO core.mod_sources(
+          source_id, mod_key, display_name, installed_file, installed_version,
+          provider, source_url, priority, active, minecraft_version, loader, loader_version
+        ) VALUES (
+          'curseforge_dep_mc_26_2', 'dependency', 'Dependency', 'dependency-old.jar',
+          '1.0.0', 'curseforge', 'https://www.curseforge.com/minecraft/mc-mods/dependency',
+          100, true, '26.2', 'neoforge', '26.2.0.3-beta'
         );
         CREATE TABLE core.mod_update_scans(
           scan_id VARCHAR PRIMARY KEY,

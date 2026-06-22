@@ -1,27 +1,93 @@
 import Foundation
 
-public struct MinecraftSupportedServer: Equatable, Sendable {
+public struct MinecraftSupportedServer: Codable, Equatable, Sendable {
     public let minecraftVersion: String
+    public let loader: String
     public let loaderVersion: String
     public let serverName: String
     public let serverAddress: String
     public let isLive: Bool
     public let status: String
+    public let installerName: String?
+    public let installerSHA256: String?
+    public let installerURL: String?
+
+    enum CodingKeys: String, CodingKey {
+        case minecraftVersion = "minecraft_version"
+        case loader
+        case loaderVersion = "loader_version"
+        case serverName = "server_name"
+        case serverAddress = "server_address"
+        case isLive = "is_live"
+        case status
+        case installerName = "installer_name"
+        case installerSHA256 = "installer_sha256"
+        case installerURL = "installer_url"
+    }
 
     public init(
         minecraftVersion: String,
+        loader: String = "neoforge",
         loaderVersion: String,
         serverName: String? = nil,
         serverAddress: String,
         isLive: Bool = false,
-        status: String? = nil
+        status: String? = nil,
+        installerName: String? = nil,
+        installerSHA256: String? = nil,
+        installerURL: String? = nil
     ) {
         self.minecraftVersion = minecraftVersion
+        self.loader = loader
         self.loaderVersion = loaderVersion
         self.serverName = serverName ?? "Pummelchen Server \(minecraftVersion)"
         self.serverAddress = serverAddress
         self.isLive = isLive
         self.status = status ?? (isLive ? "live" : "staging")
+        self.installerName = installerName
+        self.installerSHA256 = installerSHA256
+        self.installerURL = installerURL
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let minecraftVersion = try container.decode(String.self, forKey: .minecraftVersion)
+        let loader = try container.decodeIfPresent(String.self, forKey: .loader) ?? "neoforge"
+        let loaderVersion = try container.decode(String.self, forKey: .loaderVersion)
+        let serverName = try container.decodeIfPresent(String.self, forKey: .serverName)
+        let serverAddress = try container.decode(String.self, forKey: .serverAddress)
+        let isLive = try container.decodeIfPresent(Bool.self, forKey: .isLive) ?? false
+        let status = try container.decodeIfPresent(String.self, forKey: .status)
+        self.init(
+            minecraftVersion: minecraftVersion,
+            loader: loader,
+            loaderVersion: loaderVersion,
+            serverName: serverName,
+            serverAddress: serverAddress,
+            isLive: isLive,
+            status: status,
+            installerName: try container.decodeIfPresent(String.self, forKey: .installerName),
+            installerSHA256: try container.decodeIfPresent(String.self, forKey: .installerSHA256),
+            installerURL: try container.decodeIfPresent(String.self, forKey: .installerURL)
+        )
+    }
+}
+
+public struct MinecraftSupportedServersResponse: Codable, Equatable, Sendable {
+    public let apiVersion: String?
+    public let generatedAt: String?
+    public let versions: [MinecraftSupportedServer]
+
+    enum CodingKeys: String, CodingKey {
+        case apiVersion = "api_version"
+        case generatedAt = "generated_at"
+        case versions
+    }
+
+    public init(apiVersion: String? = nil, generatedAt: String? = nil, versions: [MinecraftSupportedServer]) {
+        self.apiVersion = apiVersion
+        self.generatedAt = generatedAt
+        self.versions = versions
     }
 }
 
@@ -43,13 +109,19 @@ public struct MinecraftClientDefaults: Equatable, Sendable {
             minecraftVersion: "26.1.2",
             loaderVersion: "26.1.2.76",
             serverAddress: "91.99.176.243:25565",
-            isLive: true
+            isLive: true,
+            installerName: "neoforge-26.1.2.76-installer.jar",
+            installerSHA256: "f67bf87ddf8f3095ddbae4c78dbbbf5615e08b6982f4e84159eab951235974ec",
+            installerURL: "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.1.2.76/neoforge-26.1.2.76-installer.jar"
         ),
         MinecraftSupportedServer(
             minecraftVersion: "26.2",
             loaderVersion: "26.2.0.3-beta",
             serverAddress: "91.99.176.243:25566",
-            isLive: false
+            isLive: false,
+            installerName: "neoforge-26.2.0.3-beta-installer.jar",
+            installerSHA256: "90fad51778895f921182d6685719cba8a6d8caff69974d721bbdef750fe34c24",
+            installerURL: "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.2.0.3-beta/neoforge-26.2.0.3-beta-installer.jar"
         )
     ]
 

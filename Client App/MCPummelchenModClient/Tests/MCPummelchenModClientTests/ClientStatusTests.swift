@@ -40,6 +40,69 @@ struct ClientStatusTests {
         #expect(ClientCredentialProvider.clientAPIToken(environmentToken: nil, infoPlistToken: nil, resourceURLs: [nil]) == nil)
     }
 
+    @Test("supported Minecraft versions are fetched from server and persisted locally")
+    func supportedMinecraftVersionsAreFetchedFromServerAndPersistedLocally() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-client-supported-versions-\(UUID().uuidString)", isDirectory: true)
+        let site = root.appendingPathComponent("site", isDirectory: true)
+        let apiDir = site.appendingPathComponent("api/v1/minecraft", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try FileManager.default.createDirectory(at: apiDir, withIntermediateDirectories: true)
+        let installerSHA = String(repeating: "a", count: 64)
+        try """
+        {
+          "api_version": "v1",
+          "generated_at": "2026-06-22T00:00:00Z",
+          "versions": [
+            {
+              "minecraft_version": "26.1.2",
+              "loader": "neoforge",
+              "loader_version": "26.1.2.76",
+              "server_name": "Pummelchen Server 26.1.2",
+              "server_address": "91.99.176.243:25565",
+              "status": "live",
+              "is_live": true,
+              "installer_name": "neoforge-26.1.2.76-installer.jar",
+              "installer_sha256": "f67bf87ddf8f3095ddbae4c78dbbbf5615e08b6982f4e84159eab951235974ec",
+              "installer_url": "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.1.2.76/neoforge-26.1.2.76-installer.jar"
+            },
+            {
+              "minecraft_version": "26.3",
+              "loader": "neoforge",
+              "loader_version": "26.3.0.1-beta",
+              "server_name": "Pummelchen Server 26.3",
+              "server_address": "91.99.176.243:25567",
+              "status": "staging",
+              "is_live": false,
+              "installer_name": "neoforge-26.3.0.1-beta-installer.jar",
+              "installer_sha256": "\(installerSHA)",
+              "installer_url": "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.3.0.1-beta/neoforge-26.3.0.1-beta-installer.jar"
+            }
+          ]
+        }
+        """.write(to: apiDir.appendingPathComponent("server-versions"), atomically: true, encoding: .utf8)
+
+        let server = try LocalHTTPServer(root: site)
+        try server.start()
+        defer { server.stop() }
+
+        let store = ClientStatusStore(databaseURL: home.appendingPathComponent("client.duckdb"))
+        let resolver = ClientSupportedVersionsResolver(
+            serverURL: URL(string: "http://127.0.0.1:\(server.port)")!,
+            http: ClientHTTPClient(retryPolicy: ClientHTTPRetryPolicy(maxAttempts: 1, requestTimeoutSeconds: 2, baseDelayNanoseconds: 0)),
+            store: store
+        )
+        let supported = await resolver.resolve()
+        let persisted = try store.loadSupportedServers()
+        let requirements = NeoForgeClientRequirement.requirements(from: supported)
+
+        #expect(supported.contains { $0.minecraftVersion == "26.3" && $0.serverName == "Pummelchen Server 26.3" })
+        #expect(persisted.contains { $0.minecraftVersion == "26.3" && $0.installerSHA256 == installerSHA })
+        #expect(requirements.contains { $0.minecraftVersion == "26.3" && $0.loaderVersion == "26.3.0.1-beta" && $0.installerSHA256 == installerSHA })
+    }
+
     @Test("default inspector reports healthy configured Minecraft defaults")
     func defaultInspectorReportsHealthyDefaults() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())

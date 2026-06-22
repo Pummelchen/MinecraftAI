@@ -123,7 +123,9 @@ public struct ModUpdateApplyPipeline: Sendable {
     }
 
     private func apply(version: VersionTarget) throws -> ModUpdateApplyVersionResult {
-        let candidates = try loadLatestCandidates(for: version)
+        let scannedCandidates = try loadLatestCandidates(for: version)
+        let priorityCandidates = scannedCandidates.filter(\.isPriority)
+        let candidates = priorityCandidates.isEmpty ? scannedCandidates : priorityCandidates
         guard !candidates.isEmpty else {
             return ModUpdateApplyVersionResult(
                 minecraftVersion: version.minecraftVersion,
@@ -138,7 +140,7 @@ public struct ModUpdateApplyPipeline: Sendable {
             try recordUpdateActivity(
                 version: version,
                 status: "blocked",
-                message: "Minecraft \(version.minecraftVersion) has \(candidates.count) update candidate(s), but the package is not releasable: \(packageProblem)"
+                message: "Minecraft \(version.minecraftVersion) has \(candidates.count) \(priorityCandidates.isEmpty ? "" : "priority ")update candidate(s), but the package is not releasable: \(packageProblem)"
             )
             return ModUpdateApplyVersionResult(
                 minecraftVersion: version.minecraftVersion,
@@ -180,7 +182,7 @@ public struct ModUpdateApplyPipeline: Sendable {
             try recordUpdateActivity(
                 version: version,
                 status: release.activated ? "active" : "staged",
-                message: "Applied \(applied.count) mod update(s) for Minecraft \(version.minecraftVersion) and created \(release.releaseID)."
+                message: "Applied \(applied.count) \(priorityCandidates.isEmpty ? "" : "priority ")mod update(s) for Minecraft \(version.minecraftVersion) and created \(release.releaseID)."
             )
         }
 
@@ -333,12 +335,29 @@ public struct ModUpdateApplyPipeline: Sendable {
           COALESCE(r.installed_file, '') AS installed_file,
           COALESCE(r.installed_version, '') AS installed_version,
           COALESCE(r.latest_version, '') AS latest_version,
-          COALESCE(r.latest_url, '') AS latest_url
+          COALESCE(r.latest_url, '') AS latest_url,
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM core.mod_sources s
+              JOIN core.mods m
+                ON COALESCE(m.minecraft_version, \(Self.sqlLiteral(version.minecraftVersion))) = \(Self.sqlLiteral(version.minecraftVersion))
+               AND (
+                    lower(COALESCE(m.canonical_key, '')) = lower(COALESCE(s.mod_key, ''))
+                 OR lower(COALESCE(m.primary_url, '')) = lower(COALESCE(s.source_url, ''))
+                 OR lower(COALESCE(m.name, '')) = lower(COALESCE(s.display_name, ''))
+               )
+              WHERE s.source_id = r.source_id
+                AND COALESCE(s.minecraft_version, \(Self.sqlLiteral(version.minecraftVersion))) = \(Self.sqlLiteral(version.minecraftVersion))
+                AND lower(COALESCE(m.active_status, '')) = 'priority mod'
+            ) THEN 1
+            ELSE 0
+          END AS is_priority
         FROM core.mod_update_scan_results r
         JOIN latest_scan s ON s.scan_id = r.scan_id
         WHERE r.status = 'update_available'
           AND COALESCE(r.latest_url, '') <> ''
-        ORDER BY r.installed_file, r.latest_url;
+        ORDER BY is_priority DESC, r.installed_file, r.latest_url;
         """)
         return Self.parseCSV(csv).compactMap { row in
             guard let latestURL = row["latest_url"], !latestURL.isEmpty else { return nil }
@@ -349,7 +368,8 @@ public struct ModUpdateApplyPipeline: Sendable {
                 installedFile: row["installed_file"] ?? "",
                 installedVersion: row["installed_version"] ?? "",
                 latestVersion: row["latest_version"] ?? "",
-                latestURL: latestURL
+                latestURL: latestURL,
+                isPriority: Self.duckBool(row["is_priority"] ?? "")
             )
         }
     }
@@ -638,6 +658,7 @@ private struct UpdateCandidate {
     let installedVersion: String
     let latestVersion: String
     let latestURL: String
+    let isPriority: Bool
 }
 
 private struct JarMetadata {

@@ -2,7 +2,7 @@ import Foundation
 import MCPummelchenModShared
 
 public struct ClientStatusStore: Sendable {
-    public static let schemaVersion = 3
+    public static let schemaVersion = 4
     private static let maxSyncRuns = 500
     private static let maxEndpointChecks = 2_000
     private static let maxManifestAudits = 500
@@ -121,6 +121,9 @@ public struct ClientStatusStore: Sendable {
           server_address VARCHAR NOT NULL,
           status VARCHAR NOT NULL,
           is_live BOOLEAN NOT NULL,
+          installer_name VARCHAR,
+          installer_sha256 VARCHAR,
+          installer_url VARCHAR,
           updated_at TIMESTAMP NOT NULL
         );
         ALTER TABLE release_history ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR;
@@ -133,6 +136,9 @@ public struct ClientStatusStore: Sendable {
         ALTER TABLE client_defaults ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
         ALTER TABLE manifest_audits ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR;
         ALTER TABLE manifest_audits ADD COLUMN IF NOT EXISTS loader_version VARCHAR;
+        ALTER TABLE client_supported_versions ADD COLUMN IF NOT EXISTS installer_name VARCHAR;
+        ALTER TABLE client_supported_versions ADD COLUMN IF NOT EXISTS installer_sha256 VARCHAR;
+        ALTER TABLE client_supported_versions ADD COLUMN IF NOT EXISTS installer_url VARCHAR;
         INSERT INTO client_schema_migrations(version, name, applied_at)
         VALUES (1, 'initial_client_state', now())
         ON CONFLICT(version) DO NOTHING;
@@ -141,6 +147,9 @@ public struct ClientStatusStore: Sendable {
         ON CONFLICT(version) DO NOTHING;
         INSERT INTO client_schema_migrations(version, name, applied_at)
         VALUES (3, 'minecraft_versioned_inventory', now())
+        ON CONFLICT(version) DO NOTHING;
+        INSERT INTO client_schema_migrations(version, name, applied_at)
+        VALUES (4, 'server_driven_supported_versions', now())
         ON CONFLICT(version) DO NOTHING;
         CREATE INDEX IF NOT EXISTS idx_sync_runs_finished_at ON sync_runs(finished_at);
         CREATE INDEX IF NOT EXISTS idx_sync_runs_target_result ON sync_runs(target_release_id, result);
@@ -152,6 +161,73 @@ public struct ClientStatusStore: Sendable {
         CREATE INDEX IF NOT EXISTS idx_manifest_audits_release_time ON manifest_audits(release_id, checked_at);
         """)
         try executeTransactional(supportedVersionStatements())
+    }
+
+    public func record(supportedServers: [MinecraftSupportedServer]) throws {
+        try initialize()
+        let now = Self.duckTimestamp(Date())
+        let statements = supportedServers.map { server in
+            """
+            INSERT INTO client_supported_versions(
+              minecraft_version, loader, loader_version, server_name, server_address,
+              status, is_live, installer_name, installer_sha256, installer_url, updated_at
+            )
+            VALUES (
+              \(Self.sqlLiteral(server.minecraftVersion)),
+              \(Self.sqlLiteral(server.loader)),
+              \(Self.sqlLiteral(server.loaderVersion)),
+              \(Self.sqlLiteral(server.serverName)),
+              \(Self.sqlLiteral(server.serverAddress)),
+              \(Self.sqlLiteral(server.status)),
+              \(server.isLive ? "true" : "false"),
+              \(Self.sqlLiteral(server.installerName)),
+              \(Self.sqlLiteral(server.installerSHA256)),
+              \(Self.sqlLiteral(server.installerURL)),
+              TIMESTAMP '\(now)'
+            )
+            ON CONFLICT(minecraft_version) DO UPDATE SET
+              loader = excluded.loader,
+              loader_version = excluded.loader_version,
+              server_name = excluded.server_name,
+              server_address = excluded.server_address,
+              status = excluded.status,
+              is_live = excluded.is_live,
+              installer_name = excluded.installer_name,
+              installer_sha256 = excluded.installer_sha256,
+              installer_url = excluded.installer_url,
+              updated_at = excluded.updated_at;
+            """
+        }
+        try executeTransactional(statements)
+    }
+
+    public func loadSupportedServers() throws -> [MinecraftSupportedServer] {
+        try initialize()
+        let csv = try DuckDBDatabase(databaseURL: databaseURL, readOnly: true).queryCSV("""
+        SELECT minecraft_version, loader, loader_version, server_name, server_address,
+               status, is_live, COALESCE(installer_name, '') AS installer_name,
+               COALESCE(installer_sha256, '') AS installer_sha256,
+               COALESCE(installer_url, '') AS installer_url
+        FROM client_supported_versions
+        ORDER BY is_live DESC, minecraft_version;
+        """)
+        return Self.parseCSVRows(csv).compactMap { row in
+            guard row.count >= 10, !row[0].isEmpty, !row[2].isEmpty, !row[4].isEmpty else {
+                return nil
+            }
+            return MinecraftSupportedServer(
+                minecraftVersion: row[0],
+                loader: row[1].isEmpty ? "neoforge" : row[1],
+                loaderVersion: row[2],
+                serverName: row[3].isEmpty ? nil : row[3],
+                serverAddress: row[4],
+                isLive: Self.duckBool(row[6]),
+                status: row[5].isEmpty ? nil : row[5],
+                installerName: row[7].isEmpty ? nil : row[7],
+                installerSHA256: row[8].isEmpty ? nil : row[8],
+                installerURL: row[9].isEmpty ? nil : row[9]
+            )
+        }
     }
 
     public func record(snapshot: ClientStatusSnapshot) throws {
@@ -453,28 +529,62 @@ public struct ClientStatusStore: Sendable {
             """
             INSERT INTO client_supported_versions(
               minecraft_version, loader, loader_version, server_name, server_address,
-              status, is_live, updated_at
+              status, is_live, installer_name, installer_sha256, installer_url, updated_at
             )
-            VALUES (
+            SELECT
               \(Self.sqlLiteral(server.minecraftVersion)),
-              'neoforge',
+              \(Self.sqlLiteral(server.loader)),
               \(Self.sqlLiteral(server.loaderVersion)),
               \(Self.sqlLiteral(server.serverName)),
               \(Self.sqlLiteral(server.serverAddress)),
               \(Self.sqlLiteral(server.status)),
               \(server.isLive ? "true" : "false"),
+              \(Self.sqlLiteral(server.installerName)),
+              \(Self.sqlLiteral(server.installerSHA256)),
+              \(Self.sqlLiteral(server.installerURL)),
               TIMESTAMP '\(now)'
-            )
-            ON CONFLICT(minecraft_version) DO UPDATE SET
-              loader = excluded.loader,
-              loader_version = excluded.loader_version,
-              server_name = excluded.server_name,
-              server_address = excluded.server_address,
-              status = excluded.status,
-              is_live = excluded.is_live,
-              updated_at = excluded.updated_at;
+            WHERE NOT EXISTS (
+              SELECT 1
+              FROM client_supported_versions
+              WHERE minecraft_version = \(Self.sqlLiteral(server.minecraftVersion))
+            );
             """
         }
+    }
+
+    private static func duckBool(_ value: String) -> Bool {
+        ["true", "t", "1", "yes"].contains(value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+    }
+
+    private static func parseCSVRows(_ csv: String) -> [[String]] {
+        csv.split(separator: "\n").dropFirst().map { parseCSVLine(String($0)) }
+    }
+
+    private static func parseCSVLine(_ line: String) -> [String] {
+        var fields: [String] = []
+        var current = ""
+        var quoted = false
+        let characters = Array(line)
+        var index = 0
+        while index < characters.count {
+            let char = characters[index]
+            if char == "\"" {
+                if quoted, index + 1 < characters.count, characters[index + 1] == "\"" {
+                    current.append("\"")
+                    index += 2
+                    continue
+                }
+                quoted.toggle()
+            } else if char == ",", !quoted {
+                fields.append(current)
+                current = ""
+            } else {
+                current.append(char)
+            }
+            index += 1
+        }
+        fields.append(current)
+        return fields
     }
 
     private func executeTransactional(_ statements: [String]) throws {
