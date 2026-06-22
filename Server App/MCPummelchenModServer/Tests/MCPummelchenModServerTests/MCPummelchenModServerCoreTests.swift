@@ -689,18 +689,31 @@ struct MCPummelchenModServerCoreTests {
           loader VARCHAR,
           loader_version VARCHAR
         );
-        INSERT INTO core.mods VALUES (
-          1, 'example-mod', 'Example Mod', 'Gameplay', 'ok', 'Installed',
-          'Server & Client', 'https://www.curseforge.com/minecraft/mc-mods/example-mod',
-          now(), '26.1.2', 'neoforge', '26.1.2.76'
-        );
+        INSERT INTO core.mods VALUES
+          (
+            1, 'example-mod', 'Example Mod', 'Gameplay', 'ok', 'Installed',
+            'Server & Client', 'https://www.curseforge.com/minecraft/mc-mods/example-mod',
+            now(), '26.1.2', 'neoforge', '26.1.2.76'
+          ),
+          (
+            2, 'banned-mod', 'Banned Mod', 'Gameplay', 'Banned by Admin', 'removed',
+            'removed', 'http://127.0.0.1:\(http.port)/banned.html',
+            now(), '26.1.2', 'neoforge', '26.1.2.76'
+          ),
+          (
+            3, 'banned-mod', 'Banned Mod', 'Gameplay', 'Banned by Admin', 'removed',
+            'removed', 'http://127.0.0.1:\(http.port)/banned.html',
+            now(), '26.2', 'neoforge', '26.2.0.3-beta'
+          );
         INSERT INTO core.mod_sources(
           source_id, mod_key, display_name, installed_file, installed_version,
           provider, source_url, priority, active, minecraft_version, loader, loader_version
         ) VALUES
           ('live_active', 'active-mod', 'Active Mod', 'active.jar', '1.0.0', 'web', 'http://127.0.0.1:\(http.port)/active.html', 100, true, '26.1.2', 'neoforge', '26.1.2.76'),
           ('live_inactive', 'inactive-mod', 'Inactive Mod', 'inactive.jar', '1.0.0', 'web', 'http://127.0.0.1:1/inactive.html', 100, false, '26.1.2', 'neoforge', '26.1.2.76'),
-          ('staging_inactive', 'staging-mod', 'Staging Mod', 'staging.jar', '1.0.0', 'web', 'http://127.0.0.1:\(http.port)/staging.html', 100, false, '26.2', 'neoforge', '26.2.0.3-beta');
+          ('live_banned', 'banned-mod', 'Banned Mod', 'banned.jar', '1.0.0', 'web', 'http://127.0.0.1:\(http.port)/banned.html', 100, true, '26.1.2', 'neoforge', '26.1.2.76'),
+          ('staging_inactive', 'staging-mod', 'Staging Mod', 'staging.jar', '1.0.0', 'web', 'http://127.0.0.1:\(http.port)/staging.html', 100, false, '26.2', 'neoforge', '26.2.0.3-beta'),
+          ('staging_banned', 'banned-mod', 'Banned Mod', 'banned.jar', '1.0.0', 'web', 'http://127.0.0.1:\(http.port)/banned.html', 100, true, '26.2', 'neoforge', '26.2.0.3-beta');
         """)
 
         let liveSummary = try ModUpdateScanner(config: ModUpdateScannerConfig(

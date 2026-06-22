@@ -101,6 +101,8 @@ public struct ModUpdateScanner: Sendable {
     public let config: ModUpdateScannerConfig
     private var database: DuckDBDatabase { DuckDBDatabase(databaseURL: config.databaseURL) }
     private var fileManager: FileManager { FileManager.default }
+    private static let progressInterval = 25
+    private static let discoveryProgressInterval = 10
 
     public init(config: ModUpdateScannerConfig) {
         self.config = config
@@ -112,6 +114,7 @@ public struct ModUpdateScanner: Sendable {
         let discovered = config.discoverSourceLinks ? try discoverMissingSourceLinks(limit: config.discoveryLimit) : ModSourceDiscoverySummary(sourcesChecked: 0, searchesRun: 0, linksFound: 0)
         let scanID = "scan_\(Self.compactTimestamp())_\(UUID().uuidString.prefix(8))"
         let startedAt = Self.duckTimestamp(Date())
+        print("mod_update_scan_started scan_id=\(scanID) minecraft_version=\(config.minecraftVersion) seeded_sources=\(seeded) discovered_links=\(discovered.linksFound) discovery_searches=\(discovered.searchesRun) dry_run=\(config.dryRun)")
         if !config.dryRun {
             try execute("""
             INSERT INTO core.mod_update_scans(
@@ -154,6 +157,19 @@ public struct ModUpdateScanner: Sendable {
             }
             if !config.dryRun {
                 try persist(result: result, scanID: scanID)
+                if checked % Self.progressInterval == 0 || checked == sources.count {
+                    try updateRunningScanProgress(
+                        scanID: scanID,
+                        checked: checked,
+                        total: sources.count,
+                        candidates: candidates,
+                        unresolved: unresolved,
+                        seeded: seeded,
+                        discovered: discovered
+                    )
+                }
+            } else if checked % Self.progressInterval == 0 || checked == sources.count {
+                print("mod_update_scan_progress scan_id=\(scanID) minecraft_version=\(config.minecraftVersion) checked=\(checked)/\(sources.count) candidates=\(candidates) unresolved=\(unresolved) dry_run=true")
             }
         }
 
@@ -169,7 +185,29 @@ public struct ModUpdateScanner: Sendable {
             WHERE scan_id = \(Self.sqlLiteral(scanID));
             """)
         }
+        print("mod_update_scan_completed scan_id=\(scanID) minecraft_version=\(config.minecraftVersion) checked=\(checked) candidates=\(candidates) unresolved=\(unresolved)")
         return ModUpdateScanSummary(scanID: scanID, sourcesChecked: checked, candidatesFound: candidates, unresolved: unresolved, seededSources: seeded)
+    }
+
+    private func updateRunningScanProgress(
+        scanID: String,
+        checked: Int,
+        total: Int,
+        candidates: Int,
+        unresolved: Int,
+        seeded: Int,
+        discovered: ModSourceDiscoverySummary
+    ) throws {
+        let notes = "progress=\(checked)/\(total) seeded_sources=\(seeded) discovered_links=\(discovered.linksFound) discovery_searches=\(discovered.searchesRun) throttle=\(config.maxURLsPerWindow)/\(Int(config.windowSeconds))s discovery_throttle=\(config.discoverySearchesPerSecond)/s"
+        try execute("""
+        UPDATE core.mod_update_scans
+        SET urls_checked = \(checked),
+            candidates_found = \(candidates),
+            unresolved = \(unresolved),
+            notes = \(Self.sqlLiteral(notes))
+        WHERE scan_id = \(Self.sqlLiteral(scanID));
+        """)
+        print("mod_update_scan_progress scan_id=\(scanID) minecraft_version=\(config.minecraftVersion) checked=\(checked)/\(total) candidates=\(candidates) unresolved=\(unresolved)")
     }
 
     public func check(source: ModSourceRecord) -> ModUpdateCheckResult {
@@ -283,6 +321,20 @@ public struct ModUpdateScanner: Sendable {
           active BOOLEAN NOT NULL DEFAULT true,
           created_at TIMESTAMP NOT NULL DEFAULT now(),
           updated_at TIMESTAMP NOT NULL DEFAULT now(),
+          minecraft_version VARCHAR DEFAULT '26.1.2',
+          loader VARCHAR DEFAULT 'neoforge',
+          loader_version VARCHAR
+        );
+        CREATE TABLE IF NOT EXISTS core.mods (
+          id BIGINT PRIMARY KEY,
+          canonical_key VARCHAR NOT NULL,
+          name VARCHAR NOT NULL,
+          category VARCHAR,
+          active_status VARCHAR NOT NULL,
+          server_status VARCHAR,
+          client_package VARCHAR,
+          primary_url VARCHAR,
+          updated_at TIMESTAMP,
           minecraft_version VARCHAR DEFAULT '26.1.2',
           loader VARCHAR DEFAULT 'neoforge',
           loader_version VARCHAR
@@ -748,12 +800,16 @@ public struct ModUpdateScanner: Sendable {
         try initializeDatabase()
         let rows = try loadSourceDiscoveryRows(limit: limit)
         let limiter = SourceDiscoveryRateLimiter(searchesPerSecond: min(max(config.discoverySearchesPerSecond, 0.1), 2.0))
+        print("mod_source_discovery_started minecraft_version=\(config.minecraftVersion) rows=\(rows.count) dry_run=\(config.dryRun)")
         var linksFound = 0
+        var rowsChecked = 0
+        var providerChecks = 0
         for row in rows {
             for provider in row.missingProviders {
                 guard ["modrinth", "curseforge"].contains(provider) else {
                     continue
                 }
+                providerChecks += 1
                 var found: SourceLinkCandidate?
                 for attempt in sourceDiscoveryAttempts(row: row, missingProvider: provider, limiter: limiter) {
                     let accepted = attempt.candidates.first { Self.sourceCandidateMatches($0, row: row, missingProvider: provider) }
@@ -780,7 +836,12 @@ public struct ModUpdateScanner: Sendable {
                     }
                 }
             }
+            rowsChecked += 1
+            if rowsChecked % Self.discoveryProgressInterval == 0 || rowsChecked == rows.count {
+                print("mod_source_discovery_progress minecraft_version=\(config.minecraftVersion) rows=\(rowsChecked)/\(rows.count) provider_checks=\(providerChecks) searches=\(limiter.searchesRun) links_found=\(linksFound)")
+            }
         }
+        print("mod_source_discovery_completed minecraft_version=\(config.minecraftVersion) rows=\(rowsChecked) provider_checks=\(providerChecks) searches=\(limiter.searchesRun) links_found=\(linksFound)")
         return ModSourceDiscoverySummary(sourcesChecked: rows.count, searchesRun: limiter.searchesRun, linksFound: linksFound)
     }
 
@@ -807,6 +868,7 @@ public struct ModUpdateScanner: Sendable {
             \(sourceActiveClause)
             AND (COALESCE(s.source_url, '') LIKE 'http://%' OR COALESCE(s.source_url, '') LIKE 'https://%')
             AND s.provider <> 'manifest'
+            \(excludedByAdminStatusClause(sourceAlias: "s"))
           GROUP BY 1, 2, 3, 4, 5, 6, 7
         )
         SELECT source_id, mod_key, display_name, installed_file, installed_version, provider, source_url, has_modrinth, has_curseforge
@@ -1034,6 +1096,7 @@ public struct ModUpdateScanner: Sendable {
               \(sourceActiveClause)
               \(linkActiveClause)
               AND (COALESCE(l.source_url, '') LIKE 'http://%' OR COALESCE(l.source_url, '') LIKE 'https://%')
+              \(excludedByAdminStatusClause(sourceAlias: "s", linkAlias: "l"))
             """
         } else {
             sourceRowsSQL = """
@@ -1042,6 +1105,7 @@ public struct ModUpdateScanner: Sendable {
             WHERE COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
               \(activeClause)
               AND (COALESCE(source_url, '') LIKE 'http://%' OR COALESCE(source_url, '') LIKE 'https://%')
+              \(excludedByAdminStatusClause(sourceAlias: "core.mod_sources"))
             """
         }
         let csv = try query("""
@@ -1062,8 +1126,8 @@ public struct ModUpdateScanner: Sendable {
           END AS provider,
           COALESCE(source_url, '') AS source_url,
           500 AS priority
-          FROM core.failed_mod_update_status
-          WHERE active_status = 'failed'
+            FROM core.failed_mod_update_status
+            WHERE active_status = 'failed'
             AND COALESCE(minecraft_version, \(Self.sqlLiteral(config.minecraftVersion))) = \(Self.sqlLiteral(config.minecraftVersion))
             AND (COALESCE(source_url, '') LIKE 'http://%' OR COALESCE(source_url, '') LIKE 'https://%')
         )
@@ -1082,6 +1146,29 @@ public struct ModUpdateScanner: Sendable {
                 sourceURL: row[6]
             )
         }
+    }
+
+    private func excludedByAdminStatusClause(sourceAlias: String, linkAlias: String? = nil) -> String {
+        let versionLiteral = Self.sqlLiteral(config.minecraftVersion)
+        let sourceURLExpression: String
+        if let linkAlias {
+            sourceURLExpression = "COALESCE(\(linkAlias).source_url, \(sourceAlias).source_url, '')"
+        } else {
+            sourceURLExpression = "COALESCE(\(sourceAlias).source_url, '')"
+        }
+        return """
+        AND NOT EXISTS (
+          SELECT 1
+          FROM core.mods banned
+          WHERE COALESCE(banned.minecraft_version, \(versionLiteral)) = \(versionLiteral)
+            AND lower(COALESCE(banned.active_status, '')) = 'banned by admin'
+            AND (
+                 lower(COALESCE(banned.canonical_key, '')) = lower(COALESCE(\(sourceAlias).mod_key, ''))
+              OR lower(COALESCE(banned.primary_url, '')) = lower(\(sourceURLExpression))
+              OR lower(COALESCE(banned.name, '')) = lower(COALESCE(\(sourceAlias).display_name, ''))
+            )
+        )
+        """
     }
 
     private func checkNeoForge(source: ModSourceRecord, sourceURL: URL) throws -> ModUpdateCheckResult {
