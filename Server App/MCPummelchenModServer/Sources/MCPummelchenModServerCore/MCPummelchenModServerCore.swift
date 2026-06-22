@@ -357,6 +357,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         return rows.map {
             var row = $0
             row.removeValue(forKey: "_has_inventory_evidence")
+            row.removeValue(forKey: "_manifest_role")
             return row
         }
     }
@@ -655,6 +656,18 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             let existingSearch = annotated["search"] as? String ?? ""
             annotated["search"] = "\(existingSearch) \(live.installedFiles) \(live.installedVersions) \(live.sourceURL)"
         }
+        let manifestRole = annotated["_manifest_role"] as? String ?? ""
+        let fallbackType = annotated["type"] as? String ?? "Gameplay"
+        annotated["type"] = Self.playerFacingModType(
+            name: annotated["name"] as? String ?? "",
+            files: [
+                annotated["files"] as? String,
+                annotated["versionFile"] as? String,
+                annotated["sourceUrl"] as? String
+            ].compactMap { $0 }.joined(separator: " "),
+            manifestRole: manifestRole,
+            fallback: fallbackType
+        )
         annotated["compatibility"] = compatibility
         annotated["_has_inventory_evidence"] = inCurrentManifest || !sourceByVersion.isEmpty
         return annotated
@@ -925,13 +938,14 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 let displayName = Self.displayNameFromManifestFile(fileName)
                 let row: [String: Any] = [
                     "name": displayName,
-                    "type": Self.typeLabel(forManifestRole: role, fileName: fileName),
+                    "type": Self.typeLabel(forManifestRole: role, fileName: fileName, displayName: displayName),
                     "files": fileName,
                     "versionFile": fileName,
                     "sourceUrl": "",
                     "sourceHost": "release manifest",
                     "details": "\(displayName) is shipped by the active release manifest. No source URL is recorded in DuckDB yet.",
-                    "search": "\(displayName) \(fileName) \(role)"
+                    "search": "\(displayName) \(fileName) \(role)",
+                    "_manifest_role": role
                 ]
                 return annotatedModInventoryRow(
                     row,
@@ -944,63 +958,188 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             }
     }
 
-    private static func typeLabel(forManifestRole role: String, fileName: String = "") -> String {
+    private static func typeLabel(forManifestRole role: String, fileName: String = "", displayName: String = "") -> String {
         switch role {
-        case "server_mod": return "Server Mod"
-        case "mods", "client_mods": return clientModTypeLabel(for: fileName)
-        case "resourcepacks", "client_resourcepacks": return "Resource Pack"
+        case "server_mod", "mods", "client_mods":
+            return playerFacingModType(name: displayName, files: fileName, manifestRole: role)
+        case "resourcepacks", "client_resourcepacks": return "Textures Resource Pack"
         case "shaderpacks", "client_shaderpacks": return fileName.lowercased().hasSuffix(".txt") ? "Shader Configuration" : "Shader Pack"
         case "tools", "client_tools": return "Configuration"
         default: return "Release Manifest"
         }
     }
 
-    private static func clientModTypeLabel(for fileName: String) -> String {
-        let value = fileName.lowercased()
-        if value.isEmpty {
-            return "Gameplay"
+    private static func playerFacingModType(name: String, files: String, manifestRole: String = "", fallback: String = "Gameplay") -> String {
+        let value = "\(name) \(files) \(fallback)".lowercased()
+        let role = manifestRole.lowercased()
+        if role.contains("resourcepack") { return "Textures Resource Pack" }
+        if role.contains("shaderpack") {
+            return files.lowercased().contains(".txt") ? "Shader Configuration" : "Shader Pack"
         }
+        if role.contains("tool") { return "Configuration" }
         if containsAny(value, [
             "architectury", "balm", "bookshelf", "catalogue", "citadel", "cloth-config", "collective",
             "configured", "cupboard", "framework", "geckolib", "glitchcore", "kotlin", "lithostitched",
             "moonlight", "mru", "playeranimation", "prickle", "puzzleslib", "resourcefulconfig",
-            "resourcefullib", "smartbrainlib", "terrablender", "yungsapi"
+            "resourcefullib", "smartbrainlib", "terrablender", "yungsapi", "aquamirae api",
+            "aquariuslibs", "bagus", "better_lib", "berezka", "coroutil", "craterlib", "creativecore",
+            "cristellib", "curios", "cyclopscore", "epherolib", "forgeendertech", "jauml",
+            "mint lib", "mint_lib", "monolib", "oelib", "unified api", "yet-another-config",
+            "yetanotherconfiglib"
         ]) {
-            return "Libraries and Dependencies"
+            return "Library"
         }
         if containsAny(value, [
             "ai-improvements", "alternate_current", "cull", "dynamic-fps", "embeddium", "entityculling",
-            "ferritecore", "immediatelyfast", "low-latency", "modernfix", "noisium", "sodium", "spark"
+            "connectivity", "clumps", "dynamic view", "dynamicview", "ferritecore", "immediatelyfast",
+            "lithium", "low latency", "low-latency", "modernfix", "noisium", "smoothchunk", "sodium", "spark"
         ]) {
             return "Performance"
         }
         if containsAny(value, [
-            "ambient", "betterf3", "camera", "emf", "entity_model", "entity_texture", "etf", "iris",
-            "lambdynamiclights", "light", "model", "modernarch", "panorama", "physics", "shader",
-            "sound-physics", "texture", "visual"
+            "betterf3", "debug", "f3"
+        ]) {
+            return "Client HUD"
+        }
+        if containsAny(value, [
+            "ambient", "camera", "emf", "entity_model", "entity_texture", "etf", "iris",
+            "extra animations", "model", "panorama", "physics", "shader", "spawnanimations",
+            "visual", "volumetrics"
         ]) {
             return "Client Visuals"
         }
-        if containsAny(value, [
-            "biome", "dungeon", "explor", "geophilic", "structure", "tectonic", "terrain", "terralith",
-            "town", "village", "worldgen"
-        ]) {
-            return "World Generation"
+        if containsAny(value, ["sound", "ambience", "ambient environment"]) {
+            return "Sound and Ambience"
+        }
+        if containsAny(value, ["modernarch", "texture", "resource pack", "glowing ores"]) {
+            return "Textures Resource Pack"
         }
         if containsAny(value, [
-            "animal", "duck", "fauna", "fish", "giraffe", "goose", "mob", "naturalist", "pet",
-            "phantom", "wildlife"
+            "bioluminescence", "lambdynamiclights", "factory lights", "lantern", "lamp", "lighting",
+            "lights", "luminax", "magnum torch", "torch"
         ]) {
-            return "Mobs and Wildlife"
+            return "Lighting"
+        }
+        if containsAny(value, [
+            "beach", "biome", "biomes", "geophilic", "jungle", "prettybeaches", "river", "tectonic",
+            "terrain", "terralith", "tropicraft", "underground rivers", "wild world", "worldgen"
+        ]) {
+            return "Biomes and Terrain"
+        }
+        if containsAny(value, [
+            "abandoned", "arena", "castle", "camp", "complementary structures", "depillage",
+            "desert temple", "desert tomb", "dungeon", "explorify", "fortress", "hobbit",
+            "illager", "lost castle", "lost city", "moai", "moog", "paths", "portal", "ruin",
+            "ship", "snowy tents", "statue", "stronghold", "structure", "temple", "tent",
+            "tower", "town", "village", "villager", "warship", "wreck"
+        ]) {
+            return "Structures and Villages"
+        }
+        if containsAny(value, [
+            "aircraft", "automobility", "boat", "car mod", "car-neoforge", "carts", "flight",
+            "immersive vehicles", "minecart", "plane", "planes", "trains", "ultimate car",
+            "vehicle", "vehicles"
+        ]) {
+            return "Cars and Planes"
+        }
+        if containsAny(value, [
+            "aquaculture", "autofishing", "fish", "fishtank", "fishing"
+        ]) {
+            return "Fishing"
+        }
+        if containsAny(value, [
+            "alligator", "animal", "bear", "bird", "bull shark", "cow", "crab", "duck", "fauna",
+            "fennec", "giraffe", "goose", "hog", "manatee", "meerkat", "mob", "mouse", "naturalist",
+            "owl", "pet", "phantom", "plushables", "quack", "rabbit", "realistic bees", "shark",
+            "snow leopard", "springhare", "sugar glider", "waddles", "wildlife"
+        ]) {
+            return "Animals"
+        }
+        if containsAny(value, [
+            "creeper", "golem", "hunter", "monster", "mutant", "skeleton", "spider", "stray",
+            "tiny skeleton", "variantsandventures", "wolf", "zombie"
+        ]) {
+            return "Mobs and Monsters"
+        }
+        if containsAny(value, [
+            "crop", "fallingtree", "farm", "fertilizer", "field", "garden", "harvest", "hydrofarm",
+            "giant natural additions", "kelp", "leaves", "plant", "sapling", "seed", "tree", "watering"
+        ]) {
+            return "Farming and Gardens"
+        }
+        if containsAny(value, [
+            "factory", "laserio", "machine", "mechanism", "pipe", "power", "technology"
+        ]) {
+            return "Technology"
         }
         if containsAny(value, [
             "building", "chipped", "chimney", "comforts", "decor", "display", "door", "fence",
-            "furniture", "handcrafted", "lantern", "light", "macaw", "paint", "refurbished",
-            "rechiseled", "roof", "stoneworks", "storage", "window"
+            "furniture", "handcrafted", "macaw", "paint", "refurbished", "rechiseled", "roof",
+            "stoneworks", "table", "window"
         ]) {
             return "Building and Decor"
         }
-        return "Gameplay"
+        if containsAny(value, [
+            "backpack", "bartering", "chest", "goblin trader", "inventory", "storage", "trade",
+            "trading", "water bucket"
+        ]) {
+            return "Storage and Trading"
+        }
+        if containsAny(value, [
+            "armor", "arrow", "axe", "bomb", "combat", "dynamite", "gun", "jeg", "shield", "tnt",
+            "torchbow", "weapon"
+        ]) {
+            return "Weapons and Combat"
+        }
+        if containsAny(value, [
+            "burger", "choco", "chocolate", "cooker", "cooking", "cuisine", "farmersdelight", "food",
+            "kiwi", "meal", "milk", "nutritious"
+        ]) {
+            return "Food and Cooking"
+        }
+        if containsAny(value, [
+            "aether", "artifact", "artifacts", "beacon", "magic", "mystic", "portal", "trinket"
+        ]) {
+            return "Magic and Artifacts"
+        }
+        if containsAny(value, [
+            "deposit", "easiernetherite", "mineral", "mining", "netherite", "ore", "rich ores"
+        ]) {
+            return "Mining and Ores"
+        }
+        if containsAny(value, [
+            "clean swing", "elytra", "leash", "movement", "recast", "tools+", "tools-neoforge",
+            "toolsplus"
+        ]) {
+            return "Movement and Utility"
+        }
+        if containsAny(value, ["map", "journey", "waystone", "navigation"]) {
+            return "Maps and Navigation"
+        }
+        if containsAny(value, ["weather"]) {
+            return "Weather"
+        }
+        return fallbackTypeLabel(fallback)
+    }
+
+    private static func fallbackTypeLabel(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if trimmed.isEmpty || [
+            "server mod", "client mod", "test new mods", "requested url batch", "requested 2026-06-03",
+            "world mods", "world mods - fix", "core game mods", "provided local jar", "watchlist",
+            "online resources"
+        ].contains(lower) {
+            return "Gameplay"
+        }
+        if lower == "dependency" { return "Library" }
+        if lower == "server optimizer" { return "Performance" }
+        if lower == "client mods" { return "Client Visuals" }
+        if lower == "custom datapacks" { return "Configuration" }
+        if lower == "worldgen and structures" || lower == "utility and world generation" {
+            return "Biomes and Terrain"
+        }
+        return trimmed.split(separator: " ").prefix(5).joined(separator: " ")
     }
 
     private static func containsAny(_ value: String, _ needles: [String]) -> Bool {

@@ -895,11 +895,14 @@ struct MCPummelchenModServerCoreTests {
         #expect(mergedPlacements["Fixture Client Mod"] == "Client Mod")
         #expect(mergedPlacements["Fixture Shared Mod"] == "Server & Client Mod")
         let clientTypes = Set(clientRows.compactMap { $0["type"] as? String })
+        let mergedTypes = Set(mergedRows.compactMap { $0["type"] as? String })
         #expect(!clientTypes.contains("Client Mod"))
+        #expect(!mergedTypes.contains("Server Mod"))
         #expect(clientTypes.contains("Gameplay"))
-        #expect(clientTypes.contains("Resource Pack"))
+        #expect(clientTypes.contains("Textures Resource Pack"))
         #expect(clientTypes.contains("Shader Pack"))
         #expect(clientTypes.contains("Shader Configuration"))
+        #expect(mergedTypes.allSatisfy { $0.split(separator: " ").count <= 5 })
     }
 
     @Test("serves supported Minecraft server versions from DuckDB")
