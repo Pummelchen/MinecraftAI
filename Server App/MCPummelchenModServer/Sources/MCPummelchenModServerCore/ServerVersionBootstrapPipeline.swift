@@ -182,25 +182,65 @@ public struct ServerVersionBootstrapPipeline: Sendable {
         )
     }
 
+    private func baselineRolePaths(role: String) -> (serverSubpath: String, clientSubpath: String?) {
+        switch role.lowercased() {
+        case "server_file":
+            return ("mods", nil)
+        case "server_datapack":
+            return ("server-datapacks", nil)
+        case "shaderpack":
+            return ("", "shaderpacks")
+        case "resourcepack":
+            return ("", "resourcepacks")
+        case "client-mod":
+            return ("", "mods")
+        case "tool":
+            return ("", "tools")
+        default:
+            return ("mods", "mods")
+        }
+    }
+
     private func copyBaselineFiles(reference: VersionTarget, target: VersionTarget) throws -> [ServerVersionBootstrapFileCopy] {
         let rows = try loadBaselineRows(reference: reference, target: target)
         var copied: [ServerVersionBootstrapFileCopy] = []
+
+        let clientSections = ["mods", "shaderpacks", "resourcepacks", "tools"]
+        for section in clientSections {
+            let dir = target.serverDir.appendingPathComponent("client-package/\(section)", isDirectory: true)
+            if !fileManager.fileExists(atPath: dir.path) {
+                try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+            }
+        }
+        let dataDir = target.serverDir.appendingPathComponent("server-datapacks", isDirectory: true)
+        if !fileManager.fileExists(atPath: dataDir.path) {
+            try fileManager.createDirectory(at: dataDir, withIntermediateDirectories: true)
+        }
+
+        var copiedKeys = Set<String>()
         for row in rows {
-            let sourceServerFile = reference.serverDir.appendingPathComponent("mods").appendingPathComponent(row.fileName)
-            let sourceClientFile = reference.serverDir.appendingPathComponent("client-package/mods").appendingPathComponent(row.fileName)
+            let paths = baselineRolePaths(role: row.role)
+            let serverSubpath = paths.serverSubpath.isEmpty ? "mods" : paths.serverSubpath
+            let clientSubpath = paths.clientSubpath ?? serverSubpath
+
+            let sourceServerFile = reference.serverDir.appendingPathComponent(serverSubpath).appendingPathComponent(row.fileName)
+            let sourceClientFile = reference.serverDir.appendingPathComponent("client-package/\(clientSubpath)").appendingPathComponent(row.fileName)
+            let targetServerFile = target.serverDir.appendingPathComponent(serverSubpath).appendingPathComponent(row.fileName)
+            let targetClientFile = target.serverDir.appendingPathComponent("client-package/\(clientSubpath)").appendingPathComponent(row.fileName)
+
             var copiedServer = false
             var copiedClient = false
 
             if row.installedOnServer, fileManager.fileExists(atPath: sourceServerFile.path) {
                 if !config.dryRun {
-                    try copyFile(sourceServerFile, to: target.serverDir.appendingPathComponent("mods").appendingPathComponent(row.fileName))
+                    try copyFile(sourceServerFile, to: targetServerFile)
                 }
                 copiedServer = true
             }
 
             if row.includedInClient, fileManager.fileExists(atPath: sourceClientFile.path) {
                 if !config.dryRun {
-                    try copyFile(sourceClientFile, to: target.serverDir.appendingPathComponent("client-package/mods").appendingPathComponent(row.fileName))
+                    try copyFile(sourceClientFile, to: targetClientFile)
                 }
                 copiedClient = true
             }
@@ -208,6 +248,8 @@ public struct ServerVersionBootstrapPipeline: Sendable {
             guard copiedServer || copiedClient else {
                 continue
             }
+
+            copiedKeys.insert(row.fileName)
 
             if !config.dryRun {
                 try markTargetFile(row: row, target: target, copiedServer: copiedServer, copiedClient: copiedClient)
@@ -221,6 +263,29 @@ public struct ServerVersionBootstrapPipeline: Sendable {
                 protected: row.protected
             ))
         }
+
+        let referenceClientPackage = reference.serverDir.appendingPathComponent("client-package", isDirectory: true)
+        let targetClientPackage = target.serverDir.appendingPathComponent("client-package", isDirectory: true)
+        for section in clientSections {
+            let sourceDir = referenceClientPackage.appendingPathComponent(section, isDirectory: true)
+            guard fileManager.fileExists(atPath: sourceDir.path) else { continue }
+            for file in try fileManager.contentsOfDirectory(at: sourceDir, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
+                guard (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+                guard !copiedKeys.contains(file.lastPathComponent) else { continue }
+                let targetFile = targetClientPackage.appendingPathComponent("\(section)/\(file.lastPathComponent)")
+                if !config.dryRun {
+                    try copyFile(file, to: targetFile)
+                }
+                copied.append(ServerVersionBootstrapFileCopy(
+                    modName: file.lastPathComponent,
+                    fileName: file.lastPathComponent,
+                    copiedToServer: false,
+                    copiedToClient: true,
+                    protected: false
+                ))
+            }
+        }
+
         return copied
     }
 
@@ -283,7 +348,7 @@ public struct ServerVersionBootstrapPipeline: Sendable {
                 targetModID: targetModID,
                 modName: row["mod_name"] ?? fileName,
                 fileName: fileName,
-                role: row["role"] ?? "mod_file",
+                dbRole: row["role"] ?? "server_file",
                 fileStatus: row["file_status"] ?? "",
                 compatibilityStatus: row["compatibility_status"] ?? "",
                 fileSHA256: row["file_sha256"] ?? "",
@@ -384,7 +449,7 @@ public struct ServerVersionBootstrapPipeline: Sendable {
         let targetModID: Int64
         let modName: String
         let fileName: String
-        let role: String
+        let dbRole: String
         let fileStatus: String
         let compatibilityStatus: String
         let fileSHA256: String
@@ -393,6 +458,10 @@ public struct ServerVersionBootstrapPipeline: Sendable {
         let installedOnServer: Bool
         let includedInClient: Bool
         let protected: Bool
+
+        var role: String {
+            dbRole.isEmpty ? "server_file" : dbRole
+        }
     }
 
     private static func sqlLiteral(_ value: String?) -> String {
