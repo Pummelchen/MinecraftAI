@@ -816,6 +816,16 @@
       </div>
     </section>
 
+    <section id="new-server-mod-upgrade">
+      <h2>Full Mod Upgrade For A New MC Server</h2>
+      <div class="operator-section">
+        <p class="note">Send this operator request through Codex, OpenCode, Qoder, or another AI coding tool with project and VPS access. Replace the Minecraft version with the new server version you want to prepare.</p>
+        <p class="safe-reset-command">"Run the full mod upgrade pipeline for Minecraft Server 26.2: bootstrap from the previous live server, scan all server and client mods for compatible updates, preserve Priority Mod and Admin Locked entries, run the full validation and headless client test chain, build the new DMG if validation passes, update DuckDB and the website, and report the release result."</p>
+        <p class="note">The Swift server app will carry forward working mods from the previous supported server, search for newer compatible files, keep admin-forced mods protected, run the configured checks, and only publish a validated client/server release when the pipeline passes.</p>
+        <p class="operator-warning">Do not manually copy old mods into the new server version. Manual carry-forward skips source tracking, priority rules, compatibility status, test history, release manifests, client sync metadata, and rollback records.</p>
+      </div>
+    </section>
+
     <section id="mods">
       <h2>Mods</h2>
       <p class="note">Sortable and filterable list of all managed mods. The placement column shows whether each entry belongs to the server, the Mac client, or both.</p>
