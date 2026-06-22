@@ -31,6 +31,7 @@ public struct ServerVersionBootstrapPipelineConfig: Sendable {
     public let discoverySearchesPerSecond: Double
     public let maxURLsPerWindow: Int
     public let windowSeconds: TimeInterval
+    public let scanLimit: Int?
     public let dryRun: Bool
     public let applyUpdates: Bool
     public let releaseRoot: URL?
@@ -51,6 +52,7 @@ public struct ServerVersionBootstrapPipelineConfig: Sendable {
         discoverySearchesPerSecond: Double = 2,
         maxURLsPerWindow: Int = 5,
         windowSeconds: TimeInterval = 10,
+        scanLimit: Int? = nil,
         dryRun: Bool = true,
         applyUpdates: Bool = false,
         releaseRoot: URL? = nil,
@@ -70,6 +72,7 @@ public struct ServerVersionBootstrapPipelineConfig: Sendable {
         self.discoverySearchesPerSecond = discoverySearchesPerSecond
         self.maxURLsPerWindow = maxURLsPerWindow
         self.windowSeconds = windowSeconds
+        self.scanLimit = scanLimit
         self.dryRun = dryRun
         self.applyUpdates = applyUpdates
         self.releaseRoot = releaseRoot
@@ -130,7 +133,7 @@ public struct ServerVersionBootstrapPipeline: Sendable {
             loaderVersion: target.loaderVersion,
             maxURLsPerWindow: config.maxURLsPerWindow,
             windowSeconds: config.windowSeconds,
-            limit: nil,
+            limit: config.scanLimit,
             seedFromProjectData: true,
             discoverSourceLinks: config.discoverSourceLinks,
             discoveryLimit: config.discoveryLimit,

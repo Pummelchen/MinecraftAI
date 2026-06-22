@@ -703,6 +703,7 @@ private func serverVersionBootstrapPipeline(args: Arguments, projectRoot: URL) t
         discoverySearchesPerSecond: discoverySearchesPerSecond,
         maxURLsPerWindow: maxURLs,
         windowSeconds: windowSeconds,
+        scanLimit: args.options["--limit"].flatMap(Int.init),
         dryRun: args.options["--dry-run"] != "false",
         applyUpdates: optionBool(args.options["--apply-updates"]),
         releaseRoot: releaseRoot,
