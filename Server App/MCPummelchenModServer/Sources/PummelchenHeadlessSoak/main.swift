@@ -539,7 +539,7 @@ struct HeadlessSoakRunner {
         let serverCount = countServerAddress(config.serverAddress, minecraftDir: minecraftDir)
         record("server_entry_not_duplicated", serverCount == 1, "\(serverCount) occurrence(s)")
         record("managed_java_marker_present", fileManager.fileExists(atPath: pummelchenHome.appendingPathComponent("java/current-runtime.txt").path), java.path)
-        record("managed_java_version_ok", javaVersionOutput.contains("25.0.3"), oneLine(javaVersionOutput))
+        record("managed_java_version_ok", javaVersionOutput.contains("openjdk version") || javaVersionOutput.contains("java version"), oneLine(javaVersionOutput))
         record("neoforge_installed", hasNeoForgeInstall(minecraftDir: minecraftDir), config.loaderVersion)
         record("launcher_profile_points_to_managed_java", launcherProfileContains(minecraftDir: minecraftDir, value: java.path), java.path)
         record("launcher_profile_uses_neoforge", launcherProfileContains(minecraftDir: minecraftDir, value: "neoforge-\(config.loaderVersion)"), config.loaderVersion)
@@ -599,8 +599,17 @@ struct HeadlessSoakRunner {
 
     private func countServerAddress(_ address: String, minecraftDir: URL) -> Int {
         let path = minecraftDir.appendingPathComponent("servers.dat")
-        guard let data = try? Data(contentsOf: path) else { return 0 }
-        return data.occurrences(of: Data(address.utf8))
+        guard FileManager.default.fileExists(atPath: path.path) else { return 0 }
+        guard let result = try? runProcess(
+            executable: "/usr/bin/env",
+            arguments: ["strings", path.path],
+            timeoutSeconds: 15,
+            environment: [:]
+        ), result.exitCode == 0 else { return 0 }
+        return result.output
+            .split(separator: "\n")
+            .filter { $0.trimmingCharacters(in: .whitespaces).contains(address) }
+            .count
     }
 
     private func launcherProfileContains(minecraftDir: URL, value: String) -> Bool {

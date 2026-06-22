@@ -214,7 +214,8 @@ public struct ModUpdateApplyPipeline: Sendable {
         let serverPackage = config.serverPackageDirectory
             ?? URL(fileURLWithPath: env["PUMMELCHEN_SERVER_PACKAGE_DIR"] ?? config.projectRoot.appendingPathComponent("Server App/MCPummelchenModServer").path)
         let clientToken = config.clientAPIToken ?? env["PUMMELCHEN_CLIENT_API_TOKEN"]
-        let runNginxControlLiveTest = env["PUMMELCHEN_SKIP_NGINX_CONTROL_LIVE_TEST"]?.lowercased() != "true" && !(clientToken?.isEmpty ?? true)
+        let skipNginxTest = BoolValue.parse(env["PUMMELCHEN_SKIP_NGINX_CONTROL_LIVE_TEST"])
+        let runNginxControlLiveTest = !skipNginxTest && !(clientToken?.isEmpty ?? true)
         let builderConfig = ClientDMGBuilderConfig(
             projectRoot: config.projectRoot,
             clientPackageRoot: clientPackageRoot,
@@ -226,13 +227,24 @@ public struct ModUpdateApplyPipeline: Sendable {
             duckdbDylibPath: env["PUMMELCHEN_DUCKDB_DYLIB"] ?? "/opt/homebrew/lib/libduckdb.dylib",
             macOSDeploymentTarget: env["MACOSX_DEPLOYMENT_TARGET"] ?? "26.0",
             runNginxControlLiveTest: runNginxControlLiveTest,
-            runHeadlessSoak: env["PUMMELCHEN_REQUIRE_HEADLESS_SOAK"]?.lowercased() == "true",
+            runHeadlessSoak: BoolValue.parse(env["PUMMELCHEN_REQUIRE_HEADLESS_SOAK"]),
             headlessSoakSeconds: Int(env["PUMMELCHEN_HEADLESS_SOAK_SECONDS"] ?? "60") ?? 60,
             clientAPIToken: clientToken,
             requireClientToken: config.requireClientToken
         )
 
-        _ = try ClientDMGBuilder(config: builderConfig).build()
+        let dmgResult = try ClientDMGBuilder(config: builderConfig).build()
+        let dmgDir = dmgResult.dmgPath.deletingLastPathComponent()
+        for artifactName in [SwiftReleasePipeline.dmgName, "\(SwiftReleasePipeline.dmgName).sha256", SwiftReleasePipeline.dmgHeadlessLiveSoakReportName] {
+            let source = dmgDir.appendingPathComponent(artifactName)
+            if FileManager.default.fileExists(atPath: source.path) {
+                let target = version.serverDir.appendingPathComponent(artifactName)
+                if FileManager.default.fileExists(atPath: target.path) {
+                    try FileManager.default.removeItem(at: target)
+                }
+                try FileManager.default.copyItem(at: source, to: target)
+            }
+        }
         return true
         #else
         return false

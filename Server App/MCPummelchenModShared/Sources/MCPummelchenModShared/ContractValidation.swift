@@ -29,3 +29,13 @@ public enum ContractValidation {
         try require(matches, "\(field) must be 8-128 characters and contain only letters, numbers, dot, underscore, colon, at, or dash")
     }
 }
+
+public enum BoolValue {
+    public static func parse(_ value: String?, default defaultValue: Bool = false) -> Bool {
+        guard let value else { return defaultValue }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if ["1", "true", "yes", "y", "on"].contains(trimmed) { return true }
+        if ["0", "false", "no", "n", "off"].contains(trimmed) { return false }
+        return defaultValue
+    }
+}

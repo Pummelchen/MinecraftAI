@@ -144,7 +144,14 @@ public struct SwiftReleasePipeline: Sendable {
 
         try writeChangelog(releaseDir: releaseDir)
         try copyIfExists(config.serverDir.appendingPathComponent("mods"), to: releaseDir.appendingPathComponent("server-files/mods", isDirectory: true))
-        try copyIfExists(config.serverDir.appendingPathComponent("server-datapacks"), to: releaseDir.appendingPathComponent("server-files/server-datapacks", isDirectory: true))
+        let serverDatapacksSource = [
+            config.serverDir,
+            config.projectRoot.appendingPathComponent("Server App", isDirectory: true)
+        ].map { $0.appendingPathComponent("server-datapacks", isDirectory: true) }
+        .first { fileManager.fileExists(atPath: $0.path) }
+        if let source = serverDatapacksSource {
+            try copyTree(source, to: releaseDir.appendingPathComponent("server-files/server-datapacks", isDirectory: true))
+        }
         try copyTree(config.serverDir.appendingPathComponent("client-package"), to: releaseDir.appendingPathComponent("client-package", isDirectory: true))
 
         let serverManifestSHA = try writeReleaseManifest(
@@ -480,7 +487,7 @@ public struct SwiftReleasePipeline: Sendable {
         try ContractValidation.require(report.durationSeconds >= Self.requiredDMGLiveSoakSeconds, "DMG headless live soak must run for at least \(Int(Self.requiredDMGLiveSoakSeconds)) seconds")
         try ContractValidation.require(report.crashReportCount == 0, "DMG headless live soak must not create crash reports")
         try ContractValidation.require(report.fatalLogCount == 0, "DMG headless live soak must not contain fatal log entries")
-        try ContractValidation.require(Self.isLiveMinecraftServerAddress(report.serverAddress), "DMG headless live soak must target the live Minecraft server")
+        try ContractValidation.require(isLiveMinecraftServerAddress(report.serverAddress), "DMG headless live soak must target the live Minecraft server")
         try ContractValidation.require(report.newPlayerSetup?.status.lowercased() == "passed", "DMG headless live soak must include passed new-player setup acceptance")
         try ContractValidation.require(report.newPlayerSetup?.defaultsOK == true, "DMG new-player setup must verify client defaults")
         try ContractValidation.require((report.newPlayerSetup?.manifestEntries ?? 0) > 0, "DMG new-player setup must verify a non-empty client manifest")
@@ -1163,10 +1170,18 @@ public struct SwiftReleasePipeline: Sendable {
             .replacingOccurrences(of: #""client_secret"\s*:\s*"[^"]+""#, with: #""client_secret":"[REDACTED]""#, options: .regularExpression)
     }
 
-    private static func isLiveMinecraftServerAddress(_ value: String) -> Bool {
+    private func isLiveMinecraftServerAddress(_ value: String) -> Bool {
         let lower = value.lowercased()
-        return lower.hasSuffix(":25565")
-            && (lower.contains("91.99.176.243") || lower.contains("pummelchen"))
+        guard lower.hasSuffix(":25565") else { return false }
+        if let csv = try? queryDuckDB("SELECT server_address FROM core.minecraft_server_versions WHERE is_live = true AND lower(status) = 'live' LIMIT 1;"),
+           let liveAddress = Self.parseCSVRows(csv).first?["server_address"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           !liveAddress.isEmpty {
+            let liveIP = liveAddress.split(separator: ":").first ?? ""
+            if lower.contains(liveIP) || lower.contains("pummelchen") {
+                return true
+            }
+        }
+        return lower.contains("91.99.176.243") || lower.contains("pummelchen")
     }
 
     private static func duckTimestamp(_ date: Date) -> String {

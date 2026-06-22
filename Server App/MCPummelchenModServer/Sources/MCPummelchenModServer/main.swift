@@ -770,14 +770,7 @@ private func serverKey(minecraftVersion: String) -> String {
 }
 
 private func optionBool(_ value: String?, defaultValue: Bool = false) -> Bool {
-    guard let value else { return defaultValue }
-    if ["1", "true", "yes", "y"].contains(value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
-        return true
-    }
-    if ["0", "false", "no", "n", "off"].contains(value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
-        return false
-    }
-    return defaultValue
+    BoolValue.parse(value, default: defaultValue)
 }
 
 private func rejectCommandLineClientToken(_ args: Arguments) throws {
