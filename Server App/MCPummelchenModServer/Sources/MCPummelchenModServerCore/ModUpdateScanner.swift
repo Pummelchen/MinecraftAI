@@ -433,9 +433,7 @@ public struct ModUpdateScanner: Sendable {
 
     private func seedSourcesFromProjectData() throws -> Int {
         var seeded = 0
-        seeded += try seedSourcesFromSiteInventory()
         seeded += try seedSourcesFromReleaseManifests()
-        seeded += try seedFailedModsFromStaticPage()
         seeded += try seedTargetVersionCandidatesFromLiveBaseline()
         return seeded
     }
@@ -973,47 +971,6 @@ public struct ModUpdateScanner: Sendable {
         """)
     }
 
-
-    private func seedSourcesFromSiteInventory() throws -> Int {
-        let indexCandidates = [
-            config.projectRoot.appendingPathComponent("site/public/index.html"),
-            config.projectRoot.appendingPathComponent("Server App/nginx/site/public/index.html")
-        ]
-        guard let indexURL = indexCandidates.first(where: { fileManager.fileExists(atPath: $0.path) }) else {
-            return 0
-        }
-        let html = try String(contentsOf: indexURL, encoding: .utf8)
-        var seededSourceIDs = Set<String>()
-        var sources: [ModSourceRecord] = []
-        for scriptID in ["serverModsData", "clientModsData"] {
-            for row in Self.embeddedJSONRows(scriptID: scriptID, html: html) {
-                guard let sourceURL = row["sourceUrl"] as? String,
-                      sourceURL.hasPrefix("http://") || sourceURL.hasPrefix("https://") else {
-                    continue
-                }
-                let displayName = ((row["name"] as? String) ?? "Unknown Mod").trimmingCharacters(in: .whitespacesAndNewlines)
-                let files = Self.splitFileList((row["files"] as? String) ?? (row["versionFile"] as? String) ?? "")
-                let fileList = files.count == 1 ? files.map(Optional.some) : [nil]
-                for installedFile in fileList {
-                    let modKey = Self.modKey(displayName: displayName, installedFile: installedFile, sourceURL: sourceURL)
-                    let source = ModSourceRecord(
-                        sourceID: Self.versionedSourceID(Self.stableID("\(modKey)|\(sourceURL)|\(installedFile ?? "")"), minecraftVersion: config.minecraftVersion),
-                        modKey: modKey,
-                        displayName: displayName,
-                        installedFile: installedFile,
-                        installedVersion: installedFile.flatMap(Self.versionFromFilename),
-                        provider: Self.provider(for: sourceURL),
-                        sourceURL: sourceURL
-                    )
-                    sources.append(source)
-                    seededSourceIDs.insert(source.sourceID)
-                }
-            }
-        }
-        try upsert(sources: sources)
-        return seededSourceIDs.count
-    }
-
     private func seedSourcesFromReleaseManifests() throws -> Int {
         guard let releaseID = try currentReleaseID() else {
             return 0
@@ -1049,51 +1006,6 @@ public struct ModUpdateScanner: Sendable {
         }
         try upsert(sources: sources)
         return seeded
-    }
-
-    private func seedFailedModsFromStaticPage() throws -> Int {
-        let candidates = [
-            config.projectRoot.appendingPathComponent("site/public/failed-mods.html"),
-            config.projectRoot.appendingPathComponent("Server App/nginx/site/public/failed-mods.html")
-        ]
-        guard let page = candidates.first(where: { fileManager.fileExists(atPath: $0.path) }),
-              let html = try? String(contentsOf: page, encoding: .utf8) else {
-            return 0
-        }
-        let rows = Self.failedModRows(fromHTML: html)
-        var statements: [String] = ["BEGIN TRANSACTION;"]
-        for row in rows {
-            let failedModID = Self.versionedSourceID(row.id, minecraftVersion: config.minecraftVersion)
-            let failedAtSQL = row.failedAt.isEmpty ? "NULL" : "TIMESTAMP \(Self.sqlLiteral(Self.duckTimestamp(fromDisplay: row.failedAt)))"
-            statements.append("DELETE FROM core.failed_mod_update_status WHERE failed_mod_id = \(Self.sqlLiteral(row.id));")
-            statements.append("""
-            INSERT OR REPLACE INTO core.failed_mod_update_status(
-              failed_mod_id, title, source_url, filename, installed_version,
-              failure_reason, details, failed_at, minecraft_version, loader,
-              loader_version, active_status, updated_at
-            )
-            VALUES (
-              \(Self.sqlLiteral(failedModID)),
-              \(Self.sqlLiteral(row.title)),
-              \(Self.sqlLiteral(row.sourceURL)),
-              \(Self.sqlLiteral(row.filename)),
-              \(Self.sqlLiteral(row.version)),
-              \(Self.sqlLiteral(row.failureReason)),
-              \(Self.sqlLiteral(row.details)),
-              \(failedAtSQL),
-              \(Self.sqlLiteral(config.minecraftVersion)),
-              \(Self.sqlLiteral(config.loader)),
-              \(Self.sqlLiteral(config.loaderVersion)),
-              'failed',
-              now()
-            );
-            """)
-        }
-        statements.append("COMMIT;")
-        if !rows.isEmpty, !config.dryRun {
-            try execute(statements.joined(separator: "\n"))
-        }
-        return rows.count
     }
 
     private func loadSources(limit: Int?) throws -> [ModSourceRecord] {
@@ -1848,19 +1760,6 @@ public struct ModUpdateScanner: Sendable {
         ["server_mod", "client_mods", "client_resourcepacks", "client_shaderpacks", "client_tools"]
     }
 
-    private static func embeddedJSONRows(scriptID: String, html: String) -> [[String: Any]] {
-        let marker = "<script type=\"application/json\" id=\"\(scriptID)\">"
-        guard let start = html.range(of: marker) else { return [] }
-        let afterStart = html[start.upperBound...]
-        guard let end = afterStart.range(of: "</script>") else { return [] }
-        let jsonText = String(afterStart[..<end.lowerBound])
-        guard let data = jsonText.data(using: .utf8),
-              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-            return []
-        }
-        return rows
-    }
-
     private static func releaseManifestEntries(_ text: String) -> [(role: String, fileName: String)] {
         text.split(separator: "\n").dropFirst().compactMap { line in
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
@@ -1875,71 +1774,6 @@ public struct ModUpdateScanner: Sendable {
             .replacingOccurrences(of: #"\.(jar|zip|json|toml|properties|txt|sh)$"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"[-_]+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private struct FailedModSeedRow {
-        let id: String
-        let failedAt: String
-        let title: String
-        let sourceURL: String?
-        let filename: String?
-        let version: String?
-        let failureReason: String
-        let details: String
-    }
-
-    private static func failedModRows(fromHTML html: String) -> [FailedModSeedRow] {
-        let pattern = #"<tr>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*</tr>"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) else {
-            return []
-        }
-        let nsRange = NSRange(html.startIndex..<html.endIndex, in: html)
-        return regex.matches(in: html, range: nsRange).compactMap { match in
-            guard match.numberOfRanges >= 5,
-                  let timestampRange = Range(match.range(at: 1), in: html),
-                  let modRange = Range(match.range(at: 2), in: html),
-                  let reasonRange = Range(match.range(at: 3), in: html),
-                  let detailsRange = Range(match.range(at: 4), in: html) else {
-                return nil
-            }
-            let modHTML = String(html[modRange])
-            let title = htmlText(modHTML)
-            guard !title.isEmpty else { return nil }
-            let sourceURL = firstMatch(pattern: #"href="([^"]+)""#, in: modHTML)?.replacingOccurrences(of: "&amp;", with: "&")
-            let details = htmlText(String(html[detailsRange]))
-            let filename = firstMatch(pattern: #"([A-Za-z0-9._+\-()\[\] ]+\.(?:jar|zip))"#, in: details)
-            let version = filename.flatMap(versionFromFilename)
-            let id = stableID("\(title)|\(sourceURL ?? "")|\(String(html[timestampRange]))")
-            return FailedModSeedRow(
-                id: id,
-                failedAt: htmlText(String(html[timestampRange])),
-                title: title,
-                sourceURL: sourceURL,
-                filename: filename,
-                version: version,
-                failureReason: htmlText(String(html[reasonRange])),
-                details: details
-            )
-        }
-    }
-
-    private static func htmlText(_ html: String) -> String {
-        html
-            .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: "&amp;", with: "&")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&#x27;", with: "'")
-            .replacingOccurrences(of: "&#39;", with: "'")
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func duckTimestamp(fromDisplay value: String) -> String {
-        if value.range(of: #"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"#, options: .regularExpression) != nil {
-            return value
-        }
-        return "1970-01-01 00:00:00"
     }
 
     private static func modKey(displayName: String, installedFile: String?, sourceURL: String) -> String {

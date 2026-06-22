@@ -34,6 +34,10 @@ The production runtime boundary is Swift + embedded DuckDB + nginx. Live server 
 
 Shell scripts and small Python snippets are allowed only in developer/build/test tooling, such as local DMG packaging wrappers, temporary HTTP servers in tests, or command hooks explicitly passed by an operator. They must not become always-on VPS services, cron jobs, website data generators, or client runtime repair logic.
 
+The live `MCPummelchenModServer` systemd unit remains a root-owned service because it starts and supervises the Minecraft process tree under `/opt/pummelchen-swift/runtime` and installs local-only RCON firewall rules. The firewall rules are managed by Swift (`MinecraftLiveServerSupervisor`) using direct process execution, not shell pre-start snippets. The unit must keep service hardening enabled (`NoNewPrivileges`, `PrivateTmp`, `ProtectHome`, `ProtectSystem`, `RestrictSUIDSGID`) and write access limited to `/opt/pummelchen-swift/runtime` plus `/etc/pummelchen-swift`.
+
+The daily update systemd unit may use `/usr/bin/flock` directly for single-run serialization. It must not call shell scripts, Python helpers, or generated website jobs; the update scan itself must be performed by `MCPummelchenModServer mod-update-scan`.
+
 ## Client No-Download Summary
 
 When nothing needs download, the manual updater and future Swift CLI must report:

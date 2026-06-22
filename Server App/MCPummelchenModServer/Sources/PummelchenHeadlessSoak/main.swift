@@ -19,7 +19,7 @@ enum HeadlessSoakError: Error, CustomStringConvertible {
         case .usage:
             return """
             usage:
-              pummelchen-headless-soak --dmg <path> --release-id <id> --server-address <host:25565> [--expected-installed-release-id <id>] [--headless-command <shell>] [--server-url <url>] [--duration-seconds 60] [--work-dir <dir>] [--report <path>] [--client-api-token <token>] [--suppress-gui true] [--keep-work-dir true]
+              pummelchen-headless-soak --dmg <path> --release-id <id> --server-address <host:25565> [--expected-installed-release-id <id>] [--headless-command <shell>] [--server-url <url>] [--duration-seconds 60] [--work-dir <dir>] [--report <path>] [--suppress-gui true] [--keep-work-dir true]
 
             By default this uses HeadlessMC plus HMC-Specifics to start a real Minecraft client from the synced isolated Minecraft directory and stay alive for the soak duration.
             The built-in runner suppresses HeadlessMC GUI probing by default so macOS soak runs do not steal focus or capture the mouse.
@@ -136,7 +136,10 @@ struct HeadlessSoakConfig {
         self.loaderVersion = arguments.options["--loader-version"] ?? "26.1.2.76"
         self.heapGB = Int(arguments.options["--heap-gb"] ?? "8") ?? 8
         self.inGameTimeoutSeconds = Double(arguments.options["--ingame-timeout-seconds"] ?? "300") ?? 300
-        self.clientAPIToken = arguments.options["--client-api-token"] ?? ProcessInfo.processInfo.environment["PUMMELCHEN_CLIENT_API_TOKEN"]
+        if arguments.options["--client-api-token"] != nil {
+            throw HeadlessSoakError.invalidValue("--client-api-token is not accepted; use PUMMELCHEN_CLIENT_API_TOKEN")
+        }
+        self.clientAPIToken = ProcessInfo.processInfo.environment["PUMMELCHEN_CLIENT_API_TOKEN"]
         self.suppressGUI = Self.boolOption(arguments.options["--suppress-gui"], default: true)
         self.keepWorkDir = arguments.options["--keep-work-dir"] == "true"
     }

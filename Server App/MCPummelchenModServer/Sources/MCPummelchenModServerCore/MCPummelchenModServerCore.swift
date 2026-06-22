@@ -274,19 +274,13 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     }
 
     private func siteModInventory(scope: String) throws -> HTTPResponse {
-        let scriptID: String
-        switch scope {
-        case "server":
-            scriptID = "serverModsData"
-        case "client":
-            scriptID = "clientModsData"
-        default:
+        guard ["server", "client"].contains(scope) else {
             throw MCPummelchenModServerError.badRequest("invalid mod inventory scope")
         }
 
         let current = try CurrentReleaseValidator.decode(readCurrentReleaseData())
         let supportedVersions = try supportedMinecraftVersionsForInventory()
-        let rows = try siteModInventoryRows(scriptID: scriptID, scope: scope, current: current, supportedVersions: supportedVersions)
+        let rows = try siteModInventoryRows(scope: scope, current: current, supportedVersions: supportedVersions)
         let payload: [String: Any] = [
             "api_version": "v1",
             "generated_at": Self.isoNow(),
@@ -312,13 +306,11 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         let current = try CurrentReleaseValidator.decode(readCurrentReleaseData())
         let supportedVersions = try supportedMinecraftVersionsForInventory()
         let serverRows = try siteModInventoryRows(
-            scriptID: "serverModsData",
             scope: "server",
             current: current,
             supportedVersions: supportedVersions
         )
         let clientRows = try siteModInventoryRows(
-            scriptID: "clientModsData",
             scope: "client",
             current: current,
             supportedVersions: supportedVersions
@@ -346,7 +338,6 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     }
 
     private func siteModInventoryRows(
-        scriptID: String,
         scope: String,
         current: CurrentRelease,
         supportedVersions: [[String: Any]]
@@ -354,27 +345,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         let liveModSources = try liveModSourceInventory(minecraftVersion: current.minecraftVersion ?? "")
         let versionedModSources = try versionedModSourceInventory(supportedVersions: supportedVersions)
         let currentManifestFiles = try currentReleaseManifestFileRoles(current: current, scope: scope)
-        var rows = try readEmbeddedJSONRows(scriptID: scriptID).map {
-            annotatedModInventoryRow(
-                $0,
-                current: current,
-                supportedVersions: supportedVersions,
-                liveModSources: liveModSources,
-                versionedModSources: versionedModSources,
-                currentManifestFiles: currentManifestFiles
-            )
-        }
-        rows = rows.filter { ($0["_has_inventory_evidence"] as? Bool) == true }
-        if scope == "server" {
-            rows.append(contentsOf: missingLiveModInventoryRows(
-                existingRows: rows,
-                liveModSources: liveModSources,
-                current: current,
-                supportedVersions: supportedVersions,
-                versionedModSources: versionedModSources,
-                currentManifestFiles: currentManifestFiles
-            ))
-        }
+        var rows: [[String: Any]] = []
         rows.append(contentsOf: missingManifestInventoryRows(
             existingRows: rows,
             currentManifestFiles: currentManifestFiles,
@@ -670,6 +641,9 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
 
         var annotated = row
         if let live = sourceByVersion[currentVersion] ?? liveModSource(for: row, liveModSources: liveModSources) {
+            if !live.displayName.isEmpty {
+                annotated["name"] = live.displayName
+            }
             annotated["files"] = live.installedFiles
             annotated["versionFile"] = live.installedFiles
             annotated["installed_version"] = live.installedVersions
@@ -928,50 +902,6 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         return values
     }
 
-    private func missingLiveModInventoryRows(
-        existingRows: [[String: Any]],
-        liveModSources: [String: LiveModSourceInventory],
-        current: CurrentRelease,
-        supportedVersions: [[String: Any]],
-        versionedModSources: [String: [String: LiveModSourceInventory]],
-        currentManifestFiles: [String: String]
-    ) -> [[String: Any]] {
-        let existingText = existingRows.compactMap { $0["files"] as? String }.joined(separator: "\n")
-        var seenFiles = Set<String>()
-        let uniqueSources = liveModSources.values
-            .filter { !$0.installedFiles.isEmpty }
-            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-
-        var rows: [[String: Any]] = []
-        for source in uniqueSources {
-            guard seenFiles.insert(source.installedFiles).inserted,
-                  !existingText.contains(source.installedFiles) else {
-                continue
-            }
-            let row: [String: Any] = [
-                "name": source.displayName.isEmpty ? source.installedFiles : source.displayName,
-                "type": Self.clientModTypeLabel(for: source.installedFiles),
-                "files": source.installedFiles,
-                "versionFile": source.installedFiles,
-                "installed_version": source.installedVersions,
-                "sourceUrl": source.sourceURL,
-                "sourceHost": URL(string: source.sourceURL)?.host ?? "",
-                "sourceLinks": Self.sourceLinksPayload(source.sourceLinks),
-                "details": "Live mod source row generated from DuckDB because this active mod is not present in the static website inventory.",
-                "search": "\(source.displayName) \(source.installedFiles) \(source.installedVersions) \(source.sourceURL)"
-            ]
-            rows.append(annotatedModInventoryRow(
-                row,
-                current: current,
-                supportedVersions: supportedVersions,
-                liveModSources: liveModSources,
-                versionedModSources: versionedModSources,
-                currentManifestFiles: currentManifestFiles
-            ))
-        }
-        return rows
-    }
-
     private func missingManifestInventoryRows(
         existingRows: [[String: Any]],
         currentManifestFiles: [String: String],
@@ -1187,25 +1117,6 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         return "'\(value.replacingOccurrences(of: "'", with: "''"))'"
     }
 
-    private func readEmbeddedJSONRows(scriptID: String) throws -> [[String: Any]] {
-        let indexURL = config.projectRoot.appendingPathComponent("site/public/index.html")
-        let html = try String(contentsOf: try safeProjectFile(indexURL), encoding: .utf8)
-        let marker = "<script type=\"application/json\" id=\"\(scriptID)\">"
-        guard let start = html.range(of: marker) else {
-            throw MCPummelchenModServerError.notFound("site mod inventory \(scriptID)")
-        }
-        let afterStart = html[start.upperBound...]
-        guard let end = afterStart.range(of: "</script>") else {
-            throw MCPummelchenModServerError.notFound("site mod inventory \(scriptID) end")
-        }
-        let jsonText = String(afterStart[..<end.lowerBound])
-        let data = Data(jsonText.utf8)
-        guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-            throw MCPummelchenModServerError.badRequest("site mod inventory \(scriptID) is not a JSON row array")
-        }
-        return rows
-    }
-
     private func minecraftServerVersions() throws -> HTTPResponse {
         let hasInstallerName = try reportingViewHasColumn("v_minecraft_server_versions", column: "installer_name")
         let hasInstallerSHA256 = try reportingViewHasColumn("v_minecraft_server_versions", column: "installer_sha256")
@@ -1262,8 +1173,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             ]
         }
         let current = try CurrentReleaseValidator.decode(readCurrentReleaseData())
-        let serverRows = try siteModInventoryRows(scriptID: "serverModsData", scope: "server", current: current, supportedVersions: versions)
-        let clientRows = try siteModInventoryRows(scriptID: "clientModsData", scope: "client", current: current, supportedVersions: versions)
+        let serverRows = try siteModInventoryRows(scope: "server", current: current, supportedVersions: versions)
+        let clientRows = try siteModInventoryRows(scope: "client", current: current, supportedVersions: versions)
         let serverModCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: serverRows)
         let clientModCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: clientRows)
         versions = versions.map { version in

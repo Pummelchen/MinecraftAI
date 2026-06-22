@@ -4,17 +4,20 @@ import MCPummelchenModClientCore
 enum ClientSyncCLIError: Error, CustomStringConvertible {
     case usage
     case missingValue(String)
+    case invalidValue(String)
 
     var description: String {
         switch self {
         case .usage:
             return """
             usage:
-              pummelchen-client-sync sync [--force] [--server-url <url>] [--minecraft-dir <path>] [--pummelchen-home <path>] [--db <path>] [--client-id <id>] [--client-api-token <token>] [--no-client-api-token] [--allow-while-running] [--no-report] [--skip-java-repair]
-              pummelchen-client-sync watch [--server-url <url>] [--minecraft-dir <path>] [--pummelchen-home <path>] [--db <path>] [--client-id <id>] [--client-api-token <token>] [--no-client-api-token] [--max-cycles <n>] [--after-event-id <id>] [--allow-while-running] [--no-report] [--skip-java-repair]
+              pummelchen-client-sync sync [--force] [--server-url <url>] [--minecraft-dir <path>] [--pummelchen-home <path>] [--db <path>] [--client-id <id>] [--no-client-api-token] [--allow-while-running] [--no-report] [--skip-java-repair]
+              pummelchen-client-sync watch [--server-url <url>] [--minecraft-dir <path>] [--pummelchen-home <path>] [--db <path>] [--client-id <id>] [--no-client-api-token] [--max-cycles <n>] [--after-event-id <id>] [--allow-while-running] [--no-report] [--skip-java-repair]
             """
         case .missingValue(let option):
             return "missing value for \(option)"
+        case .invalidValue(let message):
+            return message
         }
     }
 }
@@ -54,6 +57,9 @@ struct Args {
 }
 
 func config(from args: Args) throws -> ClientSyncConfiguration {
+    if args.options["--client-api-token"] != nil {
+        throw ClientSyncCLIError.invalidValue("--client-api-token is not accepted; use PUMMELCHEN_CLIENT_API_TOKEN or the private app resource")
+    }
     let defaults = ClientSyncConfiguration.productionDefault()
     let serverURL = args.options["--server-url"].flatMap(URL.init(string:)) ?? defaults.serverURL
     let minecraft = args.options["--minecraft-dir"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? defaults.minecraftDirectory
@@ -68,7 +74,7 @@ func config(from args: Args) throws -> ClientSyncConfiguration {
         reportToServer: !args.flags.contains("--no-report"),
         manageJavaRuntime: !args.flags.contains("--skip-java-repair"),
         clientID: args.options["--client-id"],
-        clientAPIToken: args.flags.contains("--no-client-api-token") ? nil : (args.options["--client-api-token"] ?? ClientCredentialProvider.defaultClientAPIToken())
+        clientAPIToken: args.flags.contains("--no-client-api-token") ? nil : ClientCredentialProvider.defaultClientAPIToken()
     )
 }
 

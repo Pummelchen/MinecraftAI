@@ -25,12 +25,12 @@ enum ServerCommandError: Error, CustomStringConvertible {
               MCPummelchenModServer serve --project-root <repo> [--host 127.0.0.1] [--port 8787]
               MCPummelchenModServer release-create --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id> [--activate true] [--service <systemd-unit>]
               MCPummelchenModServer release-validate --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id>
-              MCPummelchenModServer add-mod --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --url <curseforge-or-modrinth-url> --release-id <id> [--server-package <dir>] [--service <systemd-unit>] [--local-artifact <jar>] [--install-scope auto|server|client|both] [--activate true] [--dry-run false] [--client-api-token <token>] [--require-client-token true|false]
+              MCPummelchenModServer add-mod --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --url <curseforge-or-modrinth-url> --release-id <id> [--server-package <dir>] [--service <systemd-unit>] [--local-artifact <jar>] [--install-scope auto|server|client|both] [--activate true] [--dry-run false] [--require-client-token true|false]
               MCPummelchenModServer build-client-dmg --project-root <repo> [--client-package <dir>] [--server-package <dir>] [--release-id <id>] [--client-version <version>] [--server-url <url>] [--server-address <host:port>] [--duckdb-dylib <path>] [--macos-deployment-target <target>] [--skip-nginx-control-live-test true] [--skip-headless-soak true] [--require-headless-soak true] [--headless-soak-seconds 60] [--headless-command <command>] [--expected-installed-release-id <id>] [--require-client-token true|false]
               MCPummelchenModServer ban-mod --project-root <repo> --duckdb <file> --name <display-name> --file-pattern <jar-name-or-pattern> [--source-url <url>] [--reason "Banned by Admin"] [--dry-run true]
               MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--all-supported true] [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-project-data true] [--discover-source-links true] [--discovery-limit <n>] [--discovery-searches-per-second 2] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
-              MCPummelchenModServer mod-update-apply --project-root <repo> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id-prefix <id> [--server-package <dir>] [--all-supported true] [--minecraft-version 26.1.2] [--dry-run true] [--activate-live true] [--service <systemd-unit>] [--client-api-token <token>] [--require-client-token true|false]
-              MCPummelchenModServer server-version-bootstrap --project-root <repo> --duckdb <file> --minecraft-version <target> [--reference-minecraft-version <version>] [--discover-source-links true] [--discovery-limit <n>] [--discovery-searches-per-second 2] [--max-urls-per-window 5] [--window-seconds 10] [--apply-updates true] [--release-root <dir>] [--public-downloads <dir>] [--release-id-prefix <id>] [--server-package <dir>] [--service <systemd-unit>] [--dry-run true] [--client-api-token <token>] [--require-client-token true|false]
+              MCPummelchenModServer mod-update-apply --project-root <repo> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id-prefix <id> [--server-package <dir>] [--all-supported true] [--minecraft-version 26.1.2] [--dry-run true] [--activate-live true] [--service <systemd-unit>] [--require-client-token true|false]
+              MCPummelchenModServer server-version-bootstrap --project-root <repo> --duckdb <file> --minecraft-version <target> [--reference-minecraft-version <version>] [--discover-source-links true] [--discovery-limit <n>] [--discovery-searches-per-second 2] [--max-urls-per-window 5] [--window-seconds 10] [--apply-updates true] [--release-root <dir>] [--public-downloads <dir>] [--release-id-prefix <id>] [--server-package <dir>] [--service <systemd-unit>] [--dry-run true] [--require-client-token true|false]
               MCPummelchenModServer client-force-update --project-root <repo> --duckdb <file> [--release-id <id>] [--target-client-id <id>]
               MCPummelchenModServer world-reset --project-root <repo> --server-dir <dir> --duckdb <file> [--seed <seed>] [--dry-run true] [--yes true] [--service <systemd-unit>] [--radius-blocks 1000] [--delete-backup-after-success true] [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>] [--rcon-ready-timeout-seconds 600] [--pregeneration-batch-size 384]
               MCPummelchenModServer rcon-command --project-root <repo> --server-dir <dir> --command <minecraft command> [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>]
@@ -530,6 +530,7 @@ private func releasePipeline(args: Arguments, projectRoot: URL) throws -> SwiftR
 }
 
 private func addModPipeline(args: Arguments, projectRoot: URL) throws -> ModAddPipeline {
+    try rejectCommandLineClientToken(args)
     let serverDir = URL(fileURLWithPath: try args.require("--server-dir"), isDirectory: true).standardizedFileURL
     let releaseRoot = URL(fileURLWithPath: try args.require("--release-root"), isDirectory: true).standardizedFileURL
     let publicDownloads = URL(fileURLWithPath: try args.require("--public-downloads"), isDirectory: true).standardizedFileURL
@@ -553,12 +554,13 @@ private func addModPipeline(args: Arguments, projectRoot: URL) throws -> ModAddP
         installScope: args.options["--install-scope"] ?? "auto",
             activate: args.options["--activate"] == "true",
             dryRun: optionBool(args.options["--dry-run"]),
-        clientAPIToken: args.options["--client-api-token"] ?? ProcessInfo.processInfo.environment["PUMMELCHEN_CLIENT_API_TOKEN"],
+        clientAPIToken: ProcessInfo.processInfo.environment["PUMMELCHEN_CLIENT_API_TOKEN"],
         requireClientToken: optionBool(args.options["--require-client-token"], defaultValue: optionBool(ProcessInfo.processInfo.environment["PUMMELCHEN_REQUIRE_CLIENT_TOKEN"]))
     ))
 }
 
 private func buildClientDMGCommand(args: Arguments, projectRoot: URL) throws -> ClientDMGBuilderConfig {
+    try rejectCommandLineClientToken(args)
     let env = ProcessInfo.processInfo.environment
     let runNginxControlLiveTest = optionBool(args.options["--require-nginx-control-live-test"], defaultValue: optionBool(env["PUMMELCHEN_REQUIRE_NGINX_CONTROL_LIVE_TEST"], defaultValue: true))
     let skipNginxControlLiveTest = optionBool(args.options["--skip-nginx-control-live-test"], defaultValue: optionBool(env["PUMMELCHEN_SKIP_NGINX_CONTROL_LIVE_TEST"]))
@@ -579,7 +581,7 @@ private func buildClientDMGCommand(args: Arguments, projectRoot: URL) throws -> 
         headlessSoakSeconds: Int(args.options["--headless-soak-seconds"] ?? env["PUMMELCHEN_HEADLESS_SOAK_SECONDS"] ?? "60") ?? 60,
         headlessCommand: args.options["--headless-command"],
         expectedInstalledReleaseID: args.options["--expected-installed-release-id"],
-        clientAPIToken: args.options["--client-api-token"] ?? env["PUMMELCHEN_CLIENT_API_TOKEN"],
+        clientAPIToken: env["PUMMELCHEN_CLIENT_API_TOKEN"],
         requireClientToken: optionBool(args.options["--require-client-token"], defaultValue: optionBool(env["PUMMELCHEN_REQUIRE_CLIENT_TOKEN"]))
     )
 }
@@ -652,6 +654,7 @@ private func modUpdateScanner(
 }
 
 private func modUpdateApplyPipeline(args: Arguments, projectRoot: URL) throws -> ModUpdateApplyPipeline {
+    try rejectCommandLineClientToken(args)
     let releaseRoot = URL(fileURLWithPath: try args.require("--release-root"), isDirectory: true).standardizedFileURL
     let publicDownloads = URL(fileURLWithPath: try args.require("--public-downloads"), isDirectory: true).standardizedFileURL
     let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
@@ -667,12 +670,13 @@ private func modUpdateApplyPipeline(args: Arguments, projectRoot: URL) throws ->
         dryRun: args.options["--dry-run"] != "false",
         serverPackageDirectory: URL(fileURLWithPath: args.options["--server-package"] ?? envOrDefault("PUMMELCHEN_SERVER_PACKAGE_DIR", defaultPath: projectRoot.appendingPathComponent("Server App/MCPummelchenModServer").path)),
         serviceName: args.options["--service"],
-        clientAPIToken: args.options["--client-api-token"],
+        clientAPIToken: ProcessInfo.processInfo.environment["PUMMELCHEN_CLIENT_API_TOKEN"],
         requireClientToken: optionBool(args.options["--require-client-token"], defaultValue: optionBool(ProcessInfo.processInfo.environment["PUMMELCHEN_REQUIRE_CLIENT_TOKEN"]))
     ))
 }
 
 private func serverVersionBootstrapPipeline(args: Arguments, projectRoot: URL) throws -> ServerVersionBootstrapPipeline {
+    try rejectCommandLineClientToken(args)
     let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
     let maxURLs = Int(args.options["--max-urls-per-window"] ?? "5") ?? 5
     let windowSeconds = Double(args.options["--window-seconds"] ?? "10") ?? 10
@@ -706,7 +710,7 @@ private func serverVersionBootstrapPipeline(args: Arguments, projectRoot: URL) t
         releaseIDPrefix: args.options["--release-id-prefix"],
         serverPackageDirectory: serverPackage,
         serviceName: args.options["--service"],
-        clientAPIToken: args.options["--client-api-token"],
+        clientAPIToken: ProcessInfo.processInfo.environment["PUMMELCHEN_CLIENT_API_TOKEN"],
         requireClientToken: optionBool(args.options["--require-client-token"], defaultValue: optionBool(ProcessInfo.processInfo.environment["PUMMELCHEN_REQUIRE_CLIENT_TOKEN"]))
     ))
 }
@@ -774,6 +778,12 @@ private func optionBool(_ value: String?, defaultValue: Bool = false) -> Bool {
         return false
     }
     return defaultValue
+}
+
+private func rejectCommandLineClientToken(_ args: Arguments) throws {
+    if args.options["--client-api-token"] != nil {
+        throw ServerCommandError.invalidValue("--client-api-token is not accepted; use PUMMELCHEN_CLIENT_API_TOKEN or a private token resource")
+    }
 }
 
 private func envOrDefault(_ key: String, defaultPath: String) -> String {

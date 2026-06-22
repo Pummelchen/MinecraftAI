@@ -23,6 +23,7 @@ public struct MinecraftLiveServerSupervisorConfig: Sendable {
     public let rconHost: String
     public let rconPort: Int
     public let rconPassword: String?
+    public let rconFirewallEnabled: Bool
 
     public init(
         enabled: Bool,
@@ -40,7 +41,8 @@ public struct MinecraftLiveServerSupervisorConfig: Sendable {
         gracefulStopTimeoutSeconds: TimeInterval = 75,
         rconHost: String = "127.0.0.1",
         rconPort: Int = 25575,
-        rconPassword: String? = nil
+        rconPassword: String? = nil,
+        rconFirewallEnabled: Bool = true
     ) {
         self.enabled = enabled
         self.serverDirectory = serverDirectory.standardizedFileURL
@@ -61,6 +63,7 @@ public struct MinecraftLiveServerSupervisorConfig: Sendable {
         self.rconHost = rconHost
         self.rconPort = rconPort
         self.rconPassword = rconPassword?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.rconFirewallEnabled = rconFirewallEnabled
     }
 
     public static func fromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> Self? {
@@ -94,7 +97,8 @@ public struct MinecraftLiveServerSupervisorConfig: Sendable {
             gracefulStopTimeoutSeconds: gracefulStopTimeout,
             rconHost: environment["PUMMELCHEN_MINECRAFT_RCON_HOST"] ?? "127.0.0.1",
             rconPort: environment["PUMMELCHEN_MINECRAFT_RCON_PORT"].flatMap(Int.init) ?? 25575,
-            rconPassword: environment["PUMMELCHEN_MINECRAFT_RCON_PASSWORD"]
+            rconPassword: environment["PUMMELCHEN_MINECRAFT_RCON_PASSWORD"],
+            rconFirewallEnabled: bool(environment["PUMMELCHEN_MINECRAFT_RCON_FIREWALL"], default: true)
         )
     }
 
@@ -143,8 +147,49 @@ public final class MinecraftLiveServerSupervisor: @unchecked Sendable {
             throw MCPummelchenModServerError.badRequest("Minecraft server directory is missing: \(config.serverDirectory.path)")
         }
 
+        try ensureRCONFirewallIfNeeded()
         try startProcessIfPortClosed()
         startWatchdogIfNeeded()
+    }
+
+    private func ensureRCONFirewallIfNeeded() throws {
+        guard config.rconFirewallEnabled else {
+            log("minecraft_rcon_firewall=disabled")
+            return
+        }
+        guard config.rconPort > 0, config.rconPort < 65_536 else {
+            throw MCPummelchenModServerError.badRequest("Minecraft RCON firewall port is invalid: \(config.rconPort)")
+        }
+
+        try ensureFirewallRule(
+            executablePath: "/usr/sbin/iptables",
+            family: "ipv4",
+            ruleArguments: ["-p", "tcp", "--dport", String(config.rconPort), "!", "-s", "127.0.0.1", "-j", "DROP"]
+        )
+        try ensureFirewallRule(
+            executablePath: "/usr/sbin/ip6tables",
+            family: "ipv6",
+            ruleArguments: ["-p", "tcp", "--dport", String(config.rconPort), "-j", "DROP"]
+        )
+    }
+
+    private func ensureFirewallRule(executablePath: String, family: String, ruleArguments: [String]) throws {
+        guard fileManager.isExecutableFile(atPath: executablePath) else {
+            log("minecraft_rcon_firewall=unavailable family=\(family) executable=\(executablePath)")
+            return
+        }
+
+        let checkStatus = Self.runProcess(executablePath: executablePath, arguments: ["-C", "INPUT"] + ruleArguments)
+        if checkStatus == 0 {
+            log("minecraft_rcon_firewall=already_present family=\(family) port=\(config.rconPort)")
+            return
+        }
+
+        let insertStatus = Self.runProcess(executablePath: executablePath, arguments: ["-I", "INPUT", "1"] + ruleArguments)
+        guard insertStatus == 0 else {
+            throw MCPummelchenModServerError.badRequest("failed to install \(family) RCON firewall rule with \(executablePath) status=\(insertStatus)")
+        }
+        log("minecraft_rcon_firewall=installed family=\(family) port=\(config.rconPort)")
     }
 
     private func startProcessIfPortClosed() throws {
@@ -419,6 +464,21 @@ public final class MinecraftLiveServerSupervisor: @unchecked Sendable {
         #else
         _ = Darwin.kill(pid, SIGKILL)
         #endif
+    }
+
+    private static func runProcess(executablePath: String, arguments: [String]) -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus
+        } catch {
+            return -1
+        }
     }
 
     private static func shellSafeLogValue(_ value: String) -> String {

@@ -78,7 +78,8 @@ struct MCPummelchenModServerCoreTests {
             "PUMMELCHEN_MINECRAFT_GRACEFUL_STOP_TIMEOUT_SECONDS": "45",
             "PUMMELCHEN_MINECRAFT_RCON_HOST": "127.0.0.1",
             "PUMMELCHEN_MINECRAFT_RCON_PORT": "25575",
-            "PUMMELCHEN_MINECRAFT_RCON_PASSWORD": "test-password"
+            "PUMMELCHEN_MINECRAFT_RCON_PASSWORD": "test-password",
+            "PUMMELCHEN_MINECRAFT_RCON_FIREWALL": "true"
         ]))
 
         #expect(config.enabled)
@@ -97,6 +98,7 @@ struct MCPummelchenModServerCoreTests {
         #expect(config.rconHost == "127.0.0.1")
         #expect(config.rconPort == 25575)
         #expect(config.rconPassword == "test-password")
+        #expect(config.rconFirewallEnabled)
     }
 
     @Test("serves live site stats from Swift API")
@@ -185,12 +187,6 @@ struct MCPummelchenModServerCoreTests {
         try requireDuckDB()
         let fixture = try makeProjectFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        try """
-        <!doctype html>
-        <html><body><table><tbody>
-          <tr><td class="timestamp-cell">2026-06-12 00:00:00</td><td class="mod-cell"><a href="https://www.curseforge.com/minecraft/mc-mods/giraffemob">GiraffeMob</a></td><td class="reason-cell">Rejected: incompatible jar metadata</td><td class="details-cell">Selected file giraffemob-26.1.2-1.0.0.jar failed validation.</td></tr>
-        </tbody></table></body></html>
-        """.write(to: fixture.root.appendingPathComponent("site/public/failed-mods.html"), atomically: true, encoding: .utf8)
 
         let database = fixture.root.appendingPathComponent("data/test-phase6.duckdb")
         let summary = try ModUpdateScanner(config: ModUpdateScannerConfig(
@@ -201,15 +197,34 @@ struct MCPummelchenModServerCoreTests {
             limit: 0,
             seedFromProjectData: true
         )).run()
-        #expect(summary.seededSources == 3)
+        #expect(summary.seededSources == 2)
         try DuckDBDatabase(databaseURL: database).execute("""
-        UPDATE core.failed_mod_update_status
-        SET latest_status = 'unresolved',
-            latest_version = '1.1.0',
-            latest_url = 'https://www.curseforge.com/minecraft/mc-mods/giraffemob',
-            last_check_details = 'CurseForge API returned no compatible neoforge 26.1.2 files',
-            last_checked_at = TIMESTAMP '2026-06-19 12:00:00'
-        WHERE title = 'GiraffeMob';
+        INSERT OR REPLACE INTO core.failed_mod_update_status(
+          failed_mod_id, title, source_url, filename, installed_version,
+          failure_reason, details, failed_at, minecraft_version, loader,
+          loader_version, active_status, latest_status, latest_version,
+          latest_url, last_check_details, last_checked_at, updated_at
+        )
+        VALUES (
+          'failed_giraffemob_26_1_2',
+          'GiraffeMob',
+          'https://www.curseforge.com/minecraft/mc-mods/giraffemob',
+          'giraffemob-26.1.2-1.0.0.jar',
+          '1.0.0',
+          'Rejected: incompatible jar metadata',
+          'Selected file giraffemob-26.1.2-1.0.0.jar failed validation.',
+          TIMESTAMP '2026-06-12 00:00:00',
+          '26.1.2',
+          'neoforge',
+          '26.1.2.76',
+          'failed',
+          'unresolved',
+          '1.1.0',
+          'https://www.curseforge.com/minecraft/mc-mods/giraffemob',
+          'CurseForge API returned no compatible neoforge 26.1.2 files',
+          TIMESTAMP '2026-06-19 12:00:00',
+          now()
+        );
         """)
 
         let api = makeAPI(fixture: fixture)
@@ -809,6 +824,7 @@ struct MCPummelchenModServerCoreTests {
         try """
         role	relative_path
         client_mods	client-files/mods/example-mod.jar
+        client_mods	client-files/mods/shared.jar
         client_resourcepacks	client-files/resourcepacks/ModernArch v2.8.2 [26.1] [128x].zip
         client_shaderpacks	client-files/shaderpacks/BSL_v10.0.zip
         client_shaderpacks	client-files/shaderpacks/BSL_v10.0.zip.txt
@@ -834,7 +850,8 @@ struct MCPummelchenModServerCoreTests {
         let mergedRows = try #require(mergedObject?["rows"] as? [[String: Any]])
         let supportedVersions = try #require(serverObject?["supported_versions"] as? [[String: Any]])
         let serverCompatibility = try #require(serverRows.first?["compatibility"] as? [String: String])
-        let clientCompatibility = try #require(clientRows.first?["compatibility"] as? [String: String])
+        let fixtureClientRow = try #require(clientRows.first { $0["name"] as? String == "Fixture Client Mod" })
+        let clientCompatibility = try #require(fixtureClientRow["compatibility"] as? [String: String])
         let mergedPlacements = Dictionary(uniqueKeysWithValues: mergedRows.compactMap { row -> (String, String)? in
             guard let name = row["name"] as? String, let placement = row["placement"] as? String else {
                 return nil
@@ -853,10 +870,9 @@ struct MCPummelchenModServerCoreTests {
         #expect(serverRows.first?["files"] as? String == "server-26.1.2.jar")
         #expect(serverRows.allSatisfy { (($0["type"] as? String) ?? "").localizedCaseInsensitiveContains("source") == false })
         #expect(clientObject?["scope"] as? String == "client")
-        #expect(clientRows.first?["name"] as? String == "Fixture Client Mod")
-        #expect(clientRows.first?["sourceUrl"] as? String == "https://fixture.local/client")
-        #expect(clientRows.first?["sourceHost"] as? String == "fixture.local")
-        let clientSourceLinks = try #require(clientRows.first?["sourceLinks"] as? [[String: String]])
+        #expect(fixtureClientRow["sourceUrl"] as? String == "https://fixture.local/client")
+        #expect(fixtureClientRow["sourceHost"] as? String == "fixture.local")
+        let clientSourceLinks = try #require(fixtureClientRow["sourceLinks"] as? [[String: String]])
         #expect(clientSourceLinks.contains { $0["url"] == "https://fixture.local/client" })
         #expect(clientSourceLinks.contains { $0["provider"] == "modrinth" && $0["url"] == "https://modrinth.com/mod/fixture-client" })
         #expect(clientCompatibility["26.1.2"] == "Active")
@@ -944,8 +960,8 @@ struct MCPummelchenModServerCoreTests {
         #expect(versions.first?["page_url"] as? String == "server-26.1.2.html")
         #expect(versions.first?["installer_name"] as? String == "neoforge-26.1.2.76-installer.jar")
         #expect(versions.first?["installer_url"] as? String == "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.1.2.76/neoforge-26.1.2.76-installer.jar")
-        #expect(versions.first?["server_mod_count"] as? Int == 4)
-        #expect(versions.first?["client_mod_count"] as? Int == 4)
+        #expect(versions.first?["server_mod_count"] as? Int == 2)
+        #expect(versions.first?["client_mod_count"] as? Int == 3)
         #expect(versions.last?["minecraft_version"] as? String == "26.2")
         #expect(versions.last?["status"] as? String == "staging")
         #expect(versions.last?["page_url"] as? String == "server-26.2.html")
@@ -2205,27 +2221,26 @@ struct MCPummelchenModServerCoreTests {
         ])
     }
 
-    @Test("mod update scanner seeds source URLs into DuckDB")
-    func modUpdateScannerSeedsSourceURLs() throws {
+    @Test("mod update scanner seeds release manifest rows into DuckDB")
+    func modUpdateScannerSeedsReleaseManifestRows() throws {
         try requireDuckDB()
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("pummelchen-mod-scan-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("site/public"), withIntermediateDirectories: true)
+        let downloads = root.appendingPathComponent("site/public/downloads", isDirectory: true)
+        let manifests = downloads.appendingPathComponent("releases/release_manifest_seed/manifests", isDirectory: true)
+        try FileManager.default.createDirectory(at: manifests, withIntermediateDirectories: true)
         try """
-        <script type="application/json" id="serverModsData">[
-          {
-            "name": "BetterF3",
-            "files": "BetterF3-18.0.2-NeoForge-26.1.jar",
-            "sourceUrl": "https://modrinth.com/mod/betterf3"
-          },
-          {
-            "name": "BetterF3",
-            "files": "BetterF3-18.0.2-NeoForge-26.1.jar",
-            "sourceUrl": "https://www.curseforge.com/minecraft/mc-mods/betterf3"
-          }
-        ]</script>
-        """.write(to: root.appendingPathComponent("site/public/index.html"), atomically: true, encoding: .utf8)
+        {"release_id":"release_manifest_seed","minecraft_version":"26.1.2"}
+        """.write(to: downloads.appendingPathComponent("current-release.json"), atomically: true, encoding: .utf8)
+        try """
+        # role\trelative_path\tsize\tsha256
+        server_mod\tmods/BetterF3-18.0.2-NeoForge-26.1.jar\t10\tsha256:1111111111111111111111111111111111111111111111111111111111111111
+        """.write(to: manifests.appendingPathComponent("server-files.tsv"), atomically: true, encoding: .utf8)
+        try """
+        # role\trelative_path\tsize\tsha256
+        client_mods\tmods/Iris-1.10.9.jar\t10\tsha256:2222222222222222222222222222222222222222222222222222222222222222
+        """.write(to: manifests.appendingPathComponent("client-package.tsv"), atomically: true, encoding: .utf8)
 
         let database = root.appendingPathComponent("scanner.duckdb")
         let scanner = ModUpdateScanner(config: ModUpdateScannerConfig(
@@ -2242,10 +2257,8 @@ struct MCPummelchenModServerCoreTests {
         #expect(summary.sourcesChecked == 0)
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources;") == "2")
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_source_links;") == "2")
-        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources WHERE provider = 'modrinth';") == "1")
-        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources WHERE provider = 'curseforge';") == "1")
-        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_source_links WHERE provider = 'modrinth';") == "1")
-        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_source_links WHERE provider = 'curseforge';") == "1")
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources WHERE provider = 'manifest';") == "2")
+        #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_source_links WHERE provider = 'manifest';") == "2")
     }
 
     @Test("mod update scanner keeps source rows separate by Minecraft version")
@@ -2254,16 +2267,19 @@ struct MCPummelchenModServerCoreTests {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("pummelchen-mod-scan-versions-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("site/public"), withIntermediateDirectories: true)
+        let downloads = root.appendingPathComponent("site/public/downloads", isDirectory: true)
+        let manifests = downloads.appendingPathComponent("releases/release_manifest_versions/manifests", isDirectory: true)
+        try FileManager.default.createDirectory(at: manifests, withIntermediateDirectories: true)
         try """
-        <script type="application/json" id="serverModsData">[
-          {
-            "name": "BetterF3",
-            "files": "BetterF3-18.0.2-NeoForge-26.1.jar",
-            "sourceUrl": "https://modrinth.com/mod/betterf3"
-          }
-        ]</script>
-        """.write(to: root.appendingPathComponent("site/public/index.html"), atomically: true, encoding: .utf8)
+        {"release_id":"release_manifest_versions"}
+        """.write(to: downloads.appendingPathComponent("current-release.json"), atomically: true, encoding: .utf8)
+        try """
+        # role\trelative_path\tsize\tsha256
+        server_mod\tmods/BetterF3-18.0.2-NeoForge-26.1.jar\t10\tsha256:1111111111111111111111111111111111111111111111111111111111111111
+        """.write(to: manifests.appendingPathComponent("server-files.tsv"), atomically: true, encoding: .utf8)
+        try """
+        # role\trelative_path\tsize\tsha256
+        """.write(to: manifests.appendingPathComponent("client-package.tsv"), atomically: true, encoding: .utf8)
 
         let database = root.appendingPathComponent("scanner.duckdb")
         _ = try ModUpdateScanner(config: ModUpdateScannerConfig(
@@ -2293,22 +2309,26 @@ struct MCPummelchenModServerCoreTests {
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_source_links WHERE minecraft_version = '26.2';") == "1")
     }
 
-    @Test("mod update scanner does not attach batch files to one source URL")
-    func modUpdateScannerKeepsBatchRowsSingleSource() throws {
+    @Test("mod update scanner does not duplicate release manifest entries")
+    func modUpdateScannerDoesNotDuplicateReleaseManifestEntries() throws {
         try requireDuckDB()
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("pummelchen-mod-scan-batch-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("Server App/nginx/site/public"), withIntermediateDirectories: true)
+        let downloads = root.appendingPathComponent("site/public/downloads", isDirectory: true)
+        let manifests = downloads.appendingPathComponent("releases/release_manifest_duplicates/manifests", isDirectory: true)
+        try FileManager.default.createDirectory(at: manifests, withIntermediateDirectories: true)
         try """
-        <script type="application/json" id="serverModsData">[
-          {
-            "name": "Advanced Chimneys",
-            "files": "adchimneys-26.1.0.0.jar\\nother-unrelated-mod-1.0.0.jar",
-            "sourceUrl": "https://www.curseforge.com/minecraft/mc-mods/advanced-chimneys"
-          }
-        ]</script>
-        """.write(to: root.appendingPathComponent("Server App/nginx/site/public/index.html"), atomically: true, encoding: .utf8)
+        {"release_id":"release_manifest_duplicates","minecraft_version":"26.1.2"}
+        """.write(to: downloads.appendingPathComponent("current-release.json"), atomically: true, encoding: .utf8)
+        try """
+        # role\trelative_path\tsize\tsha256
+        server_mod\tmods/adchimneys-26.1.0.0.jar\t10\tsha256:1111111111111111111111111111111111111111111111111111111111111111
+        server_mod\tmods/adchimneys-26.1.0.0.jar\t10\tsha256:1111111111111111111111111111111111111111111111111111111111111111
+        """.write(to: manifests.appendingPathComponent("server-files.tsv"), atomically: true, encoding: .utf8)
+        try """
+        # role\trelative_path\tsize\tsha256
+        """.write(to: manifests.appendingPathComponent("client-package.tsv"), atomically: true, encoding: .utf8)
 
         let database = root.appendingPathComponent("scanner.duckdb")
         let scanner = ModUpdateScanner(config: ModUpdateScannerConfig(
@@ -2322,7 +2342,7 @@ struct MCPummelchenModServerCoreTests {
 
         #expect(summary.seededSources == 1)
         #expect(try duckDBScalar(database: database, sql: "SELECT COUNT(*) FROM core.mod_sources;") == "1")
-        #expect(try duckDBScalar(database: database, sql: "SELECT COALESCE(installed_file, '') FROM core.mod_sources;") == "")
+        #expect(try duckDBScalar(database: database, sql: "SELECT COALESCE(installed_file, '') FROM core.mod_sources;") == "adchimneys-26.1.0.0.jar")
     }
 
     @Test("phase 8 control events use safe payloads over nginx HTTPS")
@@ -2720,7 +2740,7 @@ struct MCPummelchenModServerCoreTests {
         try manifest.write(to: releaseDir.appendingPathComponent("client-sync-manifest.tsv"), atomically: true, encoding: .utf8)
         try """
         # role\trelative_path\tsize\tsha256
-        server_mod\tmods/server-26.2.jar\t10\tsha256:1111111111111111111111111111111111111111111111111111111111111111
+        server_mod\tmods/server-26.1.2.jar\t10\tsha256:1111111111111111111111111111111111111111111111111111111111111111
         server_mod\tmods/shared.jar\t10\tsha256:2222222222222222222222222222222222222222222222222222222222222222
         """.write(to: manifestsDir.appendingPathComponent("server-files.tsv"), atomically: true, encoding: .utf8)
         try """
@@ -2730,15 +2750,6 @@ struct MCPummelchenModServerCoreTests {
         shaderpack\tshaderpacks/BSL_v10.0.zip\t10\tsha256:5555555555555555555555555555555555555555555555555555555555555555
         """.write(to: manifestsDir.appendingPathComponent("client-package.tsv"), atomically: true, encoding: .utf8)
         try Data().write(to: downloads.appendingPathComponent("MCPummelchenModClient.dmg"))
-        try """
-        <!doctype html>
-        <html>
-        <body>
-          <script type="application/json" id="serverModsData">[{"name":"Fixture Server Mod","type":"Gameplay","files":"server-26.2.jar","sourceHost":"fixture.local","details":"Server fixture"},{"name":"Fixture Shared Mod","type":"Gameplay","files":"shared.jar","sourceHost":"fixture.local","details":"Shared server fixture"}]</script>
-          <script type="application/json" id="clientModsData">[{"name":"Fixture Client Mod","type":"Client Visuals","files":"example-mod.jar","sourceHost":"fixture.local","details":"Client fixture"},{"name":"Fixture Shared Mod","type":"Gameplay","files":"example-mod.jar","sourceHost":"fixture.local","details":"Shared client fixture"}]</script>
-        </body>
-        </html>
-        """.write(to: root.appendingPathComponent("site/public/index.html"), atomically: true, encoding: .utf8)
         return (root, current, manifest)
     }
 
