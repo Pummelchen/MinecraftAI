@@ -57,10 +57,8 @@ public struct ModVersionPatcher: Sendable {
             guard line.contains("versionRange") || line.contains("loaderVersion") else { continue }
             guard let keyRange = line.range(of: #"versionRange\s*=\s*"#) ?? line.range(of: #"loaderVersion\s*=\s*"#) else { continue }
             let afterKey = String(line[keyRange.upperBound...])
-            guard afterKey.hasPrefix("\"") else { continue }
-            let innerStart = afterKey.index(after: afterKey.startIndex)
             guard let innerEnd = afterKey.dropFirst().firstIndex(of: "\"") else { continue }
-            let val = String(afterKey[innerStart..<innerEnd])
+            let val = String(afterKey[afterKey.startIndex..<innerEnd])
             let fixed = Self.fixRange(val, newUpper: newUpper)
             if fixed != val {
                 let beforeKey = String(line[..<keyRange.lowerBound])
