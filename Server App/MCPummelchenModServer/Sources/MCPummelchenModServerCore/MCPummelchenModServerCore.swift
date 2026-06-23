@@ -1314,13 +1314,19 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         let current = try CurrentReleaseValidator.decode(readCurrentReleaseData())
         let serverRows = try siteModInventoryRows(scope: "server", current: current, supportedVersions: versions)
         let clientRows = try siteModInventoryRows(scope: "client", current: current, supportedVersions: versions)
-        let serverModCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: serverRows)
-        let clientModCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: clientRows)
+        let serverDBCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: serverRows)
+        let clientDBCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: clientRows)
+        let serverFSCounts = Self.filesystemModCounts(versions: versions, scope: "server")
+        let clientFSCounts = Self.filesystemModCounts(versions: versions, scope: "client")
         versions = versions.map { version in
             var enriched = version
             let minecraftVersion = version["minecraft_version"] as? String ?? ""
-            enriched["server_mod_count"] = serverModCounts[minecraftVersion] ?? 0
-            enriched["client_mod_count"] = clientModCounts[minecraftVersion] ?? 0
+            let dbServer = serverDBCounts[minecraftVersion] ?? 0
+            let dbClient = clientDBCounts[minecraftVersion] ?? 0
+            let fsServer = serverFSCounts[minecraftVersion] ?? 0
+            let fsClient = clientFSCounts[minecraftVersion] ?? 0
+            enriched["server_mod_count"] = max(dbServer, fsServer)
+            enriched["client_mod_count"] = max(dbClient, fsClient)
             return enriched
         }
         let payload: [String: Any] = [
@@ -1353,6 +1359,28 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
 
     private static func neoForgeInstallerURL(loaderVersion: String) -> String {
         loaderVersion.isEmpty ? "" : "https://maven.neoforged.net/releases/net/neoforged/neoforge/\(loaderVersion)/neoforge-\(loaderVersion)-installer.jar"
+    }
+
+    private static func filesystemModCounts(versions: [[String: Any]], scope: String) -> [String: Int] {
+        let fm = FileManager.default
+        var counts: [String: Int] = [:]
+        for version in versions {
+            guard let minecraftVersion = version["minecraft_version"] as? String,
+                  let serverDir = version["server_dir"] as? String,
+                  !serverDir.isEmpty else { continue }
+            let modDir: String
+            if scope == "server" {
+                modDir = "\(serverDir)/mods"
+            } else {
+                modDir = "\(serverDir)/client-package/mods"
+            }
+            guard let files = try? fm.contentsOfDirectory(atPath: modDir) else { continue }
+            let jarCount = files.filter { $0.hasSuffix(".jar") }.count
+            if jarCount > 0 {
+                counts[minecraftVersion] = jarCount
+            }
+        }
+        return counts
     }
 
     private static func compatibleInventoryCountsByMinecraftVersion(rows: [[String: Any]]) -> [String: Int] {
