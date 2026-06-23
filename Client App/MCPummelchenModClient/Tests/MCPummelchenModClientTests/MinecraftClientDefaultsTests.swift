@@ -38,10 +38,6 @@ struct MinecraftClientDefaultsTests {
         let shaderOptions = try String(contentsOf: root.appendingPathComponent("optionsshaders.txt"), encoding: .utf8)
         #expect(shaderOptions.contains("shaderPack=BSL_v10.1.3.zip"))
 
-        let ducks = try String(contentsOf: root.appendingPathComponent("config/untitledduckmod-server.toml"), encoding: .utf8)
-        #expect(ducks.contains("duck_tamed_no_follow=true"))
-        #expect(ducks.contains("goose_tamed_no_follow=true"))
-
         let physicsConfig = try Data(contentsOf: root.appendingPathComponent("config/physicsmod/physics_client_config.json"))
         let physicsRoot = try #require(JSONSerialization.jsonObject(with: physicsConfig) as? [String: Any])
         let mobSettings = try #require(physicsRoot["mobSettings"] as? [String: Any])

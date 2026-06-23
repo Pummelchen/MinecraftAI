@@ -162,11 +162,7 @@ public struct MinecraftClientDefaults: Equatable, Sendable {
         configProperties: [String: [String: String]] = [
             "config/neoforge-client.toml": ["showLoadWarnings": "false"],
             "config/forge-client.toml": ["showLoadWarnings": "false"],
-            "config/yuushya-client.toml": ["showCheckScreen": "false"],
-            "config/untitledduckmod-server.toml": [
-                "duck_tamed_no_follow": "true",
-                "goose_tamed_no_follow": "true"
-            ]
+            "config/yuushya-client.toml": ["showCheckScreen": "false"]
         ],
         physicsMobType: Int = 3
     ) {
