@@ -420,9 +420,11 @@ public struct ModAddPipeline: Sendable {
             if !config.dryRun {
                 if scope.copiedToServer {
                     try copyFile(artifact.localFile, to: serverTarget)
+                    try? ModVersionPatcher.patchIfNeeded(jar: serverTarget, minecraftVersion: config.minecraftVersion)
                 }
                 if scope.copiedToClient {
                     try copyFile(artifact.localFile, to: clientTarget)
+                    try? ModVersionPatcher.patchIfNeeded(jar: clientTarget, minecraftVersion: config.minecraftVersion)
                 }
             }
             return AddedModArtifact(

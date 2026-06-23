@@ -28,6 +28,7 @@ enum ServerCommandError: Error, CustomStringConvertible {
               MCPummelchenModServer add-mod --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --url <curseforge-or-modrinth-url> --release-id <id> [--server-package <dir>] [--service <systemd-unit>] [--local-artifact <jar>] [--install-scope auto|server|client|both] [--activate true] [--dry-run false] [--require-client-token true|false]
               MCPummelchenModServer build-client-dmg --project-root <repo> [--client-package <dir>] [--server-package <dir>] [--release-id <id>] [--client-version <version>] [--server-url <url>] [--server-address <host:port>] [--duckdb-dylib <path>] [--macos-deployment-target <target>] [--skip-nginx-control-live-test true] [--skip-headless-soak true] [--require-headless-soak true] [--headless-soak-seconds 60] [--headless-command <command>] [--expected-installed-release-id <id>] [--require-client-token true|false]
               MCPummelchenModServer ban-mod --project-root <repo> --duckdb <file> --name <display-name> --file-pattern <jar-name-or-pattern> [--source-url <url>] [--reason "Banned by Admin"] [--dry-run true]
+              MCPummelchenModServer patch-mod --jar <path> [--target-version 26.2]
               MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--all-supported true] [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-project-data true] [--discover-source-links true] [--discovery-limit <n>] [--discovery-searches-per-second 2] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
               MCPummelchenModServer mod-update-apply --project-root <repo> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id-prefix <id> [--server-package <dir>] [--all-supported true] [--minecraft-version 26.1.2] [--dry-run true] [--activate-live true] [--service <systemd-unit>] [--require-client-token true|false]
               MCPummelchenModServer server-version-bootstrap --project-root <repo> --duckdb <file> --minecraft-version <target> [--reference-minecraft-version <version>] [--discover-source-links true] [--discovery-limit <n>] [--discovery-searches-per-second 2] [--max-urls-per-window 5] [--window-seconds 10] [--apply-updates true] [--release-root <dir>] [--public-downloads <dir>] [--release-id-prefix <id>] [--server-package <dir>] [--service <systemd-unit>] [--dry-run true] [--require-client-token true|false]
@@ -339,6 +340,17 @@ func run(arguments: [String]) throws {
         print("mod_ban_removals=\(result.removals.count)")
         for removal in result.removals {
             print("mod_ban_removed=\(removal.removed) minecraft_version=\(removal.minecraftVersion) path=\(removal.path)")
+        }
+    case "patch-mod":
+        let jarPath = try args.require("--jar")
+        let targetVersion = args.options["--target-version"] ?? "26.2"
+        let jarURL = URL(fileURLWithPath: jarPath).standardizedFileURL
+        if try ModVersionPatcher.patchIfNeeded(jar: jarURL, minecraftVersion: targetVersion) {
+            print("patch_mod=ok")
+            print("patched_jar=\(jarURL.path)")
+        } else {
+            print("patch_mod=no_change")
+            print("jar=\(jarURL.path)")
         }
     case "mod-update-scan":
         if optionBool(args.options["--all-supported"]) {

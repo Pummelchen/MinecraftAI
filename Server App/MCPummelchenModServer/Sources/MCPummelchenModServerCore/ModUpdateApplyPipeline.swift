@@ -284,10 +284,14 @@ public struct ModUpdateApplyPipeline: Sendable {
                 }
             }
             if scope.copiedToServer {
-                try copyFile(downloaded.file, to: version.serverDir.appendingPathComponent("mods/\(downloaded.file.lastPathComponent)"))
+                let serverTarget = version.serverDir.appendingPathComponent("mods/\(downloaded.file.lastPathComponent)")
+                try copyFile(downloaded.file, to: serverTarget)
+                try? ModVersionPatcher.patchIfNeeded(jar: serverTarget, minecraftVersion: version.minecraftVersion)
             }
             if scope.copiedToClient {
-                try copyFile(downloaded.file, to: version.serverDir.appendingPathComponent("client-package/mods/\(downloaded.file.lastPathComponent)"))
+                let clientTarget = version.serverDir.appendingPathComponent("client-package/mods/\(downloaded.file.lastPathComponent)")
+                try copyFile(downloaded.file, to: clientTarget)
+                try? ModVersionPatcher.patchIfNeeded(jar: clientTarget, minecraftVersion: version.minecraftVersion)
             }
             try updateModSources(group: group, newFile: downloaded.file.lastPathComponent, version: version)
         }
