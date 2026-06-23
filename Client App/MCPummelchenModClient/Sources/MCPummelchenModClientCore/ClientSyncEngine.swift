@@ -139,6 +139,7 @@ public struct ClientSyncEngine: Sendable {
         let started = Date()
         let runID = UUID().uuidString
         let previousRelease = readInstalledRelease()
+        let isFirstInstall = previousRelease == nil
         do {
             if !configuration.allowWhileMinecraftRunning, Self.minecraftIsRunning() {
                 throw ClientSyncError.minecraftRunning
@@ -149,14 +150,20 @@ public struct ClientSyncEngine: Sendable {
             let manifest = try await fetchManifest(for: release)
 
             let staleRemoved = try removeStaleManagedFiles(current: manifest)
-            let unmanagedMoved = try quarantineUnmanagedFiles(current: manifest)
-            let syncCounts = try await installFiles(manifest: manifest)
+            let unmanagedMoved = isFirstInstall ? try quarantineUnmanagedFiles(current: manifest) : 0
+            let syncCounts = try await installFiles(manifest: manifest, isFirstInstall: isFirstInstall)
             let defaults = try await minecraftDefaults()
-            try MinecraftClientDefaultWriter.apply(defaults: defaults, to: configuration.minecraftDirectory)
+            if isFirstInstall {
+                try MinecraftClientDefaultWriter.apply(defaults: defaults, to: configuration.minecraftDirectory)
+            } else {
+                try MinecraftClientDefaultWriter.applyServerEntries(defaults: defaults, to: configuration.minecraftDirectory)
+            }
             try writeInstalledRelease(release.releaseID)
             try writeCurrentManifest(manifest)
-            let inventory = try installedInventory(manifest: manifest)
-            let defaultsHealth = ClientDefaultsInspector.inspect(minecraftDirectory: configuration.minecraftDirectory, defaults: defaults)
+            let inventory = try installedInventory(manifest: manifest, isFirstInstall: isFirstInstall)
+            let defaultsHealth = isFirstInstall
+                ? ClientDefaultsInspector.inspect(minecraftDirectory: configuration.minecraftDirectory, defaults: defaults)
+                : []
             let selfUpdateResult = await Self.evaluateSelfUpdate(
                 release: release,
                 serverURL: configuration.serverURL,
@@ -169,9 +176,8 @@ public struct ClientSyncEngine: Sendable {
             let finished = Date()
             let downloaded = syncCounts.downloaded
             let changed = downloaded + staleRemoved + unmanagedMoved
-            let defaultsChanged = defaultsHealth.contains { !$0.status.isHealthy }
             let syncMessage = downloaded == 0
-                ? (defaultsChanged ? "files synced; client defaults need attention" : "all synced, no downloads required")
+                ? "all synced, no downloads required"
                 : "synced after \(downloaded) download(s)"
             let cleanupMessages = [
                 staleRemoved > 0 ? "removed \(staleRemoved) stale managed file(s)" : nil,
@@ -306,7 +312,7 @@ public struct ClientSyncEngine: Sendable {
         return try ClientSyncManifestParser.parse(String(decoding: data, as: UTF8.self))
     }
 
-    private func installFiles(manifest: ClientSyncManifest) async throws -> (verified: Int, downloaded: Int) {
+    private func installFiles(manifest: ClientSyncManifest, isFirstInstall: Bool) async throws -> (verified: Int, downloaded: Int) {
         let work = configuration.pummelchenHome
             .appendingPathComponent("tmp", isDirectory: true)
             .appendingPathComponent("sync-\(UUID().uuidString)", isDirectory: true)
@@ -316,6 +322,13 @@ public struct ClientSyncEngine: Sendable {
         var verified = 0
         var downloaded = 0
         for entry in manifest.entries {
+            if !isFirstInstall, entry.section != ManagedClientSection.mods.rawValue {
+                let destination = try destinationURL(for: entry)
+                if FileManager.default.fileExists(atPath: destination.path) {
+                    verified += 1
+                    continue
+                }
+            }
             let destination = try destinationURL(for: entry)
             if (try? FileInventory.verify(fileURL: destination, expectedSize: entry.sizeBytes, expectedSHA256: entry.sha256)) == true {
                 verified += 1
@@ -368,9 +381,12 @@ public struct ClientSyncEngine: Sendable {
         return removed
     }
 
-    private func installedInventory(manifest: ClientSyncManifest) throws -> [FileInventoryEntry] {
+    private func installedInventory(manifest: ClientSyncManifest, isFirstInstall: Bool = true) throws -> [FileInventoryEntry] {
         try manifest.entries.compactMap { entry in
             guard let section = ManagedClientSection(rawValue: entry.section) else {
+                return nil
+            }
+            if !isFirstInstall, entry.section != ManagedClientSection.mods.rawValue {
                 return nil
             }
             return try FileInventory.entry(for: try destinationURL(for: entry), section: section, root: try directory(for: entry.section))

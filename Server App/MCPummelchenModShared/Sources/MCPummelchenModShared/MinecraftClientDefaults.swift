@@ -268,6 +268,11 @@ public enum MinecraftClientDefaultWriter {
         try ensureServerEntries(defaults: defaults, minecraftDirectory: minecraftDirectory)
     }
 
+    public static func applyServerEntries(defaults: MinecraftClientDefaults = MinecraftClientDefaults(), to minecraftDirectory: URL) throws {
+        try setLauncherProfiles(defaults: defaults, minecraftDirectory: minecraftDirectory)
+        try ensureServerEntries(defaults: defaults, minecraftDirectory: minecraftDirectory)
+    }
+
     private static func setPhysicsMobType(_ mobType: Int, minecraftDirectory: URL) throws {
         let path = minecraftDirectory.appendingPathComponent("config/physicsmod/physics_client_config.json")
         try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
