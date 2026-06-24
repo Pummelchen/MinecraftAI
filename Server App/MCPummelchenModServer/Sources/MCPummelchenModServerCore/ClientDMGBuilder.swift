@@ -54,7 +54,7 @@ public struct ClientDMGBuilderConfig: Sendable {
         clientPackageRoot: URL,
         serverPackageRoot: URL,
         releaseID: String = "development",
-        clientVersion: String = "0.8.4",
+        clientVersion: String = "0.8.8",
         serverURL: String = "https://pummelchen.91.99.176.243.nip.io",
         serverAddress: String = "91.99.176.243:25565",
         duckdbDylibPath: String = "/opt/homebrew/lib/libduckdb.dylib",
