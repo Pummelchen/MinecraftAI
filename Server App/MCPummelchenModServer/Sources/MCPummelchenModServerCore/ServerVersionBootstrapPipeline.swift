@@ -206,6 +206,7 @@ public struct ServerVersionBootstrapPipeline: Sendable {
 
     private func copyBaselineFiles(reference: VersionTarget, target: VersionTarget) throws -> [ServerVersionBootstrapFileCopy] {
         let rows = try loadBaselineRows(reference: reference, target: target)
+        let versionSpecificFiles = try loadVersionSpecificScanResults(target: target)
         var copied: [ServerVersionBootstrapFileCopy] = []
 
         let clientSections = ["mods", "shaderpacks", "resourcepacks", "tools"]
@@ -226,26 +227,47 @@ public struct ServerVersionBootstrapPipeline: Sendable {
             let serverSubpath = paths.serverSubpath.isEmpty ? "mods" : paths.serverSubpath
             let clientSubpath = paths.clientSubpath ?? serverSubpath
 
-            let sourceServerFile = reference.serverDir.appendingPathComponent(serverSubpath).appendingPathComponent(row.fileName)
-            let sourceClientFile = reference.serverDir.appendingPathComponent("client-package/\(clientSubpath)").appendingPathComponent(row.fileName)
-            let targetServerFile = target.serverDir.appendingPathComponent(serverSubpath).appendingPathComponent(row.fileName)
-            let targetClientFile = target.serverDir.appendingPathComponent("client-package/\(clientSubpath)").appendingPathComponent(row.fileName)
-
+            let targetServerFile: URL
+            let targetClientFile: URL
             var copiedServer = false
             var copiedClient = false
 
-            if row.installedOnServer, fileManager.fileExists(atPath: sourceServerFile.path) {
-                if !config.dryRun {
-                    try copyFile(sourceServerFile, to: targetServerFile)
-                }
-                copiedServer = true
-            }
+            if let versionFile = versionSpecificFiles[row.modName.lowercased()] {
+                let versionFileName = URL(fileURLWithPath: versionFile.url).lastPathComponent
+                targetServerFile = target.serverDir.appendingPathComponent(serverSubpath).appendingPathComponent(versionFileName)
+                targetClientFile = target.serverDir.appendingPathComponent("client-package/\(clientSubpath)").appendingPathComponent(versionFileName)
 
-            if row.includedInClient, fileManager.fileExists(atPath: sourceClientFile.path) {
-                if !config.dryRun {
-                    try copyFile(sourceClientFile, to: targetClientFile)
+                if row.installedOnServer, let url = URL(string: versionFile.url) {
+                    if !config.dryRun {
+                        try downloadFile(url, to: targetServerFile)
+                    }
+                    copiedServer = true
                 }
-                copiedClient = true
+                if row.includedInClient, let url = URL(string: versionFile.url) {
+                    if !config.dryRun {
+                        try downloadFile(url, to: targetClientFile)
+                    }
+                    copiedClient = true
+                }
+            } else {
+                let sourceServerFile = reference.serverDir.appendingPathComponent(serverSubpath).appendingPathComponent(row.fileName)
+                let sourceClientFile = reference.serverDir.appendingPathComponent("client-package/\(clientSubpath)").appendingPathComponent(row.fileName)
+                targetServerFile = target.serverDir.appendingPathComponent(serverSubpath).appendingPathComponent(row.fileName)
+                targetClientFile = target.serverDir.appendingPathComponent("client-package/\(clientSubpath)").appendingPathComponent(row.fileName)
+
+                if row.installedOnServer, fileManager.fileExists(atPath: sourceServerFile.path) {
+                    if !config.dryRun {
+                        try copyFile(sourceServerFile, to: targetServerFile)
+                    }
+                    copiedServer = true
+                }
+
+                if row.includedInClient, fileManager.fileExists(atPath: sourceClientFile.path) {
+                    if !config.dryRun {
+                        try copyFile(sourceClientFile, to: targetClientFile)
+                    }
+                    copiedClient = true
+                }
             }
 
             guard copiedServer || copiedClient else {
@@ -260,7 +282,7 @@ public struct ServerVersionBootstrapPipeline: Sendable {
 
             copied.append(ServerVersionBootstrapFileCopy(
                 modName: row.modName,
-                fileName: row.fileName,
+                fileName: URL(fileURLWithPath: targetServerFile.lastPathComponent).lastPathComponent,
                 copiedToServer: copiedServer,
                 copiedToClient: copiedClient,
                 protected: row.protected
@@ -391,6 +413,80 @@ public struct ServerVersionBootstrapPipeline: Sendable {
           AND file_name = \(Self.sqlLiteral(row.fileName))
           AND COALESCE(minecraft_version, \(Self.sqlLiteral(target.minecraftVersion))) = \(Self.sqlLiteral(target.minecraftVersion));
         """)
+    }
+
+    private func loadVersionSpecificScanResults(target: VersionTarget) throws -> [String: VersionSpecificFile] {
+        let csv = try DuckDBDatabase(databaseURL: config.databaseURL, readOnly: true).queryCSV("""
+        WITH latest_scan AS (
+          SELECT
+            s.mod_key,
+            lower(s.display_name) AS display_name_key,
+            r.latest_url,
+            r.latest_version,
+            r.status
+          FROM core.mod_sources s
+          JOIN (
+            SELECT source_id, latest_url, latest_version, status,
+                   row_number() OVER (PARTITION BY source_id ORDER BY checked_at DESC) AS rn
+            FROM core.mod_update_scan_results
+            WHERE minecraft_version = \(Self.sqlLiteral(target.minecraftVersion))
+          ) r ON r.source_id = s.source_id AND r.rn = 1
+          WHERE COALESCE(s.minecraft_version, \(Self.sqlLiteral(target.minecraftVersion))) = \(Self.sqlLiteral(target.minecraftVersion))
+            AND r.status IN ('update_available', 'current')
+            AND COALESCE(r.latest_url, '') <> ''
+        )
+        SELECT display_name_key, latest_url, latest_version
+        FROM latest_scan;
+        """)
+        var results: [String: VersionSpecificFile] = [:]
+        for row in Self.parseCSV(csv) {
+            guard let nameKey = row["display_name_key"], !nameKey.isEmpty,
+                  let url = row["latest_url"], !url.isEmpty else {
+                continue
+            }
+            results[nameKey] = VersionSpecificFile(
+                url: url,
+                version: row["latest_version"] ?? ""
+            )
+        }
+        return results
+    }
+
+    private func downloadFile(_ url: URL, to target: URL) throws {
+        try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: target.path) {
+            try fileManager.removeItem(at: target)
+        }
+        var request = URLRequest(url: url, timeoutInterval: 120)
+        request.setValue("MCPummelchenModServer/1.0 bootstrap-download", forHTTPHeaderField: "User-Agent")
+        let semaphore = DispatchSemaphore(value: 0)
+        var downloadedData: Data?
+        var downloadError: Error?
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            defer { semaphore.signal() }
+            if let error {
+                downloadError = error
+                return
+            }
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                downloadError = ServerVersionBootstrapPipelineError.missingTargetDirectory("HTTP download failed for \(url.absoluteString)")
+                return
+            }
+            downloadedData = data
+        }.resume()
+        semaphore.wait()
+        if let downloadError {
+            throw downloadError
+        }
+        guard let data = downloadedData else {
+            throw ServerVersionBootstrapPipelineError.missingTargetDirectory("no data received from \(url.absoluteString)")
+        }
+        try data.write(to: target, options: .atomic)
+    }
+
+    private struct VersionSpecificFile {
+        let url: String
+        let version: String
     }
 
     private func loadVersion(_ minecraftVersion: String) throws -> VersionTarget {

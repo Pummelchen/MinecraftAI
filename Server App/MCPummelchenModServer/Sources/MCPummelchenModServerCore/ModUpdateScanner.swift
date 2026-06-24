@@ -548,8 +548,8 @@ public struct ModUpdateScanner: Sendable {
           'src_' || md5(s.mod_key || '|' || COALESCE(s.source_url, '') || '|' || COALESCE(s.installed_file, '') || '|' || \(targetLiteral)) AS source_id,
           s.mod_key,
           s.display_name,
-          s.installed_file,
-          s.installed_version,
+          CAST(NULL AS VARCHAR) AS installed_file,
+          CAST(NULL AS VARCHAR) AS installed_version,
           s.provider,
           s.source_url,
           CASE

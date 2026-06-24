@@ -160,7 +160,7 @@ public struct ModUpdateApplyPipeline: Sendable {
 
         let releaseID = releaseID(for: version)
         if !config.dryRun {
-            try runServerSmokeCheck()
+            try runServerSmokeCheck(version: version)
             if version.isLive {
                 _ = try buildDMGIfNeeded(releaseID: releaseID, version: version)
             }
@@ -251,9 +251,13 @@ public struct ModUpdateApplyPipeline: Sendable {
         #endif
     }
 
-    private func runServerSmokeCheck() throws {
-        let currentReleasePath = config.projectRoot.appendingPathComponent("site/public/downloads/current-release.json")
-        guard FileManager.default.fileExists(atPath: currentReleasePath.path) else {
+    private func runServerSmokeCheck(version: VersionTarget) throws {
+        let artifactVersion = Self.artifactVersion(version.minecraftVersion)
+        let versionScopedPath = config.projectRoot.appendingPathComponent("site/public/downloads/current-release-\(artifactVersion).json")
+        let globalPath = config.projectRoot.appendingPathComponent("site/public/downloads/current-release.json")
+        let hasReleaseFile = FileManager.default.fileExists(atPath: versionScopedPath.path)
+            || FileManager.default.fileExists(atPath: globalPath.path)
+        guard hasReleaseFile else {
             return
         }
         let api = MCPummelchenModServerAPI(
@@ -262,7 +266,16 @@ public struct ModUpdateApplyPipeline: Sendable {
                 duckDBURL: config.databaseURL
             )
         )
-        try api.smokeCheck()
+        try api.smokeCheck(minecraftVersion: version.minecraftVersion)
+    }
+
+    private static func artifactVersion(_ minecraftVersion: String) -> String {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+        let scalars = minecraftVersion.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let value = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".-_"))
+        return value.isEmpty ? "unknown" : value
     }
 
     private func apply(group: [UpdateCandidate], version: VersionTarget) throws -> AppliedModUpdate {

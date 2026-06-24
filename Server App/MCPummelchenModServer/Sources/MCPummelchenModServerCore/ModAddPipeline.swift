@@ -181,8 +181,11 @@ public struct ModAddPipeline: Sendable {
     }
 
     private func runServerSmokeCheckIfNeeded(steps: inout [String]) throws {
-        let currentReleaseFile = config.projectRoot.appendingPathComponent("site/public/downloads/current-release.json")
-        guard FileManager.default.fileExists(atPath: currentReleaseFile.path) else {
+        let versionScopedFile = config.projectRoot.appendingPathComponent("site/public/downloads/current-release-\(Self.artifactVersion(config.minecraftVersion)).json")
+        let globalFile = config.projectRoot.appendingPathComponent("site/public/downloads/current-release.json")
+        let hasReleaseFile = FileManager.default.fileExists(atPath: versionScopedFile.path)
+            || FileManager.default.fileExists(atPath: globalFile.path)
+        guard hasReleaseFile else {
             steps.append("server compatibility smoke check skipped (current release manifest missing)")
             return
         }
@@ -192,8 +195,17 @@ public struct ModAddPipeline: Sendable {
                 duckDBURL: config.databaseURL
             )
         )
-        try api.smokeCheck()
-        steps.append("native server compatibility smoke check passed")
+        try api.smokeCheck(minecraftVersion: config.minecraftVersion)
+        steps.append("native server compatibility smoke check passed for Minecraft \(config.minecraftVersion)")
+    }
+
+    private static func artifactVersion(_ minecraftVersion: String) -> String {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+        let scalars = minecraftVersion.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let value = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".-_"))
+        return value.isEmpty ? "unknown" : value
     }
 
     private func buildDMGIfNeeded() throws -> Bool {

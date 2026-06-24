@@ -229,8 +229,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         }
     }
 
-    public func smokeCheck() throws {
-        let current = try readCurrentReleaseData()
+    public func smokeCheck(minecraftVersion: String? = nil) throws {
+        let current = try readCurrentReleaseData(minecraftVersion: minecraftVersion)
         let release = try CurrentReleaseValidator.decode(current)
         try CurrentReleaseValidator.validate(release)
         _ = try readManifest(releaseID: release.releaseID)
@@ -1760,10 +1760,26 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         return HTTPResponse(statusCode: 200, contentType: "text/tab-separated-values; charset=utf-8", body: data)
     }
 
-    private func readCurrentReleaseData() throws -> Data {
-        let url = config.projectRoot
-            .appendingPathComponent("site/public/downloads/current-release.json")
+    private func readCurrentReleaseData(minecraftVersion: String? = nil) throws -> Data {
+        let downloads = config.projectRoot.appendingPathComponent("site/public/downloads")
+        if let version = minecraftVersion, !version.isEmpty {
+            let artifactVersion = Self.artifactVersion(version)
+            let versionScoped = downloads.appendingPathComponent("current-release-\(artifactVersion).json")
+            if FileManager.default.fileExists(atPath: versionScoped.path) {
+                return try Data(contentsOf: try safeProjectFile(versionScoped))
+            }
+        }
+        let url = downloads.appendingPathComponent("current-release.json")
         return try Data(contentsOf: try safeProjectFile(url))
+    }
+
+    private static func artifactVersion(_ minecraftVersion: String) -> String {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+        let scalars = minecraftVersion.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let value = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".-_"))
+        return value.isEmpty ? "unknown" : value
     }
 
     private func readManifest(releaseID: String) throws -> Data {
