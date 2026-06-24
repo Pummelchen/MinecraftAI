@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import MCPummelchenModClientCore
+import MCPummelchenModShared
 import SwiftUI
 
 @MainActor
@@ -11,6 +12,8 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
     @Published var isSyncing = false
     @Published var syncMessage: String?
     @Published var controlMessage: String?
+    @Published var isForceUpdating = false
+    @Published var forceUpdateMessage: String?
     let appVersion: String
 
     private var configuration: ClientStatusConfiguration
@@ -124,6 +127,38 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
                     }
                     self.isSyncing = false
                     self.refresh()
+                }
+            }
+        }
+    }
+
+    func forceDownloadAndSelfUpdate() {
+        guard !isForceUpdating else { return }
+        isForceUpdating = true
+        forceUpdateMessage = "Downloading latest client app release..."
+        Task {
+            do {
+                let statusService = ClientStatusService(configuration: configuration)
+                let currentRelease = try await statusService.fetchCurrentReleaseFromNginx()
+                let result = try await ClientAppSelfUpdater.stageAndScheduleIfNeeded(
+                    release: currentRelease,
+                    serverURL: configuration.serverURL,
+                    pummelchenHome: configuration.pummelchenHome,
+                    http: ClientHTTPClient(retryPolicy: configuration.retryPolicy)
+                )
+                await MainActor.run {
+                    self.forceUpdateMessage = result.message
+                    if result.scheduled {
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 1_000_000_000)
+                            NSApp.terminate(nil)
+                        }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.forceUpdateMessage = "Force update failed: \(error)"
+                    self.isForceUpdating = false
                 }
             }
         }
@@ -243,6 +278,11 @@ struct PummelchenStatusView: View {
                 }
                 .keyboardShortcut("s", modifiers: [.command])
                 .disabled(model.isSyncing)
+                Button("Force Update") {
+                    model.forceDownloadAndSelfUpdate()
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .disabled(model.isForceUpdating || model.snapshot?.serverReleaseID == nil)
                 Button("Refresh") {
                     model.refresh()
                 }
@@ -269,6 +309,12 @@ struct PummelchenStatusView: View {
                     Text(controlMessage)
                         .font(.callout)
                         .foregroundStyle(controlMessage.hasPrefix("Live updates stopped") ? .red : .secondary)
+                        .textSelection(.enabled)
+                }
+                if let forceUpdateMessage = model.forceUpdateMessage {
+                    Text(forceUpdateMessage)
+                        .font(.callout)
+                        .foregroundStyle(forceUpdateMessage.hasPrefix("Force update failed") ? .red : (forceUpdateMessage.contains("staged") || forceUpdateMessage.contains("current") ? .green : .secondary))
                         .textSelection(.enabled)
                 }
                 statusSummary(snapshot)

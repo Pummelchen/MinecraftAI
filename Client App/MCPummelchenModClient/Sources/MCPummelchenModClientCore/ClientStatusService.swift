@@ -504,7 +504,7 @@ public struct ClientStatusService: Sendable {
         }
     }
 
-    private func fetchCurrentReleaseFromNginx() async throws -> CurrentRelease {
+    public func fetchCurrentReleaseFromNginx() async throws -> CurrentRelease {
         let url = configuration.serverURL.appendingPathComponent("downloads/current-release.json")
         let data: Data
         do {
