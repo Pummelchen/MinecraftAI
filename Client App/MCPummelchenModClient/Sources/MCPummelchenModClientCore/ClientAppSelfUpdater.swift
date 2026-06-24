@@ -40,11 +40,28 @@ public enum ClientAppSelfUpdater {
         guard let currentBundleReleaseID, currentBundleReleaseID != release.releaseID else {
             return currentBundleReleaseID == nil
         }
+        let currentDate = releaseDate(currentBundleReleaseID)
+        let publishedDate = releaseDate(release.releaseID)
+        if let currentDate, let publishedDate, currentDate != publishedDate {
+            return publishedDate > currentDate
+        }
         if let currentVersion = releaseSequenceNumber(currentBundleReleaseID),
-           let publishedVersion = releaseSequenceNumber(release.releaseID) {
+           let publishedVersion = releaseSequenceNumber(release.releaseID),
+           currentDate != nil, publishedDate != nil, currentDate == publishedDate {
             return publishedVersion > currentVersion
         }
         return true
+    }
+
+    private static func releaseDate(_ releaseID: String) -> String? {
+        let pattern = #"release_(\d{8})_"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: releaseID, range: NSRange(releaseID.startIndex..., in: releaseID)),
+              match.numberOfRanges >= 2,
+              let range = Range(match.range(at: 1), in: releaseID) else {
+            return nil
+        }
+        return String(releaseID[range])
     }
 
     private static func releaseSequenceNumber(_ releaseID: String) -> Int? {
