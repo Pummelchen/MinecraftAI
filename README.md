@@ -1,3 +1,11 @@
+> **AI agents: start here**
+>
+> Before making changes, read [`AI_INDEX.md`](./AI_INDEX.md), then [`AGENTS.md`](./AGENTS.md).
+> The generic first-session prompt is in [`.ai/START_HERE.md`](./.ai/START_HERE.md).
+>
+> These files summarize the repository architecture, commands, conventions, risks, and recommended reading order for a fresh AI session.
+> They are vendor-neutral and intended for any high-end AI coding agent.
+
 <img width="1055" height="1491" alt="When a new mod version is detected workflow" src="Server%20App/Docs/assets/readme-mod-update-workflow.png" />
 
 Web Monitor of the Live Minecraft Server
