@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import MCPummelchenModShared
 
 public enum ServerVersionBootstrapPipelineError: Error, CustomStringConvertible {
@@ -460,27 +463,24 @@ public struct ServerVersionBootstrapPipeline: Sendable {
         var request = URLRequest(url: url, timeoutInterval: 120)
         request.setValue("MCPummelchenModServer/1.0 bootstrap-download", forHTTPHeaderField: "User-Agent")
         let semaphore = DispatchSemaphore(value: 0)
-        var downloadedData: Data?
-        var downloadError: Error?
+        let box = BootstrapDownloadResultBox()
         URLSession.shared.dataTask(with: request) { data, response, error in
             defer { semaphore.signal() }
             if let error {
-                downloadError = error
+                box.store(.failure(error))
                 return
             }
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                downloadError = ServerVersionBootstrapPipelineError.missingTargetDirectory("HTTP download failed for \(url.absoluteString)")
+                box.store(.failure(ServerVersionBootstrapPipelineError.missingTargetDirectory("HTTP download failed for \(url.absoluteString)")))
                 return
             }
-            downloadedData = data
+            box.store(.success(data ?? Data()))
         }.resume()
         semaphore.wait()
-        if let downloadError {
-            throw downloadError
+        guard let result = box.result() else {
+            throw ServerVersionBootstrapPipelineError.missingTargetDirectory("no response from \(url.absoluteString)")
         }
-        guard let data = downloadedData else {
-            throw ServerVersionBootstrapPipelineError.missingTargetDirectory("no data received from \(url.absoluteString)")
-        }
+        let data = try result.get()
         try data.write(to: target, options: .atomic)
     }
 
@@ -611,5 +611,22 @@ public struct ServerVersionBootstrapPipeline: Sendable {
         }
         fields.append(current)
         return fields
+    }
+}
+
+private final class BootstrapDownloadResultBox: @unchecked Sendable {
+    private var value: Result<Data, Error>?
+    private let lock = NSLock()
+
+    func store(_ result: Result<Data, Error>) {
+        lock.lock()
+        defer { lock.unlock() }
+        value = result
+    }
+
+    func result() -> Result<Data, Error>? {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
     }
 }
