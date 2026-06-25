@@ -519,19 +519,9 @@ public struct ClientStatusService: Sendable {
     }
 
     private func updateServerStatus(checkedAt: String) async -> EndpointConnectionStatus {
-        guard let token = configuration.clientAPIToken, !token.isEmpty else {
-            return EndpointConnectionStatus(
-                label: "Live Update Server",
-                state: .degraded,
-                latencyMS: nil,
-                message: "client credentials unavailable",
-                checkedAt: checkedAt
-            )
-        }
-
         do {
             let probe = try await measure {
-                _ = try await fetchControlEventsProbe(token: token)
+                _ = try await fetchControlEventsProbe()
             }
             return endpointStatus(label: "Live Update Server", latencyMS: probe.latencyMS, checkedAt: checkedAt)
         } catch {
@@ -545,7 +535,7 @@ public struct ClientStatusService: Sendable {
         }
     }
 
-    private func fetchControlEventsProbe(token: String) async throws -> ControlEventBatch {
+    private func fetchControlEventsProbe() async throws -> ControlEventBatch {
         guard var components = URLComponents(url: configuration.serverURL.appendingPathComponent("api/v1/control/events"), resolvingAgainstBaseURL: false) else {
             throw URLError(.badURL)
         }
@@ -558,7 +548,6 @@ public struct ClientStatusService: Sendable {
         }
         var request = URLRequest(url: requestURL)
         request.httpMethod = "GET"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(Self.validClientID(configuration.clientID ?? Host.current().localizedName), forHTTPHeaderField: "X-Pummelchen-Client-ID")
         let data = try await probeHTTP.send(request)
         return try JSONDecoder().decode(ControlEventBatch.self, from: data)

@@ -178,31 +178,22 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             case ("GET", "/api/v1/control/info"):
                 return try controlInfo()
             case ("POST", "/api/v1/control/events"):
-                try requireAuthorized(request)
                 return try createControlEvent(request)
             case ("GET", "/api/v1/control/events"):
-                try requireAuthorized(request)
                 return try controlEvents(request)
             case ("POST", "/api/v1/control/acks"):
-                try requireAuthorized(request)
                 return try acknowledgeControlEvent(request)
             case ("POST", "/api/v1/clients/register"):
-                try requireAuthorized(request)
                 return try registerClient(request)
             case ("POST", "/api/v1/clients/heartbeat"):
-                try requireAuthorized(request)
                 return try statusReport(request)
             case ("POST", "/api/v1/clients/sync-runs"):
-                try requireAuthorized(request)
                 return try statusReport(request)
             case ("POST", "/api/v1/clients/inventory"):
-                try requireAuthorized(request)
                 return try inventoryUpload(request)
             case ("POST", "/api/v1/clients/diagnostics"):
-                try requireAuthorized(request)
                 return try diagnosticsUpload(request)
             case ("POST", "/api/v1/clients/defaults-events"):
-                try requireAuthorized(request)
                 return try defaultsEventUpload(request)
             case ("GET", _):
                 if let releaseID = releaseManifestID(from: request.path) {
@@ -1669,7 +1660,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         let batch = ControlEventBatch(
             events: events,
             nextAfterEventID: events.last?.eventID ?? params["after_event_id"],
-            transport: "authenticated_https_operator_poll",
+            transport: "https_control_poll",
             fallback: "none"
         )
         return .json(try encoder.encode(batch), headers: ["X-Pummelchen-Downloads-Allowed": "false"])

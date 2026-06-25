@@ -167,10 +167,6 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
     func startControlWatcher() {
         controlTask?.cancel()
         let syncConfiguration = makeSyncConfiguration()
-        guard let token = syncConfiguration.clientAPIToken, !token.isEmpty else {
-            controlMessage = "Live updates waiting for client credentials."
-            return
-        }
         controlMessage = "Live updates connected."
         let model = self
         controlTask = Task {

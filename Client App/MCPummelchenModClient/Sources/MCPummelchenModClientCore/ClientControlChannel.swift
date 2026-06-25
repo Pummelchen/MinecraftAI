@@ -7,9 +7,9 @@ import MCPummelchenModShared
 public struct ClientControlChannelConfiguration: Sendable {
     public let serverURL: URL
     public let clientID: String
-    public let clientAPIToken: String
+    public let clientAPIToken: String?
 
-    public init(serverURL: URL = PummelchenNetworkDefaults.primaryServerURL, clientID: String, clientAPIToken: String) {
+    public init(serverURL: URL = PummelchenNetworkDefaults.primaryServerURL, clientID: String, clientAPIToken: String? = nil) {
         self.serverURL = serverURL
         self.clientID = clientID
         self.clientAPIToken = clientAPIToken
@@ -105,10 +105,13 @@ public struct ClientControlChannel: Sendable {
     }
 
     private func authHeaders() -> [String: String] {
-        [
-            "Authorization": "Bearer \(configuration.clientAPIToken)",
+        var headers: [String: String] = [
             "X-Pummelchen-Client-ID": configuration.clientID
         ]
+        if let token = configuration.clientAPIToken, !token.isEmpty {
+            headers["Authorization"] = "Bearer \(token)"
+        }
+        return headers
     }
 
     private func addAuthHeaders(to request: inout URLRequest) {

@@ -35,15 +35,11 @@ public struct ClientControlWatcher: Sendable {
         afterEventID initialAfterEventID: String? = nil,
         log: (@Sendable (String) -> Void)? = nil
     ) async throws -> ClientControlWatcherResult {
-        guard let token = syncConfiguration.clientAPIToken, !token.isEmpty else {
-            throw ContractValidationError.invalid("client API token is required for the control channel")
-        }
-
         let clientID = Self.validClientID(syncConfiguration.clientID ?? Host.current().localizedName)
         let channel = ClientControlChannel(configuration: ClientControlChannelConfiguration(
             serverURL: syncConfiguration.serverURL,
             clientID: clientID,
-            clientAPIToken: token
+            clientAPIToken: syncConfiguration.clientAPIToken
         ))
         let store = ClientStatusStore(databaseURL: syncConfiguration.databaseURL)
 
