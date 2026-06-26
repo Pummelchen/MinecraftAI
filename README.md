@@ -54,3 +54,4 @@ At present, the project supports the following environment:
 Additional setup details, architecture notes, and operational guidance are available in the [project wiki](https://github.com/Pummelchen/MinecraftAI/wiki).
 
 The production database backup is stored in `Live Backup/` and is updated in-repo with each release as a point-in-time snapshot for recovery and audit.
+
