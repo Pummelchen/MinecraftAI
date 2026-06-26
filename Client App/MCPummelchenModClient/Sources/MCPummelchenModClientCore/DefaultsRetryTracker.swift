@@ -1,9 +1,13 @@
 import Foundation
 
-/// Tracks consecutive repair failures for client defaults rows so we can
-/// back off instead of retrying every single check cycle.
+/// Tracks repair backoff for client defaults rows so we retry periodically
+/// instead of attempting repair on every single check cycle.
+///
+/// The counter tracks *cycles since last attempt*, not consecutive failures.
+/// This avoids a deadlock where a failed row is skipped by backoff but the
+/// counter can never advance because no attempt is made to increment it.
 public actor DefaultsRetryTracker {
-    private var consecutiveFailures: [String: Int] = [:]
+    private var cyclesSinceAttempt: [String: Int] = [:]
     public let cooldownChecks: Int
 
     public init(cooldownChecks: Int = 3) {
@@ -11,18 +15,31 @@ public actor DefaultsRetryTracker {
     }
 
     /// Returns `true` if the row should be retried this check cycle.
-    /// A row with zero failures is always retried. A row with N consecutive
-    /// failures is retried every `cooldownChecks` cycles.
+    /// A row that has never been attempted (or was last repaired successfully)
+    /// is always retried. A row that failed its last attempt is retried after
+    /// `cooldownChecks` skipped cycles have been recorded.
     public func shouldRetry(rowID: String) -> Bool {
-        let count = consecutiveFailures[rowID] ?? 0
-        return count == 0 || count.isMultiple(of: cooldownChecks)
+        guard let count = cyclesSinceAttempt[rowID] else {
+            return true
+        }
+        return count >= cooldownChecks
     }
 
     public func recordSuccess(rowID: String) {
-        consecutiveFailures.removeValue(forKey: rowID)
+        cyclesSinceAttempt.removeValue(forKey: rowID)
     }
 
+    /// Records that a repair attempt was made and failed. Resets the cycle
+    /// counter so the row is skipped for `cooldownChecks` cycles before
+    /// being retried.
     public func recordFailure(rowID: String) {
-        consecutiveFailures[rowID, default: 0] += 1
+        cyclesSinceAttempt[rowID] = 0
+    }
+
+    /// Records that a check cycle passed without a repair attempt for this row
+    /// (because `shouldRetry` returned false). Advances the cycle counter so
+    /// the row eventually becomes eligible for retry again.
+    public func recordSkippedCycle(rowID: String) {
+        cyclesSinceAttempt[rowID, default: 0] += 1
     }
 }

@@ -399,6 +399,42 @@ struct ClientStatusTests {
         #endif
     }
 
+    @Test("DefaultsRetryTracker does not deadlock after a failed repair")
+    func retryTrackerDoesNotDeadlockAfterFailure() async {
+        let tracker = DefaultsRetryTracker(cooldownChecks: 3)
+
+        #expect(await tracker.shouldRetry(rowID: "shader") == true)
+
+        await tracker.recordFailure(rowID: "shader")
+        #expect(await tracker.shouldRetry(rowID: "shader") == false)
+
+        await tracker.recordSkippedCycle(rowID: "shader")
+        #expect(await tracker.shouldRetry(rowID: "shader") == false)
+
+        await tracker.recordSkippedCycle(rowID: "shader")
+        #expect(await tracker.shouldRetry(rowID: "shader") == false)
+
+        await tracker.recordSkippedCycle(rowID: "shader")
+        #expect(await tracker.shouldRetry(rowID: "shader") == true)
+    }
+
+    @Test("DefaultsRetryTracker success clears backoff state")
+    func retryTrackerSuccessClearsBackoff() async {
+        let tracker = DefaultsRetryTracker(cooldownChecks: 3)
+
+        await tracker.recordFailure(rowID: "memory")
+        #expect(await tracker.shouldRetry(rowID: "memory") == false)
+
+        await tracker.recordSuccess(rowID: "memory")
+        #expect(await tracker.shouldRetry(rowID: "memory") == true)
+    }
+
+    @Test("DefaultsRetryTracker untracked rows are always retried")
+    func retryTrackerUntrackedRowsAlwaysRetried() async {
+        let tracker = DefaultsRetryTracker(cooldownChecks: 3)
+        #expect(await tracker.shouldRetry(rowID: "never-seen") == true)
+    }
+
     private func currentReleaseJSON(releaseID: String, manifestURL: String? = nil) -> String {
         let manifestPath = manifestURL ?? "/downloads/releases/\(releaseID)/client-sync-manifest.tsv"
         return """

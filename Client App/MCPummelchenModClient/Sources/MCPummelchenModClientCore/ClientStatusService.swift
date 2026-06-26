@@ -238,6 +238,8 @@ public struct ClientStatusService: Sendable {
             for row in inspectedDefaults where row.status.isActionable {
                 if await tracker.shouldRetry(rowID: row.id) {
                     actionableIDs.append(row.id)
+                } else {
+                    await tracker.recordSkippedCycle(rowID: row.id)
                 }
             }
             effectiveRowIDs = Set(actionableIDs)
@@ -290,7 +292,8 @@ public struct ClientStatusService: Sendable {
             var errorMessage: String?
             if !defaultsHealth.allSatisfy({ $0.status.isHealthy }) {
                 state = .repairNeeded
-                errorMessage = "managed defaults need repair"
+                let failing = defaultsHealth.filter { !$0.status.isHealthy }.map(\.label)
+                errorMessage = "managed defaults need repair: \(failing.joined(separator: ", "))"
             } else if let environmentError {
                 state = .repairNeeded
                 errorMessage = "managed environment not ready: \(environmentError)"
