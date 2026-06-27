@@ -1007,7 +1007,8 @@ public struct ModUpdateScanner: Sendable {
         status: String,
         details: String
     ) throws {
-        let discoveryID = Self.stableID("\(row.sourceID)|\(missingProvider)|\(method)|\(searchURL)|\(foundURL ?? "")|\(Self.duckTimestamp(Date()))")
+        let checkedAt = Self.duckTimestamp(Date())
+        let discoveryID = Self.stableID("\(row.sourceID)|\(missingProvider)|\(method)|\(searchURL)|\(foundURL ?? "")|\(checkedAt)|\(UUID().uuidString)")
         try execute("""
         INSERT INTO core.mod_source_discovery_results(
           discovery_id, source_id, mod_key, display_name, missing_provider,
@@ -1025,7 +1026,7 @@ public struct ModUpdateScanner: Sendable {
           \(Self.sqlLiteral(foundURL)),
           \(Self.sqlLiteral(status)),
           \(Self.sqlLiteral(details)),
-          TIMESTAMP '\(Self.duckTimestamp(Date()))',
+          TIMESTAMP '\(checkedAt)',
           \(Self.sqlLiteral(config.minecraftVersion)),
           \(Self.sqlLiteral(config.loader)),
           \(Self.sqlLiteral(config.loaderVersion))
