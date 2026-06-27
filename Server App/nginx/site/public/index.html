@@ -1058,6 +1058,19 @@
         sort_order: 3
       }
     ];
+    const serverAPIBaseByVersion = {
+      '26.1.2': '/api/26.1.2',
+      '26.2': '/api/26.2',
+      '26.3': '/api/26.3'
+    };
+    function serverAPIBase(version) {
+      return serverAPIBaseByVersion[version] || serverAPIBaseByVersion['26.1.2'];
+    }
+    async function fetchServerVersionsFor(version) {
+      const response = await fetch(`${serverAPIBase(version)}/v1/minecraft/server-versions`, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    }
     function mergeManagedVersions(data) {
       const incoming = Array.isArray(data?.versions) ? data.versions : [];
       return managedServerVersions.map(defaults => ({
@@ -1119,7 +1132,7 @@
       if (!password) return;
       if (button) button.disabled = true;
       try {
-        const response = await fetch('/api/v1/minecraft/server-control', {
+        const response = await fetch(`${serverAPIBase(version)}/v1/minecraft/server-control`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ minecraft_version: version, action, password })
@@ -1134,17 +1147,17 @@
       }
     }
     async function refreshServerVersions() {
-      try {
-        const response = await fetch('/api/v1/minecraft/server-versions', { cache: 'no-store' });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const payload = await response.json();
-        renderServerVersions(payload);
-        renderClientInstalls(payload);
-      } catch {
-        const fallback = { versions: [] };
-        renderServerVersions(fallback);
-        renderClientInstalls(fallback);
-      }
+      const results = await Promise.allSettled(
+        managedServerVersions.map(version => fetchServerVersionsFor(version.minecraft_version))
+      );
+      const versions = results.flatMap(result => (
+        result.status === 'fulfilled' && Array.isArray(result.value?.versions)
+          ? result.value.versions
+          : []
+      ));
+      const payload = { versions };
+      renderServerVersions(payload);
+      renderClientInstalls(payload);
     }
     function copySnippetText(text) {
       if (navigator.clipboard && window.isSecureContext) {
