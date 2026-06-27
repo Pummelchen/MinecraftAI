@@ -68,7 +68,7 @@
     },
     "dmg_url": {
       "type": "string",
-      "pattern": "^/downloads/MCPummelchenModClient\\.dmg$"
+      "pattern": "^/downloads/MCPummelchenModClient_[A-Za-z0-9._-]+\\.dmg$"
     },
     "dmg_sha256": {
       "$ref": "#/$defs/sha256"

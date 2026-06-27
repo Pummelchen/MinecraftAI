@@ -5,11 +5,14 @@ public struct ClientSupportedVersionsResolver: Sendable {
     public let serverURL: URL
     public let http: ClientHTTPClient
     public let store: ClientStatusStore?
+    public let apiBasePath: String
 
-    public init(serverURL: URL, http: ClientHTTPClient, store: ClientStatusStore? = nil) {
+    public init(serverURL: URL, http: ClientHTTPClient, store: ClientStatusStore? = nil, apiBasePath: String = ClientAppBundleDefaults.apiBasePath) {
         self.serverURL = serverURL
         self.http = http
         self.store = store
+        let trimmed = apiBasePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        self.apiBasePath = trimmed.isEmpty ? "api" : trimmed
     }
 
     public func resolve() async -> [MinecraftSupportedServer] {
@@ -27,7 +30,7 @@ public struct ClientSupportedVersionsResolver: Sendable {
     }
 
     public func fetchFromServer() async throws -> [MinecraftSupportedServer] {
-        let url = serverURL.appendingPathComponent("api/v1/minecraft/server-versions")
+        let url = serverURL.appendingPathComponent([apiBasePath, "v1/minecraft/server-versions"].joined(separator: "/"))
         let data = try await http.data(from: url)
         let response = try JSONDecoder().decode(MinecraftSupportedServersResponse.self, from: data)
         return try Self.validated(response.versions)

@@ -39,7 +39,8 @@ public struct ClientControlWatcher: Sendable {
         let channel = ClientControlChannel(configuration: ClientControlChannelConfiguration(
             serverURL: syncConfiguration.serverURL,
             clientID: clientID,
-            clientAPIToken: syncConfiguration.clientAPIToken
+            clientAPIToken: syncConfiguration.clientAPIToken,
+            apiBasePath: syncConfiguration.apiBasePath
         ))
         let store = ClientStatusStore(databaseURL: syncConfiguration.databaseURL)
 

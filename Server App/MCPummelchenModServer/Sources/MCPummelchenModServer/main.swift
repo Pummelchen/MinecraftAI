@@ -26,7 +26,7 @@ enum ServerCommandError: Error, CustomStringConvertible {
               MCPummelchenModServer release-create --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id> [--activate true] [--service <systemd-unit>]
               MCPummelchenModServer release-validate --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id>
               MCPummelchenModServer add-mod --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --url <curseforge-or-modrinth-url> --release-id <id> [--server-package <dir>] [--service <systemd-unit>] [--local-artifact <jar>] [--install-scope auto|server|client|both] [--activate true] [--dry-run false] [--require-client-token true|false]
-              MCPummelchenModServer build-client-dmg --project-root <repo> [--client-package <dir>] [--server-package <dir>] [--release-id <id>] [--client-version <version>] [--server-url <url>] [--server-address <host:port>] [--duckdb-dylib <path>] [--macos-deployment-target <target>] [--skip-nginx-control-live-test true] [--skip-headless-soak true] [--require-headless-soak true] [--headless-soak-seconds 60] [--headless-command <command>] [--expected-installed-release-id <id>] [--require-client-token true|false]
+              MCPummelchenModServer build-client-dmg --project-root <repo> [--client-package <dir>] [--server-package <dir>] [--release-id <id>] [--minecraft-version <version>] [--client-version <version>] [--server-url <url>] [--server-address <host:port>] [--duckdb-dylib <path>] [--macos-deployment-target <target>] [--skip-nginx-control-live-test true] [--skip-headless-soak true] [--require-headless-soak true] [--headless-soak-seconds 60] [--headless-command <command>] [--expected-installed-release-id <id>] [--require-client-token true|false]
               MCPummelchenModServer ban-mod --project-root <repo> --duckdb <file> --name <display-name> --file-pattern <jar-name-or-pattern> [--source-url <url>] [--reason "Banned by Admin"] [--dry-run true]
               MCPummelchenModServer patch-mod --jar <path> [--target-version 26.1.2]
               MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-project-data true] [--discover-source-links true] [--discovery-limit <n>] [--discovery-searches-per-second 2] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
@@ -522,7 +522,8 @@ private func releasePipeline(args: Arguments, projectRoot: URL) throws -> SwiftR
     let releaseRoot = URL(fileURLWithPath: try args.require("--release-root"), isDirectory: true).standardizedFileURL
     let publicDownloads = URL(fileURLWithPath: try args.require("--public-downloads"), isDirectory: true).standardizedFileURL
     let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
-    let minecraftVersion = args.options["--minecraft-version"] ?? "26.1.2"
+    let minecraftVersion = args.options["--minecraft-version"] ?? dedicatedMinecraftVersion()
+    try requireDedicatedMinecraftVersion(minecraftVersion, option: "--minecraft-version")
     let config = SwiftReleasePipelineConfig(
         projectRoot: projectRoot,
         serverDir: serverDir,
@@ -551,6 +552,8 @@ private func addModPipeline(args: Arguments, projectRoot: URL) throws -> ModAddP
     let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
     let localArtifact = args.options["--local-artifact"].map { URL(fileURLWithPath: $0).standardizedFileURL }
     let releaseID = try args.require("--release-id")
+    let minecraftVersion = args.options["--minecraft-version"] ?? dedicatedMinecraftVersion()
+    try requireDedicatedMinecraftVersion(minecraftVersion, option: "--minecraft-version")
         return ModAddPipeline(config: ModAddPipelineConfig(
             projectRoot: projectRoot,
             serverDir: serverDir,
@@ -562,9 +565,9 @@ private func addModPipeline(args: Arguments, projectRoot: URL) throws -> ModAddP
         releaseID: releaseID,
         serverPackageDirectory: URL(fileURLWithPath: args.options["--server-package"] ?? envOrDefault("PUMMELCHEN_SERVER_PACKAGE_DIR", defaultPath: projectRoot.appendingPathComponent("Server App/MCPummelchenModServer").path)),
         serviceName: args.options["--service"],
-        minecraftVersion: args.options["--minecraft-version"] ?? "26.1.2",
-        loader: args.options["--loader"] ?? "neoforge",
-        loaderVersion: args.options["--loader-version"] ?? "26.1.2.76",
+        minecraftVersion: minecraftVersion,
+        loader: args.options["--loader"] ?? ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_LOADER"] ?? "neoforge",
+        loaderVersion: args.options["--loader-version"] ?? ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_LOADER_VERSION"] ?? "26.1.2.76",
         installScope: args.options["--install-scope"] ?? "auto",
             activate: args.options["--activate"] == "true",
             dryRun: optionBool(args.options["--dry-run"]),
@@ -576,6 +579,8 @@ private func addModPipeline(args: Arguments, projectRoot: URL) throws -> ModAddP
 private func buildClientDMGCommand(args: Arguments, projectRoot: URL) throws -> ClientDMGBuilderConfig {
     try rejectCommandLineClientToken(args)
     let env = ProcessInfo.processInfo.environment
+    let minecraftVersion = args.options["--minecraft-version"] ?? dedicatedMinecraftVersion()
+    try requireDedicatedMinecraftVersion(minecraftVersion, option: "--minecraft-version")
     let runNginxControlLiveTest = optionBool(args.options["--require-nginx-control-live-test"], defaultValue: optionBool(env["PUMMELCHEN_REQUIRE_NGINX_CONTROL_LIVE_TEST"], defaultValue: true))
     let skipNginxControlLiveTest = optionBool(args.options["--skip-nginx-control-live-test"], defaultValue: optionBool(env["PUMMELCHEN_SKIP_NGINX_CONTROL_LIVE_TEST"]))
     let runHeadlessSoak = optionBool(args.options["--require-headless-soak"], defaultValue: optionBool(env["PUMMELCHEN_REQUIRE_HEADLESS_SOAK"], defaultValue: false))
@@ -585,9 +590,10 @@ private func buildClientDMGCommand(args: Arguments, projectRoot: URL) throws -> 
         clientPackageRoot: URL(fileURLWithPath: args.options["--client-package"] ?? projectRoot.appendingPathComponent("Client App/MCPummelchenModClient").path),
         serverPackageRoot: URL(fileURLWithPath: args.options["--server-package"] ?? envOrDefault("PUMMELCHEN_SERVER_PACKAGE_DIR", defaultPath: projectRoot.appendingPathComponent("Server App/MCPummelchenModServer").path)),
         releaseID: args.options["--release-id"] ?? env["PUMMELCHEN_RELEASE_ID"] ?? "development",
+        minecraftVersion: minecraftVersion,
         clientVersion: args.options["--client-version"] ?? env["PUMMELCHEN_CLIENT_VERSION"] ?? "0.8.8",
         serverURL: args.options["--server-url"] ?? env["PUMMELCHEN_SERVER_URL"] ?? "https://pummelchen.91.99.176.243.nip.io",
-        serverAddress: args.options["--server-address"] ?? env["PUMMELCHEN_SERVER_ADDRESS"] ?? "91.99.176.243:25565",
+        serverAddress: args.options["--server-address"] ?? env["PUMMELCHEN_SERVER_ADDRESS"] ?? env["PUMMELCHEN_MANAGED_MINECRAFT_SERVER_ADDRESS"] ?? "91.99.176.243:25565",
         duckdbDylibPath: args.options["--duckdb-dylib"] ?? env["PUMMELCHEN_DUCKDB_DYLIB"] ?? "/opt/homebrew/lib/libduckdb.dylib",
         macOSDeploymentTarget: args.options["--macos-deployment-target"] ?? env["MACOSX_DEPLOYMENT_TARGET"] ?? "26.0",
         runNginxControlLiveTest: runNginxControlLiveTest && !skipNginxControlLiveTest,
@@ -685,7 +691,7 @@ private func modUpdateApplyPipeline(args: Arguments, projectRoot: URL) throws ->
         releaseRoot: releaseRoot,
         publicDownloads: publicDownloads,
         databaseURL: duckDB,
-        minecraftVersion: args.options["--minecraft-version"],
+        minecraftVersion: args.options["--minecraft-version"] ?? dedicatedMinecraftVersion(),
         allSupported: optionBool(args.options["--all-supported"]),
         releaseIDPrefix: try args.require("--release-id-prefix"),
         activateLiveVersions: args.options["--activate-live"] != "false",

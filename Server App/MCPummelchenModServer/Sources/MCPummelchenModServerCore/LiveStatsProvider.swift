@@ -389,7 +389,10 @@ final class LiveStatsProvider: @unchecked Sendable {
            !managedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return managedURL
         }
-        let rootPath = "/downloads/MCPummelchenModClient.dmg"
+        let managedVersion = ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_VERSION"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let minecraftVersion = managedVersion.isEmpty ? "26.1.2" : managedVersion
+        let rootPath = "/downloads/\(SwiftReleasePipeline.dmgName(minecraftVersion: minecraftVersion))"
         if let rootURL = urlForPublicPath(rootPath), FileManager.default.fileExists(atPath: rootURL.path) {
             return rootPath
         }

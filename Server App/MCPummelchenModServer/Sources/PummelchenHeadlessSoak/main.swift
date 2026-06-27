@@ -116,7 +116,7 @@ struct HeadlessSoakConfig {
             ?? defaultWork
         let report = arguments.options["--report"]
             .map { URL(fileURLWithPath: $0).standardizedFileURL }
-            ?? dmg.deletingLastPathComponent().appendingPathComponent("MCPummelchenModClient.dmg.headless-live-soak.json")
+            ?? dmg.deletingLastPathComponent().appendingPathComponent("\(dmg.lastPathComponent).headless-live-soak.json")
         self.dmg = dmg
         self.releaseID = releaseID
         self.expectedInstalledReleaseID = expectedInstalledReleaseID

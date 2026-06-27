@@ -124,6 +124,8 @@ public struct ClientStatusConfiguration: Sendable {
     public let clientAPIToken: String?
     public let manageRuntimeChecks: Bool
     public let probeEndpointLatency: Bool
+    public let apiBasePath: String
+    public let currentReleasePath: String
 
     public init(
         serverURL: URL = PummelchenNetworkDefaults.primaryServerURL,
@@ -134,7 +136,9 @@ public struct ClientStatusConfiguration: Sendable {
         clientID: String? = nil,
         clientAPIToken: String? = ClientCredentialProvider.defaultClientAPIToken(),
         manageRuntimeChecks: Bool = true,
-        probeEndpointLatency: Bool = true
+        probeEndpointLatency: Bool = true,
+        apiBasePath: String = ClientAppBundleDefaults.apiBasePath,
+        currentReleasePath: String = ClientAppBundleDefaults.currentReleasePath
     ) {
         self.serverURL = serverURL
         self.minecraftDirectory = minecraftDirectory
@@ -145,6 +149,15 @@ public struct ClientStatusConfiguration: Sendable {
         self.clientAPIToken = clientAPIToken
         self.manageRuntimeChecks = manageRuntimeChecks
         self.probeEndpointLatency = probeEndpointLatency
+        let trimmed = apiBasePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        self.apiBasePath = trimmed.isEmpty ? "api" : trimmed
+        let releasePath = currentReleasePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        self.currentReleasePath = releasePath.isEmpty ? "downloads/current-release.json" : releasePath
+    }
+
+    public func apiPath(_ path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return [apiBasePath, trimmed].filter { !$0.isEmpty }.joined(separator: "/")
     }
 
     public static func productionDefault(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> ClientStatusConfiguration {
@@ -374,7 +387,8 @@ public struct ClientStatusService: Sendable {
             let channel = ClientControlChannel(configuration: ClientControlChannelConfiguration(
                 serverURL: configuration.serverURL,
                 clientID: clientID,
-                clientAPIToken: token
+                clientAPIToken: token,
+                apiBasePath: configuration.apiBasePath
             ))
 
             let logFiles = collectDiagnosticLogFiles()
@@ -482,7 +496,8 @@ public struct ClientStatusService: Sendable {
         await ClientSupportedVersionsResolver(
             serverURL: configuration.serverURL,
             http: http,
-            store: store
+            store: store,
+            apiBasePath: configuration.apiBasePath
         ).resolve()
     }
 
@@ -508,12 +523,12 @@ public struct ClientStatusService: Sendable {
     }
 
     public func fetchCurrentReleaseFromNginx() async throws -> CurrentRelease {
-        let url = configuration.serverURL.appendingPathComponent("downloads/current-release.json")
+        let url = configuration.serverURL.appendingPathComponent(configuration.currentReleasePath)
         let data: Data
         do {
             data = try await probeHTTP.data(from: url)
         } catch {
-            let apiURL = configuration.serverURL.appendingPathComponent("api/v1/releases/current")
+            let apiURL = configuration.serverURL.appendingPathComponent(configuration.apiPath("v1/releases/current"))
             data = try await probeHTTP.data(from: apiURL)
         }
         let release = try CurrentReleaseValidator.decode(data)
@@ -539,7 +554,7 @@ public struct ClientStatusService: Sendable {
     }
 
     private func fetchControlEventsProbe() async throws -> ControlEventBatch {
-        guard var components = URLComponents(url: configuration.serverURL.appendingPathComponent("api/v1/control/events"), resolvingAgainstBaseURL: false) else {
+        guard var components = URLComponents(url: configuration.serverURL.appendingPathComponent(configuration.apiPath("v1/control/events")), resolvingAgainstBaseURL: false) else {
             throw URLError(.badURL)
         }
         components.queryItems = [

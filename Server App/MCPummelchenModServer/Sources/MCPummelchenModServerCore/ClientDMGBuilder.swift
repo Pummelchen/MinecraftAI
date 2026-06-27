@@ -36,6 +36,7 @@ public struct ClientDMGBuilderConfig: Sendable {
     public let clientPackageRoot: URL
     public let serverPackageRoot: URL
     public let releaseID: String
+    public let minecraftVersion: String
     public let clientVersion: String
     public let serverURL: String
     public let serverAddress: String
@@ -54,6 +55,7 @@ public struct ClientDMGBuilderConfig: Sendable {
         clientPackageRoot: URL,
         serverPackageRoot: URL,
         releaseID: String = "development",
+        minecraftVersion: String = "26.1.2",
         clientVersion: String = "0.8.8",
         serverURL: String = "https://pummelchen.91.99.176.243.nip.io",
         serverAddress: String = "91.99.176.243:25565",
@@ -71,6 +73,7 @@ public struct ClientDMGBuilderConfig: Sendable {
         self.clientPackageRoot = clientPackageRoot
         self.serverPackageRoot = serverPackageRoot
         self.releaseID = releaseID
+        self.minecraftVersion = minecraftVersion
         self.clientVersion = clientVersion
         self.serverURL = serverURL
         self.serverAddress = serverAddress
@@ -99,12 +102,19 @@ public struct ClientDMGBuildResult: Sendable {
 public struct ClientDMGBuilder: Sendable {
     private static let appName = "MCPummelchenModClient"
     private static let appBundleName = "MCPummelchenModClient.app"
-    private static let dmgFileName = "MCPummelchenModClient.dmg"
 
     public let config: ClientDMGBuilderConfig
 
     public init(config: ClientDMGBuilderConfig) {
         self.config = config
+    }
+
+    public static func dmgFileName(minecraftVersion: String) -> String {
+        "MCPummelchenModClient_\(artifactVersion(minecraftVersion)).dmg"
+    }
+
+    public static func dmgHeadlessLiveSoakReportName(minecraftVersion: String) -> String {
+        "\(dmgFileName(minecraftVersion: minecraftVersion)).headless-live-soak.json"
     }
 
     public func build() throws -> ClientDMGBuildResult {
@@ -120,7 +130,8 @@ public struct ClientDMGBuilder: Sendable {
         let macOSDir = contentsDir.appendingPathComponent("MacOS", isDirectory: true)
         let resourcesDir = contentsDir.appendingPathComponent("Resources", isDirectory: true)
         let frameworksDir = contentsDir.appendingPathComponent("Frameworks", isDirectory: true)
-        let dmgPath = dmgDir.appendingPathComponent(Self.dmgFileName)
+        let dmgFileName = Self.dmgFileName(minecraftVersion: config.minecraftVersion)
+        let dmgPath = dmgDir.appendingPathComponent(dmgFileName)
 
         if fm.fileExists(atPath: appDir.path) {
             try fm.removeItem(at: appDir)
@@ -239,6 +250,12 @@ public struct ClientDMGBuilder: Sendable {
             <string>\(config.clientVersion)</string>
             <key>PummelchenReleaseID</key>
             <string>\(config.releaseID)</string>
+            <key>PummelchenMinecraftVersion</key>
+            <string>\(config.minecraftVersion)</string>
+            <key>PummelchenAPIBasePath</key>
+            <string>api/\(Self.artifactVersion(config.minecraftVersion))</string>
+            <key>PummelchenCurrentReleasePath</key>
+            <string>downloads/current-release-\(Self.artifactVersion(config.minecraftVersion)).json</string>
             <key>LSMinimumSystemVersion</key>
             <string>\(config.macOSDeploymentTarget)</string>
         </dict>
@@ -276,7 +293,7 @@ public struct ClientDMGBuilder: Sendable {
         )
 
         let sha256 = try SHA256Hasher.hashFile(at: dmgPath)
-        try "\(sha256)  \(Self.dmgFileName)\n".write(to: dmgPath.appendingPathExtension("sha256"), atomically: true, encoding: .utf8)
+        try "\(sha256)  \(dmgFileName)\n".write(to: dmgPath.appendingPathExtension("sha256"), atomically: true, encoding: .utf8)
 
         if config.runHeadlessSoak {
             try runHeadlessSoak(dmgPath: dmgPath)
@@ -294,7 +311,7 @@ public struct ClientDMGBuilder: Sendable {
         }
 
         let tokenTrimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        let eventsBase = try requestBaseURL(path: "/api/v1/control/events")
+        let eventsBase = try requestBaseURL(path: "/api/\(Self.artifactVersion(config.minecraftVersion))/v1/control/events")
         let clientID = "dmg-nginx-control-\(Int(Date().timeIntervalSince1970))"
 
         let queryBefore: [String: String] = ["client_id": clientID, "limit": "200"]
@@ -345,6 +362,10 @@ public struct ClientDMGBuilder: Sendable {
             workRoot.appendingPathComponent("home/client.duckdb").path,
             "--client-id",
             clientID,
+            "--api-base-path",
+            "api/\(Self.artifactVersion(config.minecraftVersion))",
+            "--current-release-path",
+            "downloads/current-release-\(Self.artifactVersion(config.minecraftVersion)).json",
             "--max-cycles",
             "3",
             "--allow-while-running",
@@ -401,7 +422,18 @@ public struct ClientDMGBuilder: Sendable {
             : nil
         _ = try runCommand(
             executable: "/usr/bin/env",
-            arguments: ["swift", "run", "--package-path", config.serverPackageRoot.path, "-c", "release", "pummelchen-headless-soak", "--dmg", dmgPath.path, "--release-id", config.releaseID, "--server-address", config.serverAddress, "--server-url", config.serverURL, "--duration-seconds", String(max(60, config.headlessSoakSeconds))] + (headlessCommand.map { ["--headless-command", $0] } ?? []) + (expectedInstalledReleaseID.map { ["--expected-installed-release-id", $0] } ?? []),
+            arguments: [
+                "swift", "run",
+                "--package-path", config.serverPackageRoot.path,
+                "-c", "release",
+                "pummelchen-headless-soak",
+                "--dmg", dmgPath.path,
+                "--release-id", config.releaseID,
+                "--server-address", config.serverAddress,
+                "--server-url", config.serverURL,
+                "--duration-seconds", String(max(60, config.headlessSoakSeconds)),
+                "--report", dmgPath.deletingLastPathComponent().appendingPathComponent(Self.dmgHeadlessLiveSoakReportName(minecraftVersion: config.minecraftVersion)).path
+            ] + (headlessCommand.map { ["--headless-command", $0] } ?? []) + (expectedInstalledReleaseID.map { ["--expected-installed-release-id", $0] } ?? []),
             workingDirectory: config.projectRoot,
             environment: token == nil ? nil : ["PUMMELCHEN_CLIENT_API_TOKEN": token!],
             timeoutSeconds: Double(max(4_500, config.headlessSoakSeconds + 4_200))
@@ -562,5 +594,14 @@ public struct ClientDMGBuilder: Sendable {
             return candidate.standardizedFileURL
         }
         return URL(fileURLWithPath: value, relativeTo: base).standardizedFileURL
+    }
+
+    private static func artifactVersion(_ minecraftVersion: String) -> String {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+        let scalars = minecraftVersion.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let value = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".-_"))
+        return value.isEmpty ? "unknown" : value
     }
 }

@@ -32,7 +32,7 @@ struct CurrentReleaseTests {
           "client_zip_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
           "mrpack_url": "/downloads/releases/release_20260612_V6_modernarch-refresh/Pummelchen.mrpack",
           "mrpack_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-          "dmg_url": "/downloads/MCPummelchenModClient.dmg",
+          "dmg_url": "/downloads/MCPummelchenModClient_26.1.2.dmg",
           "dmg_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
           "notes": "fixture"
         }

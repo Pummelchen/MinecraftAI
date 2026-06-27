@@ -115,12 +115,12 @@ struct MCPummelchenModServerCoreTests {
         #expect(payload.intervalSeconds == 5)
         #expect(payload.stats["Last Mod Version"] == "20260612 V6 modernarch-refresh")
         #expect(payload.stats["Mac Installer Latest Version"] == "Latest version: 2026-06-12_V6")
-        #expect(payload.stats["Mac Installer Release URL"] == "/downloads/MCPummelchenModClient.dmg")
+        #expect(payload.stats["Mac Installer Release URL"] == "/downloads/MCPummelchenModClient_26.1.2.dmg")
         #expect(payload.stats["Server Address"] == "91.99.176.243:25565")
         #expect(payload.stats["Web Address"] == "https://pummelchen.91.99.176.243.nip.io")
         #expect(payload.stats["Client Mods"] == "1 Client Mods · 2 Shaders · 1 Resource Packs · 1 Config Files")
         #expect(payload.stats["Failed Mods"] == "0 Failed Mods")
-        #expect(payload.stats["Mac Installer DMG URL"] == "/downloads/MCPummelchenModClient.dmg")
+        #expect(payload.stats["Mac Installer DMG URL"] == "/downloads/MCPummelchenModClient_26.1.2.dmg")
         #expect(payload.worldSeed == "5605164115430518763")
         #expect(payload.history.count == 1)
         #expect(payload.metrics.cpuPercent >= 0)
@@ -1395,12 +1395,14 @@ struct MCPummelchenModServerCoreTests {
 
         let liveClientZipName = SwiftReleasePipeline.clientZipName(minecraftVersion: "26.1.2")
         let liveMrpackName = SwiftReleasePipeline.mrpackName(minecraftVersion: "26.1.2")
+        let liveDMGName = SwiftReleasePipeline.dmgName(minecraftVersion: "26.1.2")
+        let liveDMGSoakReportName = SwiftReleasePipeline.dmgHeadlessLiveSoakReportName(minecraftVersion: "26.1.2")
         try writeArtifact(name: liveClientZipName, content: "zip", serverDir: serverDir)
         try writeArtifact(name: liveMrpackName, content: "mrpack", serverDir: serverDir)
-        let dmgSHA = try writeArtifact(name: SwiftReleasePipeline.dmgName, content: "dmg", serverDir: serverDir)
+        let dmgSHA = try writeArtifact(name: liveDMGName, content: "dmg", serverDir: serverDir)
 
         let releaseID = "release_20260613_V77_swift_phase7_test"
-        try writeDMGHeadlessLiveSoakReport(releaseID: releaseID, dmgSHA: dmgSHA, serverDir: serverDir)
+        try writeDMGHeadlessLiveSoakReport(releaseID: releaseID, dmgSHA: dmgSHA, serverDir: serverDir, minecraftVersion: "26.1.2")
         let tempCleanupRoot = root.appendingPathComponent("tmp", isDirectory: true)
         let clientBuildTemp = clientPackage.appendingPathComponent(".build/pummelchen-dmg/stage", isDirectory: true)
         let projectBuildTemp = root.appendingPathComponent(".build/pummelchen-dmg/nginx-control-live-test", isDirectory: true)
@@ -1415,7 +1417,7 @@ struct MCPummelchenModServerCoreTests {
         try "control temp".write(to: projectBuildTemp.appendingPathComponent("client.duckdb"), atomically: true, encoding: .utf8)
         try "old backup".write(to: binaryBackups.appendingPathComponent("MCPummelchenModServer.old"), atomically: true, encoding: .utf8)
         try "spark temp".write(to: sparkTmp.appendingPathComponent("spark-test-profile-data.jfr.tmp"), atomically: true, encoding: .utf8)
-        try "old dmg".write(to: tempCleanupRoot.appendingPathComponent(SwiftReleasePipeline.dmgName), atomically: true, encoding: .utf8)
+        try "old dmg".write(to: tempCleanupRoot.appendingPathComponent(liveDMGName), atomically: true, encoding: .utf8)
         try "pipeline log".write(to: tempCleanupRoot.appendingPathComponent("daily_release_pipeline_test.log"), atomically: true, encoding: .utf8)
         let pipeline = SwiftReleasePipeline(config: SwiftReleasePipelineConfig(
             projectRoot: root,
@@ -1438,17 +1440,18 @@ struct MCPummelchenModServerCoreTests {
 
         let current = try CurrentReleaseValidator.decode(Data(contentsOf: publicDownloads.appendingPathComponent("current-release.json")))
         #expect(current.releaseID == releaseID)
-        #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/\(SwiftReleasePipeline.dmgName)").path))
-        #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/\(SwiftReleasePipeline.dmgName).sha256").path))
-        #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/\(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName)").path))
-        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(SwiftReleasePipeline.dmgName).path)) == "releases/\(releaseID)/\(SwiftReleasePipeline.dmgName)")
+        #expect(current.dmgURL == "/downloads/\(liveDMGName)")
+        #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/\(liveDMGName)").path))
+        #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/\(liveDMGName).sha256").path))
+        #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/\(liveDMGSoakReportName)").path))
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(liveDMGName).path)) == "releases/\(releaseID)/\(liveDMGName)")
         #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(liveClientZipName).path)) == "releases/\(releaseID)/\(liveClientZipName)")
-        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName).path)) == "releases/\(releaseID)/\(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName)")
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(liveDMGSoakReportName).path)) == "releases/\(releaseID)/\(liveDMGSoakReportName)")
         #expect(!FileManager.default.fileExists(atPath: clientPackage.appendingPathComponent(".build").path))
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".build/pummelchen-dmg").path))
         #expect(!FileManager.default.fileExists(atPath: binaryBackups.path))
         #expect(!FileManager.default.fileExists(atPath: sparkTmp.appendingPathComponent("spark-test-profile-data.jfr.tmp").path))
-        #expect(!FileManager.default.fileExists(atPath: tempCleanupRoot.appendingPathComponent(SwiftReleasePipeline.dmgName).path))
+        #expect(!FileManager.default.fileExists(atPath: tempCleanupRoot.appendingPathComponent(liveDMGName).path))
         #expect(!FileManager.default.fileExists(atPath: tempCleanupRoot.appendingPathComponent("daily_release_pipeline_test.log").path))
         let cleanupEventCount = try duckDBScalar(database: root.appendingPathComponent("phase7.duckdb"), sql: "SELECT count(*) FROM release.release_events WHERE release_id = '\(releaseID)' AND event_type = 'cleanup' AND status = 'ok';")
         #expect(cleanupEventCount == "1")
@@ -1505,7 +1508,7 @@ struct MCPummelchenModServerCoreTests {
         try "client mod".write(to: clientPackage.appendingPathComponent("mods/example-client.jar"), atomically: true, encoding: .utf8)
         try writeArtifact(name: SwiftReleasePipeline.clientZipName(minecraftVersion: "26.1.2"), content: "zip", serverDir: serverDir)
         try writeArtifact(name: SwiftReleasePipeline.mrpackName(minecraftVersion: "26.1.2"), content: "mrpack", serverDir: serverDir)
-        try writeArtifact(name: SwiftReleasePipeline.dmgName, content: "dmg", serverDir: serverDir)
+        try writeArtifact(name: SwiftReleasePipeline.dmgName(minecraftVersion: "26.1.2"), content: "dmg", serverDir: serverDir)
 
         let pipeline = SwiftReleasePipeline(config: SwiftReleasePipelineConfig(
             projectRoot: root,
@@ -1519,9 +1522,9 @@ struct MCPummelchenModServerCoreTests {
 
         do {
             _ = try pipeline.createRelease()
-            Issue.record("DMG release should require \(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName)")
+            Issue.record("DMG release should require \(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName(minecraftVersion: "26.1.2"))")
         } catch SwiftReleasePipelineError.missingRequiredPath(let path) {
-            #expect(path.hasSuffix(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName))
+            #expect(path.hasSuffix(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName(minecraftVersion: "26.1.2")))
         }
     }
 
@@ -1631,10 +1634,14 @@ struct MCPummelchenModServerCoreTests {
 
         let clientZip = SwiftReleasePipeline.clientZipName(minecraftVersion: "26.2")
         let mrpack = SwiftReleasePipeline.mrpackName(minecraftVersion: "26.2")
+        let dmg = SwiftReleasePipeline.dmgName(minecraftVersion: "26.2")
+        let dmgSoakReport = SwiftReleasePipeline.dmgHeadlessLiveSoakReportName(minecraftVersion: "26.2")
         try writeArtifact(name: clientZip, content: "zip 26.2", serverDir: serverDir)
         try writeArtifact(name: mrpack, content: "mrpack 26.2", serverDir: serverDir)
+        let dmgSHA = try writeArtifact(name: dmg, content: "dmg 26.2", serverDir: serverDir)
 
         let releaseID = "release_20260619_V99_mc_26_2_staging"
+        try writeDMGHeadlessLiveSoakReport(releaseID: releaseID, dmgSHA: dmgSHA, serverDir: serverDir, minecraftVersion: "26.2")
         let pipeline = SwiftReleasePipeline(config: SwiftReleasePipelineConfig(
             projectRoot: root,
             serverDir: serverDir,
@@ -1657,10 +1664,15 @@ struct MCPummelchenModServerCoreTests {
         #expect(current.loaderVersion == "26.2.0.3-beta")
         #expect(current.clientZipURL == "/downloads/releases/\(releaseID)/\(clientZip)")
         #expect(current.mrpackURL == "/downloads/releases/\(releaseID)/\(mrpack)")
+        #expect(current.dmgURL == "/downloads/\(dmg)")
         #expect(!current.clientZipURL.contains("26.1.2"))
         #expect(!current.mrpackURL.contains("26.1.2"))
+        #expect(!current.dmgURL!.contains("26.1.2"))
         #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/\(clientZip)").path))
         #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/\(mrpack)").path))
+        #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/\(dmg)").path))
+        #expect(FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("releases/\(releaseID)/\(dmgSoakReport)").path))
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: publicDownloads.appendingPathComponent(dmg).path)) == "releases/\(releaseID)/\(dmg)")
         #expect(!FileManager.default.fileExists(atPath: publicDownloads.appendingPathComponent("current-release.json").path))
         let activeServerKey = try duckDBScalar(database: root.appendingPathComponent("phase7-versioned.duckdb"), sql: "SELECT server_key FROM release.pack_releases WHERE release_id = '\(releaseID)' AND active = true;")
         #expect(activeServerKey == "minecraft_26_2")
@@ -1682,9 +1694,9 @@ struct MCPummelchenModServerCoreTests {
         try "client mod".write(to: clientPackage.appendingPathComponent("mods/example-client.jar"), atomically: true, encoding: .utf8)
         try writeArtifact(name: SwiftReleasePipeline.clientZipName(minecraftVersion: "26.1.2"), content: "zip", serverDir: serverDir)
         try writeArtifact(name: SwiftReleasePipeline.mrpackName(minecraftVersion: "26.1.2"), content: "mrpack", serverDir: serverDir)
-        let dmgSHA = try writeArtifact(name: SwiftReleasePipeline.dmgName, content: "dmg", serverDir: serverDir)
+        let dmgSHA = try writeArtifact(name: SwiftReleasePipeline.dmgName(minecraftVersion: "26.1.2"), content: "dmg", serverDir: serverDir)
         let releaseID = "release_20260613_V79_missing_new_player_setup"
-        try writeLegacyDMGHeadlessLiveSoakReport(releaseID: releaseID, dmgSHA: dmgSHA, serverDir: serverDir)
+        try writeLegacyDMGHeadlessLiveSoakReport(releaseID: releaseID, dmgSHA: dmgSHA, serverDir: serverDir, minecraftVersion: "26.1.2")
 
         let pipeline = SwiftReleasePipeline(config: SwiftReleasePipelineConfig(
             projectRoot: root,
@@ -2919,7 +2931,7 @@ struct MCPummelchenModServerCoreTests {
         resourcepack\tresourcepacks/ModernArch v2.8.2 [26.1] [128x].zip\t10\tsha256:4444444444444444444444444444444444444444444444444444444444444444
         shaderpack\tshaderpacks/BSL_v10.0.zip\t10\tsha256:5555555555555555555555555555555555555555555555555555555555555555
         """.write(to: manifestsDir.appendingPathComponent("client-package.tsv"), atomically: true, encoding: .utf8)
-        try Data().write(to: downloads.appendingPathComponent("MCPummelchenModClient.dmg"))
+        try Data().write(to: downloads.appendingPathComponent("MCPummelchenModClient_26.1.2.dmg"))
         return (root, current, manifest)
     }
 
@@ -3295,7 +3307,7 @@ struct MCPummelchenModServerCoreTests {
         return hash
     }
 
-    private func writeDMGHeadlessLiveSoakReport(releaseID: String, dmgSHA: String, serverDir: URL) throws {
+    private func writeDMGHeadlessLiveSoakReport(releaseID: String, dmgSHA: String, serverDir: URL, minecraftVersion: String = "26.1.2") throws {
         try """
         {
           "release_id": "\(releaseID)",
@@ -3339,13 +3351,13 @@ struct MCPummelchenModServerCoreTests {
           }
         }
         """.write(
-            to: serverDir.appendingPathComponent(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName),
+            to: serverDir.appendingPathComponent(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName(minecraftVersion: minecraftVersion)),
             atomically: true,
             encoding: .utf8
         )
     }
 
-    private func writeLegacyDMGHeadlessLiveSoakReport(releaseID: String, dmgSHA: String, serverDir: URL) throws {
+    private func writeLegacyDMGHeadlessLiveSoakReport(releaseID: String, dmgSHA: String, serverDir: URL, minecraftVersion: String = "26.1.2") throws {
         try """
         {
           "release_id": "\(releaseID)",
@@ -3367,7 +3379,7 @@ struct MCPummelchenModServerCoreTests {
           "notes": "legacy fixture"
         }
         """.write(
-            to: serverDir.appendingPathComponent(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName),
+            to: serverDir.appendingPathComponent(SwiftReleasePipeline.dmgHeadlessLiveSoakReportName(minecraftVersion: minecraftVersion)),
             atomically: true,
             encoding: .utf8
         )

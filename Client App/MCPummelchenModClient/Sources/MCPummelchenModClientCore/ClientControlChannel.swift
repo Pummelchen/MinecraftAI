@@ -8,11 +8,19 @@ public struct ClientControlChannelConfiguration: Sendable {
     public let serverURL: URL
     public let clientID: String
     public let clientAPIToken: String?
+    public let apiBasePath: String
 
-    public init(serverURL: URL = PummelchenNetworkDefaults.primaryServerURL, clientID: String, clientAPIToken: String? = nil) {
+    public init(serverURL: URL = PummelchenNetworkDefaults.primaryServerURL, clientID: String, clientAPIToken: String? = nil, apiBasePath: String = "api") {
         self.serverURL = serverURL
         self.clientID = clientID
         self.clientAPIToken = clientAPIToken
+        let trimmed = apiBasePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        self.apiBasePath = trimmed.isEmpty ? "api" : trimmed
+    }
+
+    public func apiPath(_ path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return [apiBasePath, trimmed].filter { !$0.isEmpty }.joined(separator: "/")
     }
 }
 
@@ -30,13 +38,13 @@ public struct ClientControlChannel: Sendable {
     }
 
     public func controlInfo() async throws -> ControlChannelInfo {
-        let url = configuration.serverURL.appendingPathComponent("api/v1/control/info")
+        let url = configuration.serverURL.appendingPathComponent(configuration.apiPath("v1/control/info"))
         let data = try await http.data(from: url, headers: authHeaders())
         return try decoder.decode(ControlChannelInfo.self, from: data)
     }
 
     public func fetchEvents(afterEventID: String? = nil, limit: Int = 50, waitSeconds: Int = 0) async throws -> ControlEventBatch {
-        guard var components = URLComponents(url: configuration.serverURL.appendingPathComponent("api/v1/control/events"), resolvingAgainstBaseURL: false) else {
+        guard var components = URLComponents(url: configuration.serverURL.appendingPathComponent(configuration.apiPath("v1/control/events")), resolvingAgainstBaseURL: false) else {
             throw URLError(.badURL)
         }
         var query = [
@@ -62,32 +70,32 @@ public struct ClientControlChannel: Sendable {
 
     public func acknowledge(_ event: ControlEvent) async throws {
         let payload = ControlEventAck(clientID: configuration.clientID, eventID: event.eventID, receivedAt: Self.isoNow())
-        _ = try await post(payload, to: "api/v1/control/acks", as: ClientWriteAck.self)
+        _ = try await post(payload, to: configuration.apiPath("v1/control/acks"), as: ClientWriteAck.self)
     }
 
     @discardableResult
     public func register(_ payload: ClientRegistrationRequest) async throws -> ClientWriteAck {
-        try await post(payload, to: "api/v1/clients/register", as: ClientWriteAck.self)
+        try await post(payload, to: configuration.apiPath("v1/clients/register"), as: ClientWriteAck.self)
     }
 
     @discardableResult
     public func reportStatus(_ payload: ClientStatusReport) async throws -> ClientWriteAck {
-        try await post(payload, to: "api/v1/clients/sync-runs", as: ClientWriteAck.self)
+        try await post(payload, to: configuration.apiPath("v1/clients/sync-runs"), as: ClientWriteAck.self)
     }
 
     @discardableResult
     public func uploadInventory(_ payload: ClientInventoryUpload) async throws -> ClientWriteAck {
-        try await post(payload, to: "api/v1/clients/inventory", as: ClientWriteAck.self)
+        try await post(payload, to: configuration.apiPath("v1/clients/inventory"), as: ClientWriteAck.self)
     }
 
     @discardableResult
     public func uploadDiagnostics(_ payload: ClientDiagnosticsUpload) async throws -> ClientWriteAck {
-        try await post(payload, to: "api/v1/clients/diagnostics", as: ClientWriteAck.self)
+        try await post(payload, to: configuration.apiPath("v1/clients/diagnostics"), as: ClientWriteAck.self)
     }
 
     @discardableResult
     public func uploadDefaultsEvents(_ payload: ClientDefaultsEventUpload) async throws -> ClientWriteAck {
-        try await post(payload, to: "api/v1/clients/defaults-events", as: ClientWriteAck.self)
+        try await post(payload, to: configuration.apiPath("v1/clients/defaults-events"), as: ClientWriteAck.self)
     }
 
     public func lastNegotiatedProtocol() async -> String? {

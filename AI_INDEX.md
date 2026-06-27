@@ -211,11 +211,11 @@ The route switch is in `MCPummelchenModServerCore.swift`.
 
 ### Create and activate a release
 
-`SwiftReleasePipeline` creates an immutable release directory, copies package content, writes manifests and metadata, rebuilds version-scoped ZIP/MRPACK artifacts, verifies checksums, validates any DMG soak proof, writes public release data, persists release/audit rows, and optionally activates. Only the DuckDB version marked live may update global current-release files and stable aliases.
+`SwiftReleasePipeline` creates an immutable release directory, copies package content, writes manifests and metadata, rebuilds version-scoped ZIP/MRPACK/DMG artifacts, verifies checksums, validates any DMG soak proof, writes public release data, persists release/audit rows, and optionally activates. Every activated release may update its versioned download aliases; only the DuckDB version marked live may update global current-release files.
 
 ### Build and gate a client DMG
 
-`ClientDMGBuilder` builds the GUI and sync helper, constructs and signs an app bundle, embeds the DuckDB dylib, optionally embeds a private bootstrap resource with owner-only permissions, creates the DMG, and can run nginx/control and headless soak validation. Production contracts require a matching `MCPummelchenModClient.dmg.headless-live-soak.json` proof for a DMG-backed release.
+`ClientDMGBuilder` builds the GUI and sync helper, constructs and signs an app bundle, embeds the DuckDB dylib, optionally embeds a private bootstrap resource with owner-only permissions, creates the versioned DMG, and can run nginx/control and headless soak validation. Production contracts require a matching `MCPummelchenModClient_<minecraft_version>.dmg.headless-live-soak.json` proof for a DMG-backed release.
 
 ### Reset a world
 

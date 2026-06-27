@@ -91,23 +91,25 @@ public struct SwiftReleaseResult: Equatable, Sendable {
 }
 
 public struct SwiftReleasePipeline: Sendable {
-    public static let dmgName = "MCPummelchenModClient.dmg"
-    public static let dmgHeadlessLiveSoakReportName = "MCPummelchenModClient.dmg.headless-live-soak.json"
+    public static let legacyDMGName = "MCPummelchenModClient.dmg"
+    public static let legacyDMGHeadlessLiveSoakReportName = "MCPummelchenModClient.dmg.headless-live-soak.json"
     public static let requiredDMGLiveSoakSeconds: Double = 60
 
     public let config: SwiftReleasePipelineConfig
     private var fileManager: FileManager { FileManager.default }
     private var clientZipName: String { Self.clientZipName(minecraftVersion: config.minecraftVersion) }
     private var mrpackName: String { Self.mrpackName(minecraftVersion: config.minecraftVersion) }
+    private var dmgName: String { Self.dmgName(minecraftVersion: config.minecraftVersion) }
+    private var dmgHeadlessLiveSoakReportName: String { Self.dmgHeadlessLiveSoakReportName(minecraftVersion: config.minecraftVersion) }
     private var releaseArtifactNames: [String] {
         [
             clientZipName,
             "\(clientZipName).sha256",
             mrpackName,
             "\(mrpackName).sha256",
-            Self.dmgName,
-            "\(Self.dmgName).sha256",
-            Self.dmgHeadlessLiveSoakReportName
+            dmgName,
+            "\(dmgName).sha256",
+            dmgHeadlessLiveSoakReportName
         ]
     }
 
@@ -121,6 +123,14 @@ public struct SwiftReleasePipeline: Sendable {
 
     public static func mrpackName(minecraftVersion: String) -> String {
         "pummelchen-server-\(artifactVersion(minecraftVersion)).mrpack"
+    }
+
+    public static func dmgName(minecraftVersion: String) -> String {
+        ClientDMGBuilder.dmgFileName(minecraftVersion: minecraftVersion)
+    }
+
+    public static func dmgHeadlessLiveSoakReportName(minecraftVersion: String) -> String {
+        ClientDMGBuilder.dmgHeadlessLiveSoakReportName(minecraftVersion: minecraftVersion)
     }
 
     private static func artifactVersion(_ minecraftVersion: String) -> String {
@@ -187,7 +197,7 @@ public struct SwiftReleasePipeline: Sendable {
         try requireFile(mrpack)
         let clientZipSHA = try SHA256Hasher.hashFile(at: clientZip)
         let mrpackSHA = try SHA256Hasher.hashFile(at: mrpack)
-        let dmg = artifacts.appendingPathComponent(Self.dmgName)
+        let dmg = artifacts.appendingPathComponent(dmgName)
         let dmgSHA = fileManager.fileExists(atPath: dmg.path) ? try SHA256Hasher.hashFile(at: dmg) : nil
         let dmgSoakReport = try validateDMGHeadlessLiveSoakReportIfNeeded(artifacts: artifacts, dmgSHA: dmgSHA)
         try writeSHA256Sidecar(for: clientZip, hash: clientZipSHA)
@@ -249,7 +259,7 @@ public struct SwiftReleasePipeline: Sendable {
         let currentRelease = try CurrentReleaseValidator.decode(try Data(contentsOf: current))
         try CurrentReleaseValidator.validate(currentRelease)
         try ContractValidation.require(currentRelease.releaseID == config.releaseID, "current release payload points at wrong release")
-        let dmg = releaseDir.appendingPathComponent("artifacts/\(Self.dmgName)")
+        let dmg = releaseDir.appendingPathComponent("artifacts/\(dmgName)")
         if fileManager.fileExists(atPath: dmg.path) {
             let dmgSHA = try SHA256Hasher.hashFile(at: dmg)
             _ = try validateDMGHeadlessLiveSoakReportIfNeeded(
@@ -271,10 +281,10 @@ public struct SwiftReleasePipeline: Sendable {
         let data = try JSONEncoder.pummelchenSorted.encode(payload)
         try fileManager.createDirectory(at: config.publicDownloads, withIntermediateDirectories: true)
         try writeVersionScopedCurrentRelease(data)
+        try publishCurrentDownloadLinks(publicRelease: publicRelease)
         if try shouldPublishGlobalCurrentRelease() {
             try data.write(to: config.publicDownloads.appendingPathComponent("current-release.json"), options: .atomic)
             try (config.releaseID + "\n").write(to: config.publicDownloads.appendingPathComponent("current-release.txt"), atomically: true, encoding: .utf8)
-            try publishCurrentDownloadLinks(publicRelease: publicRelease)
         }
         try executeDuckDB("""
         UPDATE release.pack_releases SET active = false WHERE server_key = \(Self.sqlLiteral(config.serverKey));
@@ -341,7 +351,7 @@ public struct SwiftReleasePipeline: Sendable {
         }
         let clientZipSHA = try SHA256Hasher.hashFile(at: releaseDir.appendingPathComponent("artifacts/\(clientZipName)"))
         let mrpackSHA = try SHA256Hasher.hashFile(at: releaseDir.appendingPathComponent("artifacts/\(mrpackName)"))
-        let dmg = releaseDir.appendingPathComponent("artifacts/\(Self.dmgName)")
+        let dmg = releaseDir.appendingPathComponent("artifacts/\(dmgName)")
         let dmgSHA = fileManager.fileExists(atPath: dmg.path) ? try SHA256Hasher.hashFile(at: dmg) : nil
         let payload = currentReleasePayload(createdAt: createdAt, activatedAt: nil, clientZipSHA: clientZipSHA, mrpackSHA: mrpackSHA, dmgSHA: dmgSHA)
         try JSONEncoder.pummelchenSorted.encode(payload).write(to: publicDir.appendingPathComponent("current-release.json"), options: .atomic)
@@ -361,7 +371,7 @@ public struct SwiftReleasePipeline: Sendable {
             clientZipSHA256: clientZipSHA,
             mrpackURL: "/downloads/releases/\(config.releaseID)/\(mrpackName)",
             mrpackSHA256: mrpackSHA,
-            dmgURL: dmgSHA == nil ? nil : "/downloads/\(Self.dmgName)",
+            dmgURL: dmgSHA == nil ? nil : "/downloads/\(dmgName)",
             dmgSHA256: dmgSHA,
             notes: config.notes
         )
@@ -468,7 +478,7 @@ public struct SwiftReleasePipeline: Sendable {
         guard let dmgSHA else {
             return nil
         }
-        let reportURL = artifacts.appendingPathComponent(Self.dmgHeadlessLiveSoakReportName)
+        let reportURL = artifacts.appendingPathComponent(dmgHeadlessLiveSoakReportName)
         try requireFile(reportURL)
         let report = try JSONDecoder().decode(DMGHeadlessLiveSoakReport.self, from: Data(contentsOf: reportURL))
         let normalizedReportSHA = report.dmgSHA256
@@ -726,9 +736,9 @@ public struct SwiftReleasePipeline: Sendable {
             "\(clientZipName).sha256",
             mrpackName,
             "\(mrpackName).sha256",
-            Self.dmgName,
-            "\(Self.dmgName).sha256",
-            Self.dmgHeadlessLiveSoakReportName
+            dmgName,
+            "\(dmgName).sha256",
+            dmgHeadlessLiveSoakReportName
         ]
         for name in names where fileManager.fileExists(atPath: publicRelease.appendingPathComponent(name).path) {
             let target = config.publicDownloads.appendingPathComponent(name)
@@ -985,6 +995,9 @@ public struct SwiftReleasePipeline: Sendable {
             return true
         }
         if name.hasPrefix("pummelchen-headless-soak-") || name.hasPrefix("pummelchen-java-") || name.hasPrefix("TemporaryDirectory.") {
+            return true
+        }
+        if name.hasPrefix("MCPummelchenModClient_") && (name.hasSuffix(".dmg") || name.hasSuffix(".dmg.sha256")) {
             return true
         }
         if name.hasPrefix("pummelchen") && name.hasSuffix(".log") {

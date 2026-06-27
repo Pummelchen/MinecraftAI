@@ -324,7 +324,7 @@ Do not put values for sensitive variables into source or generated docs.
 | Public `current-release*.json/.txt` and aliases | Release activation |
 | `client-sync-manifest.tsv` and public client files | Release pipeline |
 | Version-scoped client ZIP and MRPACK | Release pipeline/package builder |
-| `MCPummelchenModClient.dmg` and checksum | `ClientDMGBuilder` |
+| `MCPummelchenModClient_<minecraft_version>.dmg` and checksum | `ClientDMGBuilder` |
 | DMG headless soak report | `pummelchen-headless-soak` |
 | Parquet reporting files | `pummelchen-duckdb export-parquet` |
 | Local client `.pummelchen` state and DuckDB | `ClientSyncEngine` / `ClientStatusStore` |

@@ -428,7 +428,7 @@ A release contains, at minimum:
 ├── artifacts/
 │   ├── version-scoped client ZIP + checksum
 │   ├── version-scoped MRPACK + checksum
-│   └── optional DMG + checksum + soak report
+│   └── optional versioned DMG + checksum + soak report
 ├── db/
 └── public/
     ├── current-release.json
@@ -459,7 +459,7 @@ Activation:
 
 - publishes the release public tree to nginx downloads;
 - always writes version-scoped current-release files;
-- writes global current-release JSON/text and stable aliases only if DuckDB marks that version live;
+- writes versioned download aliases for the activated version and writes global current-release JSON/text only if DuckDB marks that version live;
 - updates active release rows/events;
 - prunes old release storage using configured retention;
 - performs configured cleanup and service restart.
@@ -482,7 +482,7 @@ On macOS the builder:
 8. Lints and ad-hoc signs the app/native binaries.
 9. Verifies signatures.
 10. Optionally tests the nginx/control path.
-11. Creates and hashes the DMG.
+11. Creates and hashes the versioned DMG.
 12. Optionally runs the headless live soak.
 
 ### Production soak gate

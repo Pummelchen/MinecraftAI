@@ -20,7 +20,7 @@ struct ClientAppSelfUpdaterTests {
             clientZipSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             mrpackURL: "/downloads/releases/release_20260613_V99_self_update/pack.mrpack",
             mrpackSHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            dmgURL: "/downloads/MCPummelchenModClient.dmg",
+            dmgURL: "/downloads/MCPummelchenModClient_26.1.2.dmg",
             dmgSHA256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
             notes: "test"
         )

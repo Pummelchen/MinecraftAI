@@ -120,7 +120,7 @@ public enum CurrentReleaseValidator {
             "dmg_url and dmg_sha256 must be provided together"
         )
         if let dmgURL = release.dmgURL {
-            try validateRelativeDMGURL(dmgURL, releaseID: release.releaseID)
+            try validateRelativeDMGURL(dmgURL, releaseID: release.releaseID, minecraftVersion: release.minecraftVersion ?? "26.1.2")
         }
         try ContractValidation.requireSHA256(release.clientZipSHA256, field: "client_zip_sha256")
         try ContractValidation.requireSHA256(release.mrpackSHA256, field: "mrpack_sha256")
@@ -162,7 +162,7 @@ public enum CurrentReleaseValidator {
         }
     }
 
-    private static func validateRelativeDMGURL(_ value: String, releaseID: String) throws {
+    private static func validateRelativeDMGURL(_ value: String, releaseID: String, minecraftVersion: String) throws {
         try ContractValidation.require(!value.isEmpty, "dmg_url is required")
         try ContractValidation.require(URL(string: value)?.scheme == nil, "dmg_url must be a relative release URL")
         try ContractValidation.require(!value.contains(".."), "dmg_url must not contain parent traversal")
@@ -170,7 +170,7 @@ public enum CurrentReleaseValidator {
         try ContractValidation.require(!value.contains("//"), "dmg_url must not contain empty path segments")
 
         let path = value.hasPrefix("/") ? String(value.dropFirst()) : value
-        let stableAlias = "downloads/MCPummelchenModClient.dmg"
+        let stableAlias = "downloads/MCPummelchenModClient_\(artifactVersion(minecraftVersion)).dmg"
         if path == stableAlias {
             return
         }
@@ -180,5 +180,14 @@ public enum CurrentReleaseValidator {
             path.hasPrefix(legacyReleasePrefix) && path.lowercased().hasSuffix(".dmg"),
             "dmg_url must be the stable /\(stableAlias) alias"
         )
+    }
+
+    private static func artifactVersion(_ minecraftVersion: String) -> String {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+        let scalars = minecraftVersion.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let value = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".-_"))
+        return value.isEmpty ? "unknown" : value
     }
 }

@@ -225,9 +225,10 @@ public struct ModAddPipeline: Sendable {
             clientPackageRoot: clientPackageRoot,
             serverPackageRoot: serverPackageRoot,
             releaseID: config.releaseID,
+            minecraftVersion: config.minecraftVersion,
             clientVersion: env["PUMMELCHEN_CLIENT_VERSION"] ?? "0.8.8",
             serverURL: env["PUMMELCHEN_SERVER_URL"] ?? "https://pummelchen.91.99.176.243.nip.io",
-            serverAddress: env["PUMMELCHEN_SERVER_ADDRESS"] ?? "91.99.176.243:25565",
+            serverAddress: env["PUMMELCHEN_SERVER_ADDRESS"] ?? env["PUMMELCHEN_MANAGED_MINECRAFT_SERVER_ADDRESS"] ?? "91.99.176.243:25565",
             duckdbDylibPath: env["PUMMELCHEN_DUCKDB_DYLIB"] ?? "/opt/homebrew/lib/libduckdb.dylib",
             macOSDeploymentTarget: env["MACOSX_DEPLOYMENT_TARGET"] ?? "26.0",
             runNginxControlLiveTest: runNginxControlLiveTest,
@@ -240,7 +241,9 @@ public struct ModAddPipeline: Sendable {
         )
         let dmgResult = try ClientDMGBuilder(config: builderConfig).build()
         let dmgDir = dmgResult.dmgPath.deletingLastPathComponent()
-        for artifactName in [SwiftReleasePipeline.dmgName, "\(SwiftReleasePipeline.dmgName).sha256", SwiftReleasePipeline.dmgHeadlessLiveSoakReportName] {
+        let versionedDMGName = SwiftReleasePipeline.dmgName(minecraftVersion: config.minecraftVersion)
+        let versionedReportName = SwiftReleasePipeline.dmgHeadlessLiveSoakReportName(minecraftVersion: config.minecraftVersion)
+        for artifactName in [versionedDMGName, "\(versionedDMGName).sha256", versionedReportName] {
             let source = dmgDir.appendingPathComponent(artifactName)
             if fileManager.fileExists(atPath: source.path) {
                 let target = config.serverDir.appendingPathComponent(artifactName)

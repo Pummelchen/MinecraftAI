@@ -4,6 +4,22 @@ import FoundationNetworking
 #endif
 import MCPummelchenModShared
 
+public enum ClientAppBundleDefaults {
+    public static var apiBasePath: String {
+        plistString("PummelchenAPIBasePath") ?? "api"
+    }
+
+    public static var currentReleasePath: String {
+        plistString("PummelchenCurrentReleasePath") ?? "downloads/current-release.json"
+    }
+
+    private static func plistString(_ key: String) -> String? {
+        let value = Bundle.main.object(forInfoDictionaryKey: key) as? String
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 public struct ClientSyncConfiguration: Sendable {
     public let serverURL: URL
     public let minecraftDirectory: URL
@@ -15,6 +31,8 @@ public struct ClientSyncConfiguration: Sendable {
     public let clientID: String?
     public let clientAPIToken: String?
     public let retryPolicy: ClientHTTPRetryPolicy
+    public let apiBasePath: String
+    public let currentReleasePath: String
 
     public init(
         serverURL: URL = PummelchenNetworkDefaults.primaryServerURL,
@@ -26,7 +44,9 @@ public struct ClientSyncConfiguration: Sendable {
         manageJavaRuntime: Bool = true,
         clientID: String? = nil,
         clientAPIToken: String? = ClientCredentialProvider.defaultClientAPIToken(),
-        retryPolicy: ClientHTTPRetryPolicy = ClientHTTPRetryPolicy()
+        retryPolicy: ClientHTTPRetryPolicy = ClientHTTPRetryPolicy(),
+        apiBasePath: String = ClientAppBundleDefaults.apiBasePath,
+        currentReleasePath: String = ClientAppBundleDefaults.currentReleasePath
     ) {
         self.serverURL = serverURL
         self.minecraftDirectory = minecraftDirectory
@@ -38,6 +58,22 @@ public struct ClientSyncConfiguration: Sendable {
         self.clientID = clientID
         self.clientAPIToken = clientAPIToken
         self.retryPolicy = retryPolicy
+        self.apiBasePath = Self.normalizedAPIBasePath(apiBasePath)
+        self.currentReleasePath = Self.normalizedPath(currentReleasePath, fallback: "downloads/current-release.json")
+    }
+
+    public func apiPath(_ path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return [apiBasePath, trimmed].filter { !$0.isEmpty }.joined(separator: "/")
+    }
+
+    private static func normalizedAPIBasePath(_ value: String) -> String {
+        normalizedPath(value, fallback: "api")
+    }
+
+    private static func normalizedPath(_ value: String, fallback: String) -> String {
+        let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return trimmed.isEmpty ? fallback : trimmed
     }
 
     public static func productionDefault(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> ClientSyncConfiguration {
@@ -264,12 +300,12 @@ public struct ClientSyncEngine: Sendable {
     }
 
     private func fetchCurrentReleaseFromDownloads() async throws -> CurrentRelease {
-        let url = configuration.serverURL.appendingPathComponent("downloads/current-release.json")
+        let url = configuration.serverURL.appendingPathComponent(configuration.currentReleasePath)
         let data: Data
         do {
             data = try await http.data(from: url)
         } catch {
-            let apiURL = configuration.serverURL.appendingPathComponent("api/v1/releases/current")
+            let apiURL = configuration.serverURL.appendingPathComponent(configuration.apiPath("v1/releases/current"))
             data = try await http.data(from: apiURL)
         }
         let release = try CurrentReleaseValidator.decode(data)
@@ -302,7 +338,8 @@ public struct ClientSyncEngine: Sendable {
         await ClientSupportedVersionsResolver(
             serverURL: configuration.serverURL,
             http: http,
-            store: store
+            store: store,
+            apiBasePath: configuration.apiBasePath
         ).resolve()
     }
 
@@ -554,7 +591,8 @@ public struct ClientSyncEngine: Sendable {
         let channel = ClientControlChannel(configuration: ClientControlChannelConfiguration(
             serverURL: configuration.serverURL,
             clientID: clientID,
-            clientAPIToken: token
+            clientAPIToken: token,
+            apiBasePath: configuration.apiBasePath
         ))
         do {
             _ = try await channel.reportStatus(payload)

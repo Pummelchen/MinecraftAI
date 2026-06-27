@@ -349,6 +349,7 @@ swift run \
   --client-package "<client-package-dir>" \
   --server-package "<server-package-dir>" \
   --release-id "<release-id>" \
+  --minecraft-version "<assigned-minecraft-version>" \
   --client-version "<client-version>" \
   --server-url "<https-server-url>" \
   --server-address "<minecraft-host:port>" \

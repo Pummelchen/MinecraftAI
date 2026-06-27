@@ -107,16 +107,16 @@ Each release contains:
 
 Activation always publishes static release files through nginx and writes version-scoped current release files such as `/downloads/current-release-26.2.json` and `/downloads/current-release-minecraft_26_2.json`.
 
-Only the Minecraft version marked `is_live = true` in DuckDB may also update `/downloads/current-release.json`, `/downloads/current-release.txt`, and the stable DMG/download aliases used by normal clients. Staging versions must not overwrite the global current release pointer.
+Every activated release may update its own versioned top-level DMG/download aliases, such as `/downloads/MCPummelchenModClient_26.2.dmg`. Only the Minecraft version marked `is_live = true` in DuckDB may also update `/downloads/current-release.json` and `/downloads/current-release.txt`. Staging versions must not overwrite the global current release pointer.
 
-After activation, the Swift release pipeline enforces storage retention. It keeps the active release plus the newest retained releases per `server_key` in DuckDB and prunes older release directories from both the private release root and nginx public download release root. If the activated release includes `MCPummelchenModClient.dmg`, the pipeline must also start automatic post-DMG cleanup for known Pummelchen build, headless-test, temporary DMG, spark profiler, and old binary-backup artifacts, then record a `cleanup` event in DuckDB. Manual VPS cleanup must not be the only disk-space control.
+After activation, the Swift release pipeline enforces storage retention. It keeps the active release plus the newest retained releases per `server_key` in DuckDB and prunes older release directories from both the private release root and nginx public download release root. If the activated release includes a versioned `MCPummelchenModClient_<minecraft_version>.dmg`, the pipeline must also start automatic post-DMG cleanup for known Pummelchen build, headless-test, temporary DMG, spark profiler, and old binary-backup artifacts, then record a `cleanup` event in DuckDB. Manual VPS cleanup must not be the only disk-space control.
 
 `current-release.json` is also the client-app self-update contract. When a release includes a macOS DMG, the payload must include both:
 
 - `dmg_url`
 - `dmg_sha256`
 
-The DMG URL must be the stable `/downloads/MCPummelchenModClient.dmg` alias and the SHA256 must match the exact published DMG. Clients use this metadata to stage a verified app update, replace `MCPummelchenModClient.app`, and relaunch automatically when the installed app bundle `PummelchenReleaseID` differs from the server `release_id`.
+The DMG URL must be the stable versioned alias `/downloads/MCPummelchenModClient_<minecraft_version>.dmg` and the SHA256 must match the exact published DMG. Clients use this metadata to stage a verified app update, replace `MCPummelchenModClient.app`, and relaunch automatically when the installed app bundle `PummelchenReleaseID` differs from the server `release_id`.
 
 ## Manifest Format
 
@@ -161,12 +161,12 @@ Release health must verify:
 
 ## DMG New-Player Acceptance And Live Soak Gate
 
-Every new `MCPummelchenModClient.dmg` must be tested before release activation by installing from that exact DMG into an isolated fresh-player environment, repairing/installing the managed Java runtime, installing NeoForge, syncing the full client pack, applying client defaults, validating the local client DuckDB, adding the Pummelchen server entry exactly once, logging into the live Pummelchen Minecraft server, and staying connected for at least 1 minute.
+Every new versioned `MCPummelchenModClient_<minecraft_version>.dmg` must be tested before release activation by installing from that exact DMG into an isolated fresh-player environment, repairing/installing the managed Java runtime, installing NeoForge, syncing the full client pack, applying client defaults, validating the local client DuckDB, adding the Pummelchen server entry exactly once, logging into the assigned Pummelchen Minecraft server, and staying connected for at least 1 minute.
 
 The Swift runner that produces this proof is:
 
 ```text
-pummelchen-headless-soak --dmg <MCPummelchenModClient.dmg> --release-id <release_id> --server-address 91.99.176.243:25565
+pummelchen-headless-soak --dmg <MCPummelchenModClient_26.2.dmg> --release-id <release_id> --server-address 91.99.176.243:25566
 ```
 
 The runner mounts the DMG, copies the macOS app into an isolated work directory, validates the app bundle/signature/helper binary/embedded DuckDB dylib, runs the bundled `pummelchen-client-sync` helper, verifies managed Java and NeoForge, verifies every manifest file by size and SHA-256, checks all managed client defaults with the same inspector used by the GUI, prepares HeadlessMC plus HMC-Specifics, launches NeoForge with `--quickPlayMultiplayer`, scans the isolated logs/crash reports, and writes the release-gate report beside the DMG. The built-in runner defaults to `--suppress-gui true`: it does not send HeadlessMC GUI display commands and requests a small 320x240 window if a renderer fallback still appears. Use `--suppress-gui false` only when visual debugging is required. `--headless-command` remains available only as an override. The default HeadlessMC home is `~/Library/Application Support/Pummelchen/headlessmc` so the Minecraft account login can persist while every soak still uses a fresh isolated Minecraft game directory.
@@ -180,7 +180,7 @@ The macOS DMG builder can invoke this automatically when these environment varia
 The release pipeline hard-requires this proof file next to the DMG:
 
 ```text
-MCPummelchenModClient.dmg.headless-live-soak.json
+MCPummelchenModClient_<minecraft_version>.dmg.headless-live-soak.json
 ```
 
 The report must prove:

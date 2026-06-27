@@ -11,8 +11,8 @@ enum ClientSyncCLIError: Error, CustomStringConvertible {
         case .usage:
             return """
             usage:
-              pummelchen-client-sync sync [--force] [--server-url <url>] [--minecraft-dir <path>] [--pummelchen-home <path>] [--db <path>] [--client-id <id>] [--no-client-api-token] [--allow-while-running] [--no-report] [--skip-java-repair]
-              pummelchen-client-sync watch [--server-url <url>] [--minecraft-dir <path>] [--pummelchen-home <path>] [--db <path>] [--client-id <id>] [--no-client-api-token] [--max-cycles <n>] [--after-event-id <id>] [--allow-while-running] [--no-report] [--skip-java-repair]
+              pummelchen-client-sync sync [--force] [--server-url <url>] [--api-base-path <path>] [--current-release-path <path>] [--minecraft-dir <path>] [--pummelchen-home <path>] [--db <path>] [--client-id <id>] [--no-client-api-token] [--allow-while-running] [--no-report] [--skip-java-repair]
+              pummelchen-client-sync watch [--server-url <url>] [--api-base-path <path>] [--current-release-path <path>] [--minecraft-dir <path>] [--pummelchen-home <path>] [--db <path>] [--client-id <id>] [--no-client-api-token] [--max-cycles <n>] [--after-event-id <id>] [--allow-while-running] [--no-report] [--skip-java-repair]
             """
         case .missingValue(let option):
             return "missing value for \(option)"
@@ -74,7 +74,9 @@ func config(from args: Args) throws -> ClientSyncConfiguration {
         reportToServer: !args.flags.contains("--no-report"),
         manageJavaRuntime: !args.flags.contains("--skip-java-repair"),
         clientID: args.options["--client-id"],
-        clientAPIToken: args.flags.contains("--no-client-api-token") ? nil : ClientCredentialProvider.defaultClientAPIToken()
+        clientAPIToken: args.flags.contains("--no-client-api-token") ? nil : ClientCredentialProvider.defaultClientAPIToken(),
+        apiBasePath: args.options["--api-base-path"] ?? ClientAppBundleDefaults.apiBasePath,
+        currentReleasePath: args.options["--current-release-path"] ?? ClientAppBundleDefaults.currentReleasePath
     )
 }
 
