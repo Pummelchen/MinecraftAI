@@ -103,6 +103,69 @@ struct ClientStatusTests {
         #expect(requirements.contains { $0.minecraftVersion == "26.3" && $0.loaderVersion == "26.3.0.1-beta" && $0.installerSHA256 == installerSHA })
     }
 
+    @Test("supported Minecraft versions are confined to assigned client version")
+    func supportedMinecraftVersionsAreConfinedToAssignedClientVersion() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pummelchen-client-supported-assigned-\(UUID().uuidString)", isDirectory: true)
+        let site = root.appendingPathComponent("site", isDirectory: true)
+        let apiDir = site.appendingPathComponent("api/26.2/v1/minecraft", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try FileManager.default.createDirectory(at: apiDir, withIntermediateDirectories: true)
+        let installerSHA = String(repeating: "b", count: 64)
+        try """
+        {
+          "api_version": "v1",
+          "generated_at": "2026-06-22T00:00:00Z",
+          "versions": [
+            {
+              "minecraft_version": "26.1.2",
+              "loader": "neoforge",
+              "loader_version": "26.1.2.76",
+              "server_name": "Pummelchen Server 26.1.2",
+              "server_address": "91.99.176.243:25565",
+              "status": "live",
+              "is_live": true,
+              "installer_name": "neoforge-26.1.2.76-installer.jar",
+              "installer_sha256": "f67bf87ddf8f3095ddbae4c78dbbbf5615e08b6982f4e84159eab951235974ec",
+              "installer_url": "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.1.2.76/neoforge-26.1.2.76-installer.jar"
+            },
+            {
+              "minecraft_version": "26.2",
+              "loader": "neoforge",
+              "loader_version": "26.2.1.0",
+              "server_name": "Pummelchen Server 26.2",
+              "server_address": "91.99.176.243:25566",
+              "status": "live",
+              "is_live": true,
+              "installer_name": "neoforge-26.2.1.0-installer.jar",
+              "installer_sha256": "\(installerSHA)",
+              "installer_url": "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.2.1.0/neoforge-26.2.1.0-installer.jar"
+            }
+          ]
+        }
+        """.write(to: apiDir.appendingPathComponent("server-versions"), atomically: true, encoding: .utf8)
+
+        let server = try LocalHTTPServer(root: site)
+        try server.start()
+        defer { server.stop() }
+
+        let store = ClientStatusStore(databaseURL: home.appendingPathComponent("client.duckdb"))
+        let resolver = ClientSupportedVersionsResolver(
+            serverURL: URL(string: "http://127.0.0.1:\(server.port)")!,
+            http: ClientHTTPClient(retryPolicy: ClientHTTPRetryPolicy(maxAttempts: 1, requestTimeoutSeconds: 2, baseDelayNanoseconds: 0)),
+            store: store,
+            apiBasePath: "api/26.2",
+            assignedMinecraftVersion: "26.2"
+        )
+        let supported = await resolver.resolve()
+        let requirements = NeoForgeClientRequirement.requirements(from: supported)
+
+        #expect(supported.map(\.minecraftVersion) == ["26.2"])
+        #expect(requirements.map(\.minecraftVersion) == ["26.2"])
+    }
+
     @Test("default inspector reports healthy configured Minecraft defaults")
     func defaultInspectorReportsHealthyDefaults() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -124,10 +187,11 @@ struct ClientStatusTests {
         {"profiles":{"NeoForge":{"javaArgs":"-Xmx8G -XX:+UseG1GC","javaDir":"\(escapedJavaPath)"}}}
         """
             .write(to: root.appendingPathComponent("launcher_profiles.json"), atomically: true, encoding: .utf8)
-        try "Pummelchen Server 26.1.2 91.99.176.243:25565 Pummelchen Server 26.2 91.99.176.243:25566".write(to: root.appendingPathComponent("servers.dat"), atomically: true, encoding: .utf8)
+        try "Pummelchen Server 26.1.2 91.99.176.243:25565 Pummelchen Server 26.2 91.99.176.243:25566 Pummelchen Server 26.3 91.99.176.243:25567".write(to: root.appendingPathComponent("servers.dat"), atomically: true, encoding: .utf8)
         try "showLoadWarnings=false\n".write(to: root.appendingPathComponent("config/neoforge-client.toml"), atomically: true, encoding: .utf8)
         try "showLoadWarnings=false\n".write(to: root.appendingPathComponent("config/forge-client.toml"), atomically: true, encoding: .utf8)
         try "showCheckScreen=false\n".write(to: root.appendingPathComponent("config/yuushya-client.toml"), atomically: true, encoding: .utf8)
+        try "renderingEngine=OPEN_GL\n".write(to: root.appendingPathComponent("config/DistantHorizons.toml"), atomically: true, encoding: .utf8)
         try FileManager.default.createDirectory(at: root.appendingPathComponent("config/physicsmod"), withIntermediateDirectories: true)
         try """
         {
@@ -139,7 +203,8 @@ struct ClientStatusTests {
         """.write(to: root.appendingPathComponent("config/physicsmod/physics_client_config.json"), atomically: true, encoding: .utf8)
 
         let rows = ClientDefaultsInspector.inspect(minecraftDirectory: root, defaults: MinecraftClientDefaults(javaExecutablePath: javaPath))
-        #expect(rows.allSatisfy { $0.status.isHealthy })
+        let unhealthy = rows.filter { !$0.status.isHealthy }
+        #expect(unhealthy.isEmpty, "\(unhealthy)")
         #expect(rows.contains { $0.id == "shader" })
         #expect(rows.contains { $0.id == "memory" })
         #expect(rows.contains { $0.id == "java_runtime" })

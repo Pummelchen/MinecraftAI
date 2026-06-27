@@ -5,6 +5,14 @@ import FoundationNetworking
 import MCPummelchenModShared
 
 public enum ClientAppBundleDefaults {
+    public static var minecraftVersion: String? {
+        plistString("PummelchenMinecraftVersion")
+    }
+
+    public static var appDisplayName: String {
+        plistString("CFBundleDisplayName") ?? "MCPummelchenModClient"
+    }
+
     public static var apiBasePath: String {
         plistString("PummelchenAPIBasePath") ?? "api"
     }
@@ -33,6 +41,7 @@ public struct ClientSyncConfiguration: Sendable {
     public let retryPolicy: ClientHTTPRetryPolicy
     public let apiBasePath: String
     public let currentReleasePath: String
+    public let assignedMinecraftVersion: String?
 
     public init(
         serverURL: URL = PummelchenNetworkDefaults.primaryServerURL,
@@ -46,7 +55,8 @@ public struct ClientSyncConfiguration: Sendable {
         clientAPIToken: String? = ClientCredentialProvider.defaultClientAPIToken(),
         retryPolicy: ClientHTTPRetryPolicy = ClientHTTPRetryPolicy(),
         apiBasePath: String = ClientAppBundleDefaults.apiBasePath,
-        currentReleasePath: String = ClientAppBundleDefaults.currentReleasePath
+        currentReleasePath: String = ClientAppBundleDefaults.currentReleasePath,
+        assignedMinecraftVersion: String? = ClientAppBundleDefaults.minecraftVersion
     ) {
         self.serverURL = serverURL
         self.minecraftDirectory = minecraftDirectory
@@ -60,6 +70,7 @@ public struct ClientSyncConfiguration: Sendable {
         self.retryPolicy = retryPolicy
         self.apiBasePath = Self.normalizedAPIBasePath(apiBasePath)
         self.currentReleasePath = Self.normalizedPath(currentReleasePath, fallback: "downloads/current-release.json")
+        self.assignedMinecraftVersion = Self.normalizedOptional(assignedMinecraftVersion)
     }
 
     public func apiPath(_ path: String) -> String {
@@ -76,13 +87,31 @@ public struct ClientSyncConfiguration: Sendable {
         return trimmed.isEmpty ? fallback : trimmed
     }
 
+    private static func normalizedOptional(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func artifactVersion(_ minecraftVersion: String) -> String {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+        let scalars = minecraftVersion.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let value = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".-_"))
+        return value.isEmpty ? "unknown" : value
+    }
+
     public static func productionDefault(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> ClientSyncConfiguration {
         let appSupport = homeDirectory.appendingPathComponent("Library/Application Support", isDirectory: true)
-        let pummelchenHome = appSupport.appendingPathComponent("Pummelchen", isDirectory: true)
+        let assignedVersion = ClientAppBundleDefaults.minecraftVersion
+        let suffix = assignedVersion.map(Self.artifactVersion)
+        let pummelchenHome = appSupport.appendingPathComponent(suffix.map { "Pummelchen-\($0)" } ?? "Pummelchen", isDirectory: true)
+        let minecraftDirectory = appSupport.appendingPathComponent(suffix.map { "minecraft-pummelchen-\($0)" } ?? "minecraft", isDirectory: true)
         return ClientSyncConfiguration(
-            minecraftDirectory: appSupport.appendingPathComponent("minecraft", isDirectory: true),
+            minecraftDirectory: minecraftDirectory,
             pummelchenHome: pummelchenHome,
-            databaseURL: pummelchenHome.appendingPathComponent("client.duckdb")
+            databaseURL: pummelchenHome.appendingPathComponent("client.duckdb"),
+            assignedMinecraftVersion: assignedVersion
         )
     }
 }
@@ -310,7 +339,17 @@ public struct ClientSyncEngine: Sendable {
         }
         let release = try CurrentReleaseValidator.decode(data)
         try CurrentReleaseValidator.validate(release)
+        try validateAssignedMinecraftVersion(release.minecraftVersion)
         return release
+    }
+
+    private func validateAssignedMinecraftVersion(_ releaseMinecraftVersion: String?) throws {
+        guard let assigned = configuration.assignedMinecraftVersion else {
+            return
+        }
+        guard releaseMinecraftVersion == assigned else {
+            throw ContractValidationError.invalid("client app is dedicated to Minecraft \(assigned), but server advertised \(releaseMinecraftVersion ?? "unknown")")
+        }
     }
 
     private func minecraftDefaults() async throws -> MinecraftClientDefaults {
@@ -339,7 +378,8 @@ public struct ClientSyncEngine: Sendable {
             serverURL: configuration.serverURL,
             http: http,
             store: store,
-            apiBasePath: configuration.apiBasePath
+            apiBasePath: configuration.apiBasePath,
+            assignedMinecraftVersion: configuration.assignedMinecraftVersion
         ).resolve()
     }
 

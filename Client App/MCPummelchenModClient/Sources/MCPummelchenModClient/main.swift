@@ -258,7 +258,7 @@ struct PummelchenStatusView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
-                        Text("MCPummelchenModClient \(model.appVersion)")
+                        Text("\(ClientAppBundleDefaults.appDisplayName) \(model.appVersion)")
                         Text("Client IP: \(clientIPText)")
                             .font(.callout)
                             .foregroundStyle(.secondary)
@@ -553,7 +553,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "MCPummelchenModClient \(model.appVersion)"
+        window.title = "\(ClientAppBundleDefaults.appDisplayName) \(model.appVersion)"
         window.center()
         window.contentView = NSHostingView(rootView: view)
         window.makeKeyAndOrderFront(nil)
@@ -623,7 +623,7 @@ struct MCPummelchenModClientMain {
             return
         }
 
-        let instanceLock = SingleInstanceLock(name: "MCPummelchenModClient")
+        let instanceLock = SingleInstanceLock(name: ClientAppBundleDefaults.appDisplayName)
         if !instanceLock.acquire() {
             activateExistingInstance()
             return

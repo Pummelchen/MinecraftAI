@@ -6,26 +6,35 @@ public struct ClientSupportedVersionsResolver: Sendable {
     public let http: ClientHTTPClient
     public let store: ClientStatusStore?
     public let apiBasePath: String
+    public let assignedMinecraftVersion: String?
 
-    public init(serverURL: URL, http: ClientHTTPClient, store: ClientStatusStore? = nil, apiBasePath: String = ClientAppBundleDefaults.apiBasePath) {
+    public init(
+        serverURL: URL,
+        http: ClientHTTPClient,
+        store: ClientStatusStore? = nil,
+        apiBasePath: String = ClientAppBundleDefaults.apiBasePath,
+        assignedMinecraftVersion: String? = ClientAppBundleDefaults.minecraftVersion
+    ) {
         self.serverURL = serverURL
         self.http = http
         self.store = store
         let trimmed = apiBasePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         self.apiBasePath = trimmed.isEmpty ? "api" : trimmed
+        let assigned = assignedMinecraftVersion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.assignedMinecraftVersion = assigned.isEmpty ? nil : assigned
     }
 
     public func resolve() async -> [MinecraftSupportedServer] {
         do {
-            let servers = try await fetchFromServer()
+            let servers = filterAssigned(try await fetchFromServer())
             try? store?.record(supportedServers: servers)
             return servers
         } catch {
-            if let cached = (try? store?.loadSupportedServers()) ?? nil,
+            if let cached = (try? store?.loadSupportedServers()).map(filterAssigned) ?? nil,
                !cached.isEmpty {
                 return cached
             }
-            return MinecraftClientDefaults.defaultSupportedServers
+            return filterAssigned(MinecraftClientDefaults.defaultSupportedServers)
         }
     }
 
@@ -34,6 +43,13 @@ public struct ClientSupportedVersionsResolver: Sendable {
         let data = try await http.data(from: url)
         let response = try JSONDecoder().decode(MinecraftSupportedServersResponse.self, from: data)
         return try Self.validated(response.versions)
+    }
+
+    private func filterAssigned(_ servers: [MinecraftSupportedServer]) -> [MinecraftSupportedServer] {
+        guard let assignedMinecraftVersion else {
+            return servers
+        }
+        return servers.filter { $0.minecraftVersion == assignedMinecraftVersion }
     }
 
     public static func validated(_ servers: [MinecraftSupportedServer]) throws -> [MinecraftSupportedServer] {

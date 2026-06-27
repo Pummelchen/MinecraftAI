@@ -126,6 +126,7 @@ public struct ClientStatusConfiguration: Sendable {
     public let probeEndpointLatency: Bool
     public let apiBasePath: String
     public let currentReleasePath: String
+    public let assignedMinecraftVersion: String?
 
     public init(
         serverURL: URL = PummelchenNetworkDefaults.primaryServerURL,
@@ -138,7 +139,8 @@ public struct ClientStatusConfiguration: Sendable {
         manageRuntimeChecks: Bool = true,
         probeEndpointLatency: Bool = true,
         apiBasePath: String = ClientAppBundleDefaults.apiBasePath,
-        currentReleasePath: String = ClientAppBundleDefaults.currentReleasePath
+        currentReleasePath: String = ClientAppBundleDefaults.currentReleasePath,
+        assignedMinecraftVersion: String? = ClientAppBundleDefaults.minecraftVersion
     ) {
         self.serverURL = serverURL
         self.minecraftDirectory = minecraftDirectory
@@ -153,6 +155,8 @@ public struct ClientStatusConfiguration: Sendable {
         self.apiBasePath = trimmed.isEmpty ? "api" : trimmed
         let releasePath = currentReleasePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         self.currentReleasePath = releasePath.isEmpty ? "downloads/current-release.json" : releasePath
+        let assigned = assignedMinecraftVersion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.assignedMinecraftVersion = assigned.isEmpty ? nil : assigned
     }
 
     public func apiPath(_ path: String) -> String {
@@ -497,7 +501,8 @@ public struct ClientStatusService: Sendable {
             serverURL: configuration.serverURL,
             http: http,
             store: store,
-            apiBasePath: configuration.apiBasePath
+            apiBasePath: configuration.apiBasePath,
+            assignedMinecraftVersion: configuration.assignedMinecraftVersion
         ).resolve()
     }
 
@@ -533,10 +538,22 @@ public struct ClientStatusService: Sendable {
         }
         let release = try CurrentReleaseValidator.decode(data)
         try CurrentReleaseValidator.validate(release)
+        if let assigned = configuration.assignedMinecraftVersion, release.minecraftVersion != assigned {
+            throw ContractValidationError.invalid("client app is dedicated to Minecraft \(assigned), but server advertised \(release.minecraftVersion ?? "unknown")")
+        }
         return release
     }
 
     private func updateServerStatus(checkedAt: String) async -> EndpointConnectionStatus {
+        guard let token = configuration.clientAPIToken, !token.isEmpty else {
+            return EndpointConnectionStatus(
+                label: "Live Update Server",
+                state: .degraded,
+                latencyMS: nil,
+                message: "client credentials unavailable",
+                checkedAt: checkedAt
+            )
+        }
         do {
             let probe = try await measure {
                 _ = try await fetchControlEventsProbe()
@@ -566,6 +583,7 @@ public struct ClientStatusService: Sendable {
         }
         var request = URLRequest(url: requestURL)
         request.httpMethod = "GET"
+        request.setValue("Bearer \(configuration.clientAPIToken ?? "")", forHTTPHeaderField: "Authorization")
         request.setValue(Self.validClientID(configuration.clientID ?? Host.current().localizedName), forHTTPHeaderField: "X-Pummelchen-Client-ID")
         let data = try await probeHTTP.send(request)
         return try JSONDecoder().decode(ControlEventBatch.self, from: data)

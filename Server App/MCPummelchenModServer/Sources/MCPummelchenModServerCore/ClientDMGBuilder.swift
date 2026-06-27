@@ -101,7 +101,6 @@ public struct ClientDMGBuildResult: Sendable {
 
 public struct ClientDMGBuilder: Sendable {
     private static let appName = "MCPummelchenModClient"
-    private static let appBundleName = "MCPummelchenModClient.app"
 
     public let config: ClientDMGBuilderConfig
 
@@ -111,6 +110,14 @@ public struct ClientDMGBuilder: Sendable {
 
     public static func dmgFileName(minecraftVersion: String) -> String {
         "MCPummelchenModClient_\(artifactVersion(minecraftVersion)).dmg"
+    }
+
+    public static func appDisplayName(minecraftVersion: String) -> String {
+        "MCPummelchenModClient \(artifactVersion(minecraftVersion))"
+    }
+
+    public static func appBundleName(minecraftVersion: String) -> String {
+        "\(appDisplayName(minecraftVersion: minecraftVersion)).app"
     }
 
     public static func dmgHeadlessLiveSoakReportName(minecraftVersion: String) -> String {
@@ -125,7 +132,8 @@ public struct ClientDMGBuilder: Sendable {
         let buildDir = clientPackageRoot.appendingPathComponent(".build", isDirectory: true)
         let dmgDir = buildDir.appendingPathComponent("pummelchen-dmg", isDirectory: true)
         let stageDir = dmgDir.appendingPathComponent("stage", isDirectory: true)
-        let appDir = stageDir.appendingPathComponent(Self.appBundleName, isDirectory: true)
+        let appDisplayName = Self.appDisplayName(minecraftVersion: config.minecraftVersion)
+        let appDir = stageDir.appendingPathComponent(Self.appBundleName(minecraftVersion: config.minecraftVersion), isDirectory: true)
         let contentsDir = appDir.appendingPathComponent("Contents", isDirectory: true)
         let macOSDir = contentsDir.appendingPathComponent("MacOS", isDirectory: true)
         let resourcesDir = contentsDir.appendingPathComponent("Resources", isDirectory: true)
@@ -233,15 +241,15 @@ public struct ClientDMGBuilder: Sendable {
         <plist version="1.0">
         <dict>
             <key>CFBundleDisplayName</key>
-            <string>MCPummelchenModClient</string>
+            <string>\(appDisplayName)</string>
             <key>CFBundleExecutable</key>
             <string>MCPummelchenModClient</string>
             <key>CFBundleIdentifier</key>
-            <string>de.pummelchen.minecraft.client</string>
+            <string>de.pummelchen.minecraft.client.mc\(Self.artifactVersion(config.minecraftVersion).replacingOccurrences(of: ".", with: "-"))</string>
             <key>CFBundleIconFile</key>
             <string>AppIcon</string>
             <key>CFBundleName</key>
-            <string>MCPummelchenModClient</string>
+            <string>\(appDisplayName)</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleShortVersionString</key>
@@ -279,7 +287,7 @@ public struct ClientDMGBuilder: Sendable {
             arguments: [
                 "create",
                 "-volname",
-                Self.appName,
+                appDisplayName,
                 "-srcfolder",
                 stageDir.path,
                 "-ov",

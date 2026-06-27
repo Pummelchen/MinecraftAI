@@ -129,7 +129,7 @@ public enum ClientAppSelfUpdater {
             .appendingPathComponent("tmp", isDirectory: true)
             .appendingPathComponent("self-update-\(release.releaseID)-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
-        let localDMG = work.appendingPathComponent("MCPummelchenModClient.dmg")
+        let localDMG = work.appendingPathComponent(URL(string: dmgURL)?.lastPathComponent ?? "MCPummelchenModClient.dmg")
         let downloaded = try await http.download(from: absoluteURL(dmgURL, serverURL: serverURL))
         try? FileManager.default.removeItem(at: localDMG)
         try FileManager.default.moveItem(at: downloaded, to: localDMG)
@@ -142,11 +142,11 @@ public enum ClientAppSelfUpdater {
         let mounted = try mountDMG(localDMG)
         defer { try? detachDMG(mounted) }
         let sourceApp = try findAppBundle(in: mounted)
-        try validateSourceApp(sourceApp, expectedReleaseID: release.releaseID)
+        try validateSourceApp(sourceApp, expectedReleaseID: release.releaseID, expectedMinecraftVersion: release.minecraftVersion)
 
         let stagedApp = work.appendingPathComponent(sourceApp.lastPathComponent, isDirectory: true)
         try run("/usr/bin/ditto", [sourceApp.path, stagedApp.path], timeout: 180)
-        try validateSourceApp(stagedApp, expectedReleaseID: release.releaseID)
+        try validateSourceApp(stagedApp, expectedReleaseID: release.releaseID, expectedMinecraftVersion: release.minecraftVersion)
 
         let script = try writeInstallerScript(work: work)
         try launchInstaller(script: script, stagedApp: stagedApp, targetApp: appBundle)
@@ -194,7 +194,7 @@ public enum ClientAppSelfUpdater {
         throw ClientAppSelfUpdateError.missingAppInDMG
     }
 
-    private static func validateSourceApp(_ app: URL, expectedReleaseID: String) throws {
+    private static func validateSourceApp(_ app: URL, expectedReleaseID: String, expectedMinecraftVersion: String?) throws {
         let info = app.appendingPathComponent("Contents/Info.plist")
         let executable = app.appendingPathComponent("Contents/MacOS/MCPummelchenModClient")
         let helper = app.appendingPathComponent("Contents/MacOS/pummelchen-client-sync")
@@ -206,6 +206,13 @@ public enum ClientAppSelfUpdater {
         }
         guard bundleReleaseID(at: app) == expectedReleaseID else {
             throw ClientAppSelfUpdateError.invalidBundle("PummelchenReleaseID does not match \(expectedReleaseID)")
+        }
+        if let expectedMinecraftVersion {
+            let info = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist")) as? [String: Any]
+            let actual = info?["PummelchenMinecraftVersion"] as? String
+            guard actual == expectedMinecraftVersion else {
+                throw ClientAppSelfUpdateError.invalidBundle("PummelchenMinecraftVersion does not match \(expectedMinecraftVersion)")
+            }
         }
         _ = try run("/usr/bin/plutil", ["-lint", info.path], timeout: 30)
         _ = try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path], timeout: 90)
