@@ -722,6 +722,30 @@
       margin: 0;
       overflow-wrap: anywhere;
     }
+    .install-version-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .client-install-card {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .client-install-rows {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+    }
+    .client-install-rows p {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+    .client-install-rows strong {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .client-install-card .version-actions {
+      margin-top: auto;
+    }
     .version-actions {
       display: flex;
       flex-wrap: wrap;
@@ -739,6 +763,7 @@
       .top-image { max-height: 52vh; }
       h1 { font-size: 34px; }
       .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .install-version-grid { grid-template-columns: 1fr; }
       dl div { grid-template-columns: 1fr; }
       .badge { white-space: normal; text-align: center; }
       pre { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -1073,14 +1098,14 @@
       grid.innerHTML = versions.map(version => `
         <article class="version-card client-install-card">
           <h3>MC Server ${escapeHTML(version.minecraft_version || '')}</h3>
-          <dl>
-            <div><dt>Latest Version</dt><dd>${escapeHTML(displayValue(version.latest_version))}</dd></div>
-            <div><dt>Client Mod Pack Generated</dt><dd>${escapeHTML(displayValue(version.client_mod_pack_generated))}</dd></div>
-            <div><dt>Client Mod Pack Size</dt><dd>${escapeHTML(displayValue(version.client_mod_pack_size))}</dd></div>
-            <div><dt>New in the Mod Pack</dt><dd>${escapeHTML(displayValue(version.mod_pack_news, 'Dedicated client app pending.'))}</dd></div>
-          </dl>
+          <div class="client-install-rows">
+            <p><strong>Latest Version:</strong> ${escapeHTML(displayValue(version.latest_version))}</p>
+            <p><strong>Client Mod Pack Generated:</strong> ${escapeHTML(displayValue(version.client_mod_pack_generated))}</p>
+            <p><strong>Client Mod Pack Size:</strong> ${escapeHTML(displayValue(version.client_mod_pack_size))}</p>
+            <p><strong>New in the Mod Pack:</strong> ${escapeHTML(displayValue(version.mod_pack_news, 'Dedicated client app pending.'))}</p>
+          </div>
           <div class="version-actions">
-            <a class="button" href="${escapeHTML(version.dmg_url || '#')}">Download DMG</a>
+            <a class="button" href="${escapeHTML(version.dmg_url || '#')}" aria-label="Download DMG for MC Server ${escapeHTML(version.minecraft_version || '')}">Download DMG</a>
           </div>
         </article>
       `).join('');
@@ -1108,9 +1133,13 @@
       try {
         const response = await fetch('/api/v1/minecraft/server-versions', { cache: 'no-store' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        renderServerVersions(await response.json());
+        const payload = await response.json();
+        renderServerVersions(payload);
+        renderClientInstalls(payload);
       } catch {
-        renderServerVersions({ versions: [] });
+        const fallback = { versions: [] };
+        renderServerVersions(fallback);
+        renderClientInstalls(fallback);
       }
     }
     function copySnippetText(text) {
