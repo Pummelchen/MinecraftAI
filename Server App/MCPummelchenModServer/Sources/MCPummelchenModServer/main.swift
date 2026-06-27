@@ -28,9 +28,9 @@ enum ServerCommandError: Error, CustomStringConvertible {
               MCPummelchenModServer add-mod --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --url <curseforge-or-modrinth-url> --release-id <id> [--server-package <dir>] [--service <systemd-unit>] [--local-artifact <jar>] [--install-scope auto|server|client|both] [--activate true] [--dry-run false] [--require-client-token true|false]
               MCPummelchenModServer build-client-dmg --project-root <repo> [--client-package <dir>] [--server-package <dir>] [--release-id <id>] [--client-version <version>] [--server-url <url>] [--server-address <host:port>] [--duckdb-dylib <path>] [--macos-deployment-target <target>] [--skip-nginx-control-live-test true] [--skip-headless-soak true] [--require-headless-soak true] [--headless-soak-seconds 60] [--headless-command <command>] [--expected-installed-release-id <id>] [--require-client-token true|false]
               MCPummelchenModServer ban-mod --project-root <repo> --duckdb <file> --name <display-name> --file-pattern <jar-name-or-pattern> [--source-url <url>] [--reason "Banned by Admin"] [--dry-run true]
-              MCPummelchenModServer patch-mod --jar <path> [--target-version 26.2]
-              MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--all-supported true] [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-project-data true] [--discover-source-links true] [--discovery-limit <n>] [--discovery-searches-per-second 2] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
-              MCPummelchenModServer mod-update-apply --project-root <repo> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id-prefix <id> [--server-package <dir>] [--all-supported true] [--minecraft-version 26.1.2] [--dry-run true] [--activate-live true] [--service <systemd-unit>] [--require-client-token true|false]
+              MCPummelchenModServer patch-mod --jar <path> [--target-version 26.1.2]
+              MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-project-data true] [--discover-source-links true] [--discovery-limit <n>] [--discovery-searches-per-second 2] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
+              MCPummelchenModServer mod-update-apply --project-root <repo> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id-prefix <id> [--server-package <dir>] [--minecraft-version 26.1.2] [--dry-run true] [--activate-live true] [--service <systemd-unit>] [--require-client-token true|false]
               MCPummelchenModServer server-version-bootstrap --project-root <repo> --duckdb <file> --minecraft-version <target> [--reference-minecraft-version <version>] [--discover-source-links true] [--discovery-limit <n>] [--discovery-searches-per-second 2] [--max-urls-per-window 5] [--window-seconds 10] [--apply-updates true] [--release-root <dir>] [--public-downloads <dir>] [--release-id-prefix <id>] [--server-package <dir>] [--service <systemd-unit>] [--dry-run true] [--require-client-token true|false]
               MCPummelchenModServer client-force-update --project-root <repo> --duckdb <file> [--release-id <id>] [--target-client-id <id>]
               MCPummelchenModServer world-reset --project-root <repo> --server-dir <dir> --duckdb <file> [--seed <seed>] [--dry-run true] [--yes true] [--service <systemd-unit>] [--radius-blocks 1000] [--delete-backup-after-success true] [--rcon-host 127.0.0.1] [--rcon-port 25575] [--rcon-password <secret>] [--rcon-ready-timeout-seconds 600] [--pregeneration-batch-size 384]
@@ -343,7 +343,8 @@ func run(arguments: [String]) throws {
         }
     case "patch-mod":
         let jarPath = try args.require("--jar")
-        let targetVersion = args.options["--target-version"] ?? "26.2"
+        let targetVersion = args.options["--target-version"] ?? dedicatedMinecraftVersion()
+        try requireDedicatedMinecraftVersion(targetVersion, option: "--target-version")
         let jarURL = URL(fileURLWithPath: jarPath).standardizedFileURL
         if try ModVersionPatcher.patchIfNeeded(jar: jarURL, minecraftVersion: targetVersion) {
             print("patch_mod=ok")
@@ -354,6 +355,7 @@ func run(arguments: [String]) throws {
         }
     case "mod-update-scan":
         if optionBool(args.options["--all-supported"]) {
+            try rejectAllSupportedForDedicatedServer()
             let summaries = try runAllSupportedModUpdateScans(args: args, projectRoot: projectRoot)
             let checked = summaries.reduce(0) { $0 + $1.summary.sourcesChecked }
             let candidates = summaries.reduce(0) { $0 + $1.summary.candidatesFound }
@@ -617,10 +619,12 @@ private func banModPipeline(args: Arguments, projectRoot: URL) throws -> ModBanP
 }
 
 private func modUpdateScanner(args: Arguments, projectRoot: URL) throws -> ModUpdateScanner {
-    try modUpdateScanner(
+    let minecraftVersion = args.options["--minecraft-version"] ?? dedicatedMinecraftVersion()
+    try requireDedicatedMinecraftVersion(minecraftVersion, option: "--minecraft-version")
+    return try modUpdateScanner(
         args: args,
         projectRoot: projectRoot,
-        minecraftVersion: args.options["--minecraft-version"] ?? "26.1.2",
+        minecraftVersion: minecraftVersion,
         loader: args.options["--loader"] ?? "neoforge",
         loaderVersion: args.options["--loader-version"] ?? "26.1.2.76"
     )
@@ -667,6 +671,12 @@ private func modUpdateScanner(
 
 private func modUpdateApplyPipeline(args: Arguments, projectRoot: URL) throws -> ModUpdateApplyPipeline {
     try rejectCommandLineClientToken(args)
+    if optionBool(args.options["--all-supported"]) {
+        try rejectAllSupportedForDedicatedServer()
+    }
+    if let minecraftVersion = args.options["--minecraft-version"] {
+        try requireDedicatedMinecraftVersion(minecraftVersion, option: "--minecraft-version")
+    }
     let releaseRoot = URL(fileURLWithPath: try args.require("--release-root"), isDirectory: true).standardizedFileURL
     let publicDownloads = URL(fileURLWithPath: try args.require("--public-downloads"), isDirectory: true).standardizedFileURL
     let duckDB = URL(fileURLWithPath: try args.require("--duckdb")).standardizedFileURL
@@ -790,6 +800,23 @@ private func rejectCommandLineClientToken(_ args: Arguments) throws {
     if args.options["--client-api-token"] != nil {
         throw ServerCommandError.invalidValue("--client-api-token is not accepted; use PUMMELCHEN_CLIENT_API_TOKEN or a private token resource")
     }
+}
+
+private func dedicatedMinecraftVersion() -> String {
+    let value = ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_VERSION"]?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return value.isEmpty ? "26.1.2" : value
+}
+
+private func requireDedicatedMinecraftVersion(_ minecraftVersion: String, option: String) throws {
+    let allowed = dedicatedMinecraftVersion()
+    guard minecraftVersion == allowed else {
+        throw ServerCommandError.invalidValue("\(option) must be \(allowed) for this dedicated server app")
+    }
+}
+
+private func rejectAllSupportedForDedicatedServer() throws {
+    throw ServerCommandError.invalidValue("--all-supported is not allowed for a dedicated server app; use --minecraft-version \(dedicatedMinecraftVersion())")
 }
 
 private func envOrDefault(_ key: String, defaultPath: String) -> String {

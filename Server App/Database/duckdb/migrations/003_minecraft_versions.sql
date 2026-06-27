@@ -26,27 +26,13 @@ VALUES
     '26.1.2.76',
     'Pummelchen Server 26.1.2',
     '91.99.176.243:25565',
-    '/opt/pummelchen-swift/runtime/minecraft',
+    '/var/minecraft_26.1.2',
     'live',
     true,
     10,
     COALESCE((SELECT created_at FROM core.minecraft_server_versions WHERE minecraft_version = '26.1.2'), now()),
     now(),
     'Current live play target.'
-  ),
-  (
-    '26.2',
-    'neoforge',
-    '26.2.0.3-beta',
-    'Pummelchen Server 26.2',
-    '91.99.176.243:25566',
-    '/opt/pummelchen-swift/runtime/minecraft-26.2',
-    'staging',
-    false,
-    20,
-    COALESCE((SELECT created_at FROM core.minecraft_server_versions WHERE minecraft_version = '26.2'), now()),
-    now(),
-    'Staged for compatibility testing before live promotion.'
   );
 
 ALTER TABLE core.mods ADD COLUMN IF NOT EXISTS minecraft_version VARCHAR DEFAULT '26.1.2';

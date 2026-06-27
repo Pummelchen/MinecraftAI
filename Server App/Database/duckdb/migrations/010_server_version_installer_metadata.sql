@@ -15,15 +15,6 @@ SET
 WHERE minecraft_version = '26.1.2'
   AND loader_version = '26.1.2.76';
 
-UPDATE core.minecraft_server_versions
-SET
-  installer_name = 'neoforge-26.2.0.3-beta-installer.jar',
-  installer_sha256 = '90fad51778895f921182d6685719cba8a6d8caff69974d721bbdef750fe34c24',
-  installer_url = 'https://maven.neoforged.net/releases/net/neoforged/neoforge/26.2.0.3-beta/neoforge-26.2.0.3-beta-installer.jar',
-  updated_at = now()
-WHERE minecraft_version = '26.2'
-  AND loader_version = '26.2.0.3-beta';
-
 CREATE OR REPLACE VIEW reporting.v_minecraft_server_versions AS
 SELECT
   minecraft_version,

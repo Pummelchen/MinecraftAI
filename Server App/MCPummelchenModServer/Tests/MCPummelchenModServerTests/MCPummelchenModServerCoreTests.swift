@@ -972,7 +972,7 @@ struct MCPummelchenModServerCoreTests {
 
         #expect(response.statusCode == 200)
         #expect(response.headers["X-Pummelchen-Stats-Source"] == "swift-server-records")
-        #expect(versions.count == 2)
+        #expect(versions.count == 1)
         #expect(versions.first?["minecraft_version"] as? String == "26.1.2")
         #expect(versions.first?["is_live"] as? Bool == true)
         #expect(versions.first?["page_url"] as? String == "server-26.1.2.html")
@@ -983,14 +983,64 @@ struct MCPummelchenModServerCoreTests {
         let javaVersion = try #require(versions.first?["java_version_required"] as? String)
         #expect(!javaVersion.isEmpty)
         #expect(javaVersion != "Java SE 25")
-        #expect(versions.last?["java_version_required"] as? String == javaVersion)
-        #expect(versions.last?["minecraft_version"] as? String == "26.2")
-        #expect(versions.last?["status"] as? String == "staging")
-        #expect(versions.last?["page_url"] as? String == "server-26.2.html")
-        #expect(versions.last?["installer_name"] as? String == "neoforge-26.2.0.3-beta-installer.jar")
-        #expect(versions.last?["installer_url"] as? String == "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.2.0.3-beta/neoforge-26.2.0.3-beta-installer.jar")
-        #expect(versions.last?["server_mod_count"] as? Int == 0)
-        #expect(versions.last?["client_mod_count"] as? Int == 0)
+    }
+
+    @Test("managed Minecraft version confines server-version API and control commands")
+    func managedMinecraftVersionConfinesServerInstance() throws {
+        try requireDuckDB()
+        let fixture = try makeProjectFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        try DuckDBDatabase(databaseURL: fixture.root.appendingPathComponent("data/test-phase6.duckdb")).execute("""
+        CREATE SCHEMA IF NOT EXISTS core;
+        CREATE SCHEMA IF NOT EXISTS reporting;
+        CREATE TABLE core.minecraft_server_versions (
+          minecraft_version VARCHAR PRIMARY KEY,
+          loader VARCHAR NOT NULL,
+          loader_version VARCHAR NOT NULL,
+          server_name VARCHAR NOT NULL,
+          server_address VARCHAR NOT NULL,
+          server_dir VARCHAR,
+          status VARCHAR NOT NULL,
+          is_live BOOLEAN NOT NULL,
+          sort_order INTEGER NOT NULL,
+          updated_at TIMESTAMP NOT NULL,
+          notes VARCHAR
+        );
+        INSERT INTO core.minecraft_server_versions(
+          minecraft_version, loader, loader_version, server_name, server_address,
+          server_dir, status, is_live, sort_order, updated_at, notes
+        )
+        VALUES
+          ('26.1.2', 'neoforge', '26.1.2.76', 'Pummelchen Server 26.1.2', '127.0.0.1:25565', '/srv/minecraft-26.1.2', 'live', true, 10, now(), 'live'),
+          ('26.2', 'neoforge', '26.2.0.3-beta', 'Pummelchen Server 26.2', '127.0.0.1:25566', '/srv/minecraft-26.2', 'staging', false, 20, now(), 'staging');
+        CREATE OR REPLACE VIEW reporting.v_minecraft_server_versions AS
+        SELECT * FROM core.minecraft_server_versions;
+        """)
+
+        let api = makeAPI(
+            fixture: fixture,
+            serverControlPassword: "test-password",
+            managedMinecraftVersion: "26.1.2",
+            managedMinecraftServerDirectory: "/var/minecraft_26.1.2",
+            managedMinecraftSystemdUnit: "Minecraft2612.service"
+        )
+        let response = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/minecraft/server-versions"))
+        let object = try JSONSerialization.jsonObject(with: response.body) as? [String: Any]
+        let versions = try #require(object?["versions"] as? [[String: Any]])
+
+        #expect(response.statusCode == 200)
+        #expect(versions.count == 1)
+        #expect(versions.first?["minecraft_version"] as? String == "26.1.2")
+        #expect(versions.first?["systemd_unit"] as? String == "Minecraft2612.service")
+        #expect(versions.first?["dmg_url"] as? String == "https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.1.2.dmg")
+
+        let controlBody = Data("""
+        {"minecraft_version":"26.2","action":"stop","password":"test-password"}
+        """.utf8)
+        let controlResponse = api.response(for: HTTPRequest(method: "POST", path: "/api/v1/minecraft/server-control", body: controlBody))
+        #expect(controlResponse.statusCode == 400)
+        #expect(String(decoding: controlResponse.body, as: UTF8.self).contains("unsupported Minecraft server version"))
     }
 
     @Test("release history API includes live DuckDB releases")
@@ -2915,13 +2965,21 @@ struct MCPummelchenModServerCoreTests {
     private func makeAPI(
         fixture: (root: URL, currentReleaseJSON: String, manifestTSV: String),
         token: String? = nil,
-        maxWritePayloadBytes: Int = 256 * 1024
+        maxWritePayloadBytes: Int = 256 * 1024,
+        serverControlPassword: String? = nil,
+        managedMinecraftVersion: String? = nil,
+        managedMinecraftServerDirectory: String? = nil,
+        managedMinecraftSystemdUnit: String? = nil
     ) -> MCPummelchenModServerAPI {
         MCPummelchenModServerAPI(config: MCPummelchenModServerConfig(
             projectRoot: fixture.root,
             duckDBURL: fixture.root.appendingPathComponent("data/test-phase6.duckdb"),
             clientAPIToken: token,
-            maxWritePayloadBytes: maxWritePayloadBytes
+            serverControlPassword: serverControlPassword,
+            maxWritePayloadBytes: maxWritePayloadBytes,
+            managedMinecraftVersion: managedMinecraftVersion,
+            managedMinecraftServerDirectory: managedMinecraftServerDirectory,
+            managedMinecraftSystemdUnit: managedMinecraftSystemdUnit
         ))
     }
 

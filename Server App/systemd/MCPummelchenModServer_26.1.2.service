@@ -9,6 +9,9 @@ User=root
 Group=root
 WorkingDirectory=/var/minecraftai/26.1.2/runtime
 EnvironmentFile=/var/minecraftai/26.1.2/etc/server.env
+Environment=PUMMELCHEN_MANAGED_MINECRAFT_VERSION=26.1.2
+Environment=PUMMELCHEN_MANAGED_MINECRAFT_DIR=/var/minecraft_26.1.2
+Environment=PUMMELCHEN_MANAGED_MINECRAFT_SYSTEMD_UNIT=Minecraft2612.service
 ExecStart=/var/minecraftai/26.1.2/bin/MCPummelchenModServer serve --project-root /var/minecraftai/26.1.2/runtime --host 127.0.0.1 --port 8787
 Restart=on-failure
 RestartSec=5
@@ -18,7 +21,7 @@ PrivateTmp=true
 ProtectHome=true
 ProtectSystem=full
 RestrictSUIDSGID=true
-ReadWritePaths=/var/minecraftai/26.1.2/runtime /var/minecraftai/26.1.2/etc /var/minecraft_26.1.2 /var/minecraft_26.2 /var/minecraft_26.3 /var/minecraftai/web/site
+ReadWritePaths=/var/minecraftai/26.1.2/runtime /var/minecraftai/26.1.2/etc /var/minecraft_26.1.2 /var/minecraftai/web/site
 
 [Install]
 WantedBy=multi-user.target
