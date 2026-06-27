@@ -1380,7 +1380,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             let fsClient = clientFSCounts[minecraftVersion] ?? 0
             enriched["server_mod_count"] = max(dbServer, fsServer)
             enriched["client_mod_count"] = max(dbClient, fsClient)
-            enriched["java_version_required"] = target?.javaVersionRequired ?? "Java 21+"
+            enriched["java_version_required"] = target?.javaVersionRequired ?? "Java SE 25"
             enriched["dmg_url"] = target?.dmgURL ?? ""
             enriched["systemd_unit"] = target?.systemdUnit ?? ""
             enriched["runtime_status"] = target.map(Self.minecraftRuntimeStatus) ?? "Unknown"
@@ -1447,7 +1447,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 serverAddress: "91.99.176.243:25565",
                 serverDirectory: "/var/minecraft_26.1.2",
                 systemdUnit: "Minecraft2612.service",
-                javaVersionRequired: "Java 21+",
+                javaVersionRequired: "Java SE 25",
                 dmgURL: "https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.1.2.dmg",
                 sortOrder: 1
             ),
@@ -1459,7 +1459,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 serverAddress: "91.99.176.243:25566",
                 serverDirectory: "/var/minecraft_26.2",
                 systemdUnit: "Minecraft262.service",
-                javaVersionRequired: "Java 21+",
+                javaVersionRequired: "Java SE 25",
                 dmgURL: "https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.2.dmg",
                 sortOrder: 2
             ),
@@ -1471,7 +1471,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 serverAddress: "91.99.176.243:25567",
                 serverDirectory: "/var/minecraft_26.3",
                 systemdUnit: "Minecraft263.service",
-                javaVersionRequired: "Java 21+",
+                javaVersionRequired: "Java SE 25",
                 dmgURL: "https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.3.dmg",
                 sortOrder: 3
             )

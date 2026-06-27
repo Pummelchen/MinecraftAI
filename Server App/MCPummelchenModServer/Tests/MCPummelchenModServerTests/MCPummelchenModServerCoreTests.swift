@@ -10,7 +10,7 @@ import Glibc
 import Darwin
 #endif
 
-@Suite("MCPummelchenModServer API")
+@Suite("MCPummelchenModServer API", .serialized)
 struct MCPummelchenModServerCoreTests {
     private static let environmentMutationLock = NSLock()
 
