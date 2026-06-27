@@ -429,14 +429,21 @@ public enum ClientDefaultsInspector {
 
     private static func firstProperty(_ key: String, in text: String?) -> String? {
         guard let text else { return nil }
-        let prefix = key + "="
         return text
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
             .compactMap { line -> String? in
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard trimmed.hasPrefix(prefix) else { return nil }
-                return String(trimmed.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+                guard trimmed.hasPrefix(key) else { return nil }
+                var rest = trimmed[trimmed.index(trimmed.startIndex, offsetBy: key.count)...]
+                rest = rest.drop(while: { $0.isWhitespace })
+                guard rest.first == "=" else { return nil }
+                rest = rest.dropFirst()
+                var result = String(rest).trimmingCharacters(in: .whitespaces)
+                if result.hasPrefix("\"") && result.hasSuffix("\"") && result.count >= 2 {
+                    result = String(result.dropFirst().dropLast())
+                }
+                return result
             }
             .first
     }

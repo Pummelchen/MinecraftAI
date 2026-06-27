@@ -162,7 +162,8 @@ public struct MinecraftClientDefaults: Equatable, Sendable {
         configProperties: [String: [String: String]] = [
             "config/neoforge-client.toml": ["showLoadWarnings": "false"],
             "config/forge-client.toml": ["showLoadWarnings": "false"],
-            "config/yuushya-client.toml": ["showCheckScreen": "false"]
+            "config/yuushya-client.toml": ["showCheckScreen": "false"],
+            "config/DistantHorizons.toml": ["renderingEngine": "OPEN_GL"]
         ],
         physicsMobType: Int = 3
     ) {
@@ -312,25 +313,43 @@ public enum MinecraftClientDefaultWriter {
     private static func setLine(path: URL, key: String, separator: String, value: String) throws {
         try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
         let existing = (try? String(contentsOf: path, encoding: .utf8)) ?? ""
-        let prefix = key + separator
+        let isTOML = path.pathExtension == "toml"
+        let writeValue = isTOML ? tomlQuotedValue(value) : value
+        let joiner = isTOML ? " \(separator) " : separator
         var replaced = false
         var output: [String] = []
 
         for line in existing.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix(prefix) {
-                if !replaced {
-                    let indent = String(line.prefix { $0 == " " || $0 == "\t" })
-                    output.append("\(indent)\(key)\(separator)\(value)")
-                    replaced = true
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix(key) {
+                var rest = trimmed[trimmed.index(trimmed.startIndex, offsetBy: key.count)...]
+                rest = rest.drop(while: { $0.isWhitespace })
+                if let first = rest.first, String(first) == separator {
+                    if !replaced {
+                        let indent = String(line.prefix { $0 == " " || $0 == "\t" })
+                        output.append("\(indent)\(key)\(joiner)\(writeValue)")
+                        replaced = true
+                    }
+                    continue
                 }
-            } else {
-                output.append(line)
             }
+            output.append(line)
         }
         if !replaced {
-            output.append("\(key)\(separator)\(value)")
+            output.append("\(key)\(joiner)\(writeValue)")
         }
         try output.joined(separator: "\n").write(to: path, atomically: true, encoding: .utf8)
+    }
+
+    private static func tomlQuotedValue(_ value: String) -> String {
+        let lower = value.lowercased()
+        if lower == "true" || lower == "false" {
+            return value
+        }
+        if Int(value) != nil || Double(value) != nil {
+            return value
+        }
+        return "\"\(value)\""
     }
 
     private static func setLauncherProfiles(defaults: MinecraftClientDefaults, minecraftDirectory: URL) throws {

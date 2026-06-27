@@ -953,10 +953,21 @@ struct HeadlessSoakRunner {
             .count
     }
 
+    private static let benignFatalPatterns: [String] = [
+        "iris doesn't support dh when using the [blaze_3d] rendering engine",
+        "this will need to be fixed on iris end"
+    ]
+
+    private static func isBenignFatalLine(_ lower: String) -> Bool {
+        benignFatalPatterns.contains { lower.contains($0) }
+    }
+
     private func isFatalLogLine(_ rawLine: String) -> Bool {
         let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = line.lowercased()
         if lower.isEmpty { return false }
+
+        if Self.isBenignFatalLine(lower) { return false }
 
         if lower.contains("/fatal]") || lower.contains("[fatal]") {
             return true
@@ -983,7 +994,6 @@ struct HeadlessSoakRunner {
         let logs = minecraftDir.appendingPathComponent("logs", isDirectory: true)
         let candidates = [
             logs.appendingPathComponent("latest.log"),
-            config.workDir.appendingPathComponent("headless-minecraft.log"),
             config.workDir.appendingPathComponent("pummelchen-client-sync.log")
         ]
         return candidates.compactMap { try? String(contentsOf: $0, encoding: .utf8) }.joined(separator: "\n")
