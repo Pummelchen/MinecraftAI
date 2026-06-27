@@ -7,9 +7,9 @@ Wants=network-online.target
 Type=simple
 User=root
 Group=root
-WorkingDirectory=/opt/pummelchen-swift/runtime
-EnvironmentFile=/etc/pummelchen-swift/server.env
-ExecStart=/opt/pummelchen-swift/bin/MCPummelchenModServer serve --project-root /opt/pummelchen-swift/runtime --host 127.0.0.1 --port 8787
+WorkingDirectory=/var/minecraftai/26.1.2/runtime
+EnvironmentFile=/var/minecraftai/26.1.2/etc/server.env
+ExecStart=/var/minecraftai/26.1.2/bin/MCPummelchenModServer serve --project-root /var/minecraftai/26.1.2/runtime --host 127.0.0.1 --port 8787
 Restart=on-failure
 RestartSec=5
 KillMode=process
@@ -18,7 +18,7 @@ PrivateTmp=true
 ProtectHome=true
 ProtectSystem=full
 RestrictSUIDSGID=true
-ReadWritePaths=/opt/pummelchen-swift/runtime /etc/pummelchen-swift
+ReadWritePaths=/var/minecraftai/26.1.2/runtime /var/minecraftai/26.1.2/etc /var/minecraft_26.1.2 /var/minecraft_26.2 /var/minecraft_26.3 /var/minecraftai/web/site
 
 [Install]
 WantedBy=multi-user.target
