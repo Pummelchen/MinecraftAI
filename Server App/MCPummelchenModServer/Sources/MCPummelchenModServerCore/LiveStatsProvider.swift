@@ -54,6 +54,8 @@ public struct LiveMetricSample: Codable, Equatable, Sendable {
 }
 
 final class LiveStatsProvider: @unchecked Sendable {
+    private static let defaultWorldSeed = "5605164115430518763"
+
     private struct CPUTimes {
         let idle: UInt64
         let total: UInt64
@@ -392,7 +394,7 @@ final class LiveStatsProvider: @unchecked Sendable {
         if let seed = serverProperty("level-seed"), !seed.isEmpty {
             return seed
         }
-        return nil
+        return Self.defaultWorldSeed
     }
 
     private func serverProperty(_ key: String) -> String? {

@@ -121,6 +121,7 @@ struct MCPummelchenModServerCoreTests {
         #expect(payload.stats["Client Mods"] == "1 Client Mods · 2 Shaders · 1 Resource Packs · 1 Config Files")
         #expect(payload.stats["Failed Mods"] == "0 Failed Mods")
         #expect(payload.stats["Mac Installer DMG URL"] == "/downloads/MCPummelchenModClient.dmg")
+        #expect(payload.worldSeed == "5605164115430518763")
         #expect(payload.history.count == 1)
         #expect(payload.metrics.cpuPercent >= 0)
         #expect(payload.metrics.ramUsedPercent >= 0)
@@ -153,6 +154,7 @@ struct MCPummelchenModServerCoreTests {
         #expect(payload.intervalSeconds == 5)
         #expect(payload.stats["Last Mod Version"] == "20260612 V6 modernarch-refresh")
         #expect(payload.stats["Client Mods"] == "1 Client Mods · 2 Shaders · 1 Resource Packs · 1 Config Files")
+        #expect(payload.worldSeed == "5605164115430518763")
         #expect(payload.history.count == 1)
     }
 
