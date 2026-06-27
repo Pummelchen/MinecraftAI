@@ -405,4 +405,4 @@ Require explicit human security review for:
 - `Server App/MCPummelchenModShared/Sources/MCPummelchenModShared/CurrentRelease.swift`
 - `Server App/MCPummelchenModShared/Sources/MCPummelchenModShared/ClientSyncManifest.swift`
 - `Server App/nginx/sites-available/pummelchen-swift.conf`
-- `Server App/systemd/MCPummelchenModServer.service`
+- `Server App/systemd/MCPummelchenModServer_26.1.2.service`

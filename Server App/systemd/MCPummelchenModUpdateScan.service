@@ -1,8 +1,8 @@
 [Unit]
-Description=MCPummelchen daily Minecraft mod update scan
-After=network-online.target MCPummelchenModServer.service
+Description=MCPummelchen Mod Update Scan
+After=network-online.target MCPummelchenModServer_26.1.2.service
 Wants=network-online.target
-Conflicts=MCPummelchenModServer.service
+Conflicts=MCPummelchenModServer_26.1.2.service
 
 [Service]
 Type=oneshot
@@ -10,15 +10,12 @@ User=root
 Group=root
 WorkingDirectory=/var/minecraftai/26.1.2/runtime
 EnvironmentFile=/var/minecraftai/26.1.2/etc/server.env
-ExecStartPre=/usr/bin/systemctl stop MCPummelchenModServer.service
+ExecStartPre=/usr/bin/systemctl stop MCPummelchenModServer_26.1.2.service
 ExecStart=/usr/bin/flock -n /run/MCPummelchenModUpdateScan.lock /var/minecraftai/26.1.2/bin/MCPummelchenModServer mod-update-scan --project-root /var/minecraftai/26.1.2/runtime --duckdb /var/minecraftai/26.1.2/runtime/data/pummelchen.duckdb --all-supported true --seed-from-project-data true --discover-source-links true --discovery-searches-per-second 2 --max-urls-per-window 5 --window-seconds 10
-ExecStopPost=/usr/bin/systemctl start MCPummelchenModServer.service
-StandardOutput=journal
-StandardError=journal
-Nice=5
-IOSchedulingClass=best-effort
-IOSchedulingPriority=6
+ExecStopPost=/usr/bin/systemctl start MCPummelchenModServer_26.1.2.service
 NoNewPrivileges=true
 PrivateTmp=true
+ProtectHome=true
 ProtectSystem=full
+RestrictSUIDSGID=true
 ReadWritePaths=/var/minecraftai/26.1.2/runtime /run

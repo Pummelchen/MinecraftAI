@@ -175,9 +175,9 @@
     "Server App/nginx/site/public/server-26.1.2.html",
     "Server App/nginx/site/public/server-26.2.html",
     "Server App/systemd/README.md",
-    "Server App/systemd/MCPummelchenModServer.service",
-    "Server App/systemd/MCPummelchenModServer.service.d/minecraft-autostart.conf",
-    "Server App/systemd/MCPummelchenModServer.service.d/performance.conf",
+    "Server App/systemd/MCPummelchenModServer_26.1.2.service",
+    "Server App/systemd/MCPummelchenModServer_26.1.2.service.d/minecraft-autostart.conf",
+    "Server App/systemd/MCPummelchenModServer_26.1.2.service.d/performance.conf",
     "Server App/systemd/MCPummelchenModUpdateScan.service",
     "Server App/systemd/MCPummelchenModUpdateScan.timer"
   ],

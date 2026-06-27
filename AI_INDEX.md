@@ -140,7 +140,7 @@ Manifest: `Server App/MCPummelchenModShared/Package.swift`
 | Headless acceptance runner | `Server App/MCPummelchenModServer/Sources/PummelchenHeadlessSoak/main.swift` | DMG release-gate behavior. |
 | Public website | `Server App/nginx/site/public/index.html` and companion pages | changing live site UI or API consumption. |
 | Public edge | `Server App/nginx/sites-available/pummelchen-swift.conf` | changing TLS/listeners, API proxying, aliases, caching, or downloads. |
-| Live service | `Server App/systemd/MCPummelchenModServer.service` | changing process ownership, runtime paths, restart policy, or hardening. |
+| Live service | `Server App/systemd/MCPummelchenModServer_26.1.2.service` | changing process ownership, runtime paths, restart policy, or hardening. |
 
 ## Server HTTP API surface
 
@@ -382,5 +382,5 @@ The previous index referenced `743356f85b0d4343cb8b1f71a92731eaf479bf47`. Curren
 - `Server App/nginx/README.md`
 - `Server App/nginx/sites-available/pummelchen-swift.conf`
 - `Server App/systemd/README.md`
-- `Server App/systemd/MCPummelchenModServer.service`
+- `Server App/systemd/MCPummelchenModServer_26.1.2.service`
 - `Server App/systemd/MCPummelchenModUpdateScan.service`

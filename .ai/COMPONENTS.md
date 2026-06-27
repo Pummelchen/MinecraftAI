@@ -798,8 +798,8 @@ Each card identifies ownership, interfaces, dependencies, invariants, tests, and
 
 **Key files**
 
-- `MCPummelchenModServer.service`
-- `MCPummelchenModServer.service.d/*.conf`
+- `MCPummelchenModServer_26.1.2.service`
+- `MCPummelchenModServer_26.1.2.service.d/*.conf`
 - `MCPummelchenModUpdateScan.service`
 - `MCPummelchenModUpdateScan.timer`
 - `MinecraftLiveServerSupervisor.swift`

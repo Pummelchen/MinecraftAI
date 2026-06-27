@@ -261,9 +261,9 @@ Base: `Server App/systemd/`
 
 | Path | Role |
 |---|---|
-| `MCPummelchenModServer.service` | Root-owned Swift API/server supervisor service. |
-| `MCPummelchenModServer.service.d/minecraft-autostart.conf` | Enable Minecraft autostart and local RCON firewall behavior. |
-| `MCPummelchenModServer.service.d/performance.conf` | Raise service/process resource limits. |
+| `MCPummelchenModServer_26.1.2.service` | Root-owned Swift API/server supervisor service. |
+| `MCPummelchenModServer_26.1.2.service.d/minecraft-autostart.conf` | Enable Minecraft autostart and local RCON firewall behavior. |
+| `MCPummelchenModServer_26.1.2.service.d/performance.conf` | Raise service/process resource limits. |
 | `MCPummelchenModUpdateScan.service` | Stop API service, run exclusive all-supported scan under `flock`, restart API service. |
 | `MCPummelchenModUpdateScan.timer` | Daily 12:00 UTC update scan. |
 | `README.md` | Deployment and version-bootstrap notes. |

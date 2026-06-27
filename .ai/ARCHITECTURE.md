@@ -58,7 +58,7 @@ The edge is a trust boundary: browser/client traffic is public; the Swift server
 
 ### 2.2 Swift server service
 
-`MCPummelchenModServer.service` runs:
+`MCPummelchenModServer_26.1.2.service` runs:
 
 ```text
 /opt/pummelchen-swift/bin/MCPummelchenModServer serve
@@ -636,5 +636,5 @@ Treat these as operator-observed facts, not repository facts.
 - `Server App/Database/duckdb/README.md`
 - `Server App/Docs/contracts/PRODUCTION_CONTRACTS.md`
 - `Server App/nginx/sites-available/pummelchen-swift.conf`
-- `Server App/systemd/MCPummelchenModServer.service`
+- `Server App/systemd/MCPummelchenModServer_26.1.2.service`
 - `Server App/systemd/MCPummelchenModUpdateScan.service`
