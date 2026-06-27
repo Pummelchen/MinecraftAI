@@ -743,6 +743,9 @@
       color: var(--muted);
       font-size: 13px;
     }
+    .client-install-news {
+      padding-left: 0;
+    }
     .client-install-card .version-actions {
       margin-top: auto;
     }
@@ -1100,9 +1103,10 @@
           <h3>MC Server ${escapeHTML(version.minecraft_version || '')}</h3>
           <div class="client-install-rows">
             <p><strong>Latest Version:</strong> ${escapeHTML(displayValue(version.latest_version))}</p>
-            <p><strong>Client Mod Pack Generated:</strong> ${escapeHTML(displayValue(version.client_mod_pack_generated))}</p>
-            <p><strong>Client Mod Pack Size:</strong> ${escapeHTML(displayValue(version.client_mod_pack_size))}</p>
-            <p><strong>New in the Mod Pack:</strong> ${escapeHTML(displayValue(version.mod_pack_news, 'Dedicated client app pending.'))}</p>
+            <p><strong>Generated:</strong> ${escapeHTML(displayValue(version.client_mod_pack_generated))}</p>
+            <p><strong>Size:</strong> ${escapeHTML(displayValue(version.client_mod_pack_size))}</p>
+            <p><strong>New in the Mod Pack</strong></p>
+            <p class="client-install-news">${escapeHTML(displayValue(version.mod_pack_news, 'Dedicated client app pending.'))}</p>
           </div>
           <div class="version-actions">
             <a class="button" href="${escapeHTML(version.dmg_url || '#')}" aria-label="Download DMG for MC Server ${escapeHTML(version.minecraft_version || '')}">Download DMG</a>
