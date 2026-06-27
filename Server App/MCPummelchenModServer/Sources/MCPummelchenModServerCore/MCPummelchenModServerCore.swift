@@ -125,7 +125,6 @@ private struct MinecraftServerRuntimeTarget: Sendable {
     let serverAddress: String
     let serverDirectory: String
     let systemdUnit: String
-    let javaVersionRequired: String
     let dmgURL: String
     let sortOrder: Int
 }
@@ -1380,7 +1379,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             let fsClient = clientFSCounts[minecraftVersion] ?? 0
             enriched["server_mod_count"] = max(dbServer, fsServer)
             enriched["client_mod_count"] = max(dbClient, fsClient)
-            enriched["java_version_required"] = target?.javaVersionRequired ?? "Java SE 25"
+            enriched["java_version_required"] = Self.vpsJavaVersion()
             enriched["dmg_url"] = target?.dmgURL ?? ""
             enriched["systemd_unit"] = target?.systemdUnit ?? ""
             enriched["runtime_status"] = target.map(Self.minecraftRuntimeStatus) ?? "Unknown"
@@ -1447,7 +1446,6 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 serverAddress: "91.99.176.243:25565",
                 serverDirectory: "/var/minecraft_26.1.2",
                 systemdUnit: "Minecraft2612.service",
-                javaVersionRequired: "Java SE 25",
                 dmgURL: "https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.1.2.dmg",
                 sortOrder: 1
             ),
@@ -1459,7 +1457,6 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 serverAddress: "91.99.176.243:25566",
                 serverDirectory: "/var/minecraft_26.2",
                 systemdUnit: "Minecraft262.service",
-                javaVersionRequired: "Java SE 25",
                 dmgURL: "https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.2.dmg",
                 sortOrder: 2
             ),
@@ -1471,7 +1468,6 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 serverAddress: "91.99.176.243:25567",
                 serverDirectory: "/var/minecraft_26.3",
                 systemdUnit: "Minecraft263.service",
-                javaVersionRequired: "Java SE 25",
                 dmgURL: "https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.3.dmg",
                 sortOrder: 3
             )
@@ -1528,6 +1524,17 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         } catch {
             return (127, String(describing: error))
         }
+    }
+
+    private static func vpsJavaVersion() -> String {
+        for executable in ["/usr/bin/java", "/usr/local/bin/java"] {
+            let result = runCommand(executable, ["-version"])
+            let value = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            if result.status == 0, !value.isEmpty {
+                return value.split(separator: "\n").first.map(String.init) ?? value
+            }
+        }
+        return "Java not found on VPS"
     }
 
     private static func filesystemClientAssetCounts(versions: [[String: Any]]) -> [String: Int] {

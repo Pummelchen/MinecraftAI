@@ -1081,7 +1081,7 @@
             <div><dt>Server Mods</dt><dd>${escapeHTML(formatCount(version.server_mod_count))}</dd></div>
             <div><dt>Client Mods</dt><dd>${escapeHTML(formatCount(version.client_mod_count))}</dd></div>
             <div><dt>Game Mode</dt><dd>${escapeHTML(displayValue(version.server_game_mode, '--'))}</dd></div>
-            <div><dt>Java Version Required</dt><dd>${escapeHTML(displayValue(version.java_version_required, 'Java SE 25'))}</dd></div>
+            <div><dt>Java Version Required</dt><dd>${escapeHTML(displayValue(version.java_version_required, 'Unavailable'))}</dd></div>
             <div><dt>Status</dt><dd><span class="runtime-status ${escapeHTML(String(version.runtime_status || 'offline').toLowerCase())}">${escapeHTML(version.runtime_status || 'Offline')}</span></dd></div>
           </dl>
           <div class="version-actions server-control-row">
