@@ -309,7 +309,9 @@ final class LiveStatsProvider: @unchecked Sendable {
     }
 
     private func serverAddress() -> String {
-        ProcessInfo.processInfo.environment["PUMMELCHEN_MINECRAFT_ADDRESS"] ?? "91.99.176.243:25565"
+        ProcessInfo.processInfo.environment["PUMMELCHEN_MINECRAFT_ADDRESS"]
+            ?? ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_SERVER_ADDRESS"]
+            ?? "91.99.176.243:25565"
     }
 
     private func webAddress() -> String {
@@ -383,6 +385,10 @@ final class LiveStatsProvider: @unchecked Sendable {
     }
 
     private func macInstallerDMGURL(release: CurrentRelease?) -> String {
+        if let managedURL = ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_DMG_URL"],
+           !managedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return managedURL
+        }
         let rootPath = "/downloads/MCPummelchenModClient.dmg"
         if let rootURL = urlForPublicPath(rootPath), FileManager.default.fileExists(atPath: rootURL.path) {
             return rootPath

@@ -137,6 +137,40 @@ struct MCPummelchenModServerCoreTests {
         #expect(cachedPayload.history.count == payload.history.count)
     }
 
+    @Test("live site stats use managed server address and DMG URL")
+    func liveSiteStatsUseManagedServerEnvironment() throws {
+        Self.environmentMutationLock.lock()
+        defer { Self.environmentMutationLock.unlock() }
+
+        let previousAddress = getenv("PUMMELCHEN_MANAGED_MINECRAFT_SERVER_ADDRESS").map { String(cString: $0) }
+        let previousDMG = getenv("PUMMELCHEN_MANAGED_MINECRAFT_DMG_URL").map { String(cString: $0) }
+        setenv("PUMMELCHEN_MANAGED_MINECRAFT_SERVER_ADDRESS", "91.99.176.243:25566", 1)
+        setenv("PUMMELCHEN_MANAGED_MINECRAFT_DMG_URL", "https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.2.dmg", 1)
+        defer {
+            if let previousAddress {
+                setenv("PUMMELCHEN_MANAGED_MINECRAFT_SERVER_ADDRESS", previousAddress, 1)
+            } else {
+                unsetenv("PUMMELCHEN_MANAGED_MINECRAFT_SERVER_ADDRESS")
+            }
+            if let previousDMG {
+                setenv("PUMMELCHEN_MANAGED_MINECRAFT_DMG_URL", previousDMG, 1)
+            } else {
+                unsetenv("PUMMELCHEN_MANAGED_MINECRAFT_DMG_URL")
+            }
+        }
+
+        let fixture = try makeProjectFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let api = makeAPI(fixture: fixture)
+        let response = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/site/live-stats"))
+        let payload = try JSONDecoder().decode(LiveStatsPayload.self, from: response.body)
+
+        #expect(response.statusCode == 200)
+        #expect(payload.stats["Server Address"] == "91.99.176.243:25566")
+        #expect(payload.stats["Mac Installer DMG URL"] == "https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.2.dmg")
+    }
+
     @Test("publishes live site stats JSON for nginx")
     func publishesLiveSiteStatsForNginx() throws {
         let fixture = try makeProjectFixture()
