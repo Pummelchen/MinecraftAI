@@ -84,6 +84,12 @@ public struct MCPummelchenModServerConfig: Sendable {
     public let managedMinecraftVersion: String?
     public let managedMinecraftServerDirectory: String?
     public let managedMinecraftSystemdUnit: String?
+    public let managedMinecraftLoader: String
+    public let managedMinecraftLoaderVersion: String
+    public let managedMinecraftServerName: String?
+    public let managedMinecraftServerAddress: String?
+    public let managedMinecraftDMGURL: String?
+    public let managedMinecraftSortOrder: Int
 
     public init(
         projectRoot: URL,
@@ -97,7 +103,13 @@ public struct MCPummelchenModServerConfig: Sendable {
         transportFallback: String = "none",
         managedMinecraftVersion: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_VERSION"] ?? "26.1.2",
         managedMinecraftServerDirectory: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_DIR"],
-        managedMinecraftSystemdUnit: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_SYSTEMD_UNIT"]
+        managedMinecraftSystemdUnit: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_SYSTEMD_UNIT"],
+        managedMinecraftLoader: String = ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_LOADER"] ?? "neoforge",
+        managedMinecraftLoaderVersion: String = ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_LOADER_VERSION"] ?? "26.1.2.76",
+        managedMinecraftServerName: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_SERVER_NAME"],
+        managedMinecraftServerAddress: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_SERVER_ADDRESS"],
+        managedMinecraftDMGURL: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_DMG_URL"],
+        managedMinecraftSortOrder: Int = Int(ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_SORT_ORDER"] ?? "") ?? 100
     ) {
         self.projectRoot = projectRoot
         self.bindHost = bindHost
@@ -108,9 +120,15 @@ public struct MCPummelchenModServerConfig: Sendable {
         self.maxWritePayloadBytes = maxWritePayloadBytes
         self.transportTarget = transportTarget
         self.transportFallback = transportFallback
-        self.managedMinecraftVersion = Self.nonEmptyTrimmed(managedMinecraftVersion)
+        self.managedMinecraftVersion = Self.nonEmptyTrimmed(managedMinecraftVersion) ?? "26.1.2"
         self.managedMinecraftServerDirectory = Self.nonEmptyTrimmed(managedMinecraftServerDirectory)
         self.managedMinecraftSystemdUnit = Self.nonEmptyTrimmed(managedMinecraftSystemdUnit)
+        self.managedMinecraftLoader = Self.nonEmptyTrimmed(managedMinecraftLoader) ?? "vanilla"
+        self.managedMinecraftLoaderVersion = Self.nonEmptyTrimmed(managedMinecraftLoaderVersion) ?? ""
+        self.managedMinecraftServerName = Self.nonEmptyTrimmed(managedMinecraftServerName)
+        self.managedMinecraftServerAddress = Self.nonEmptyTrimmed(managedMinecraftServerAddress)
+        self.managedMinecraftDMGURL = Self.nonEmptyTrimmed(managedMinecraftDMGURL)
+        self.managedMinecraftSortOrder = managedMinecraftSortOrder
     }
 
     private static func nonEmptyTrimmed(_ value: String?) -> String? {
@@ -141,20 +159,6 @@ private struct MinecraftServerRuntimeTarget: Sendable {
     let systemdUnit: String
     let dmgURL: String
     let sortOrder: Int
-
-    func overriding(serverDirectory: String?, systemdUnit: String?) -> MinecraftServerRuntimeTarget {
-        MinecraftServerRuntimeTarget(
-            minecraftVersion: minecraftVersion,
-            loader: loader,
-            loaderVersion: loaderVersion,
-            serverName: serverName,
-            serverAddress: serverAddress,
-            serverDirectory: serverDirectory ?? self.serverDirectory,
-            systemdUnit: systemdUnit ?? self.systemdUnit,
-            dmgURL: dmgURL,
-            sortOrder: sortOrder
-        )
-    }
 }
 
 public struct ServerStatusPayload: Codable, Equatable, Sendable {
@@ -1470,39 +1474,34 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     }
 
     private func managedMinecraftServerTargets() -> [MinecraftServerRuntimeTarget] {
-        let targets = Self.defaultManagedMinecraftServerTargets()
-        guard let managedVersion = config.managedMinecraftVersion else {
-            return targets
-        }
-        guard let target = targets.first(where: { $0.minecraftVersion == managedVersion }) else {
+        guard let managedVersion = config.managedMinecraftVersion else { return [] }
+        guard let serverDirectory = config.managedMinecraftServerDirectory ?? Self.defaultServerDirectory(for: managedVersion),
+              let systemdUnit = config.managedMinecraftSystemdUnit ?? Self.defaultSystemdUnit(for: managedVersion) else {
             return []
         }
-        return [
-            target.overriding(
-                serverDirectory: config.managedMinecraftServerDirectory,
-                systemdUnit: config.managedMinecraftSystemdUnit
-            )
-        ]
+        return [MinecraftServerRuntimeTarget(
+            minecraftVersion: managedVersion,
+            loader: config.managedMinecraftLoader,
+            loaderVersion: config.managedMinecraftLoaderVersion,
+            serverName: config.managedMinecraftServerName ?? "MC Server \(managedVersion)",
+            serverAddress: config.managedMinecraftServerAddress ?? "",
+            serverDirectory: serverDirectory,
+            systemdUnit: systemdUnit,
+            dmgURL: config.managedMinecraftDMGURL ?? "https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_\(managedVersion).dmg",
+            sortOrder: config.managedMinecraftSortOrder
+        )]
     }
 
     private func managedMinecraftServerTarget(minecraftVersion: String) -> MinecraftServerRuntimeTarget? {
         managedMinecraftServerTargets().first { $0.minecraftVersion == minecraftVersion }
     }
 
-    private static func defaultManagedMinecraftServerTargets() -> [MinecraftServerRuntimeTarget] {
-        [
-            MinecraftServerRuntimeTarget(
-                minecraftVersion: "26.1.2",
-                loader: "neoforge",
-                loaderVersion: "26.1.2.76",
-                serverName: "MC Server 26.1.2",
-                serverAddress: "91.99.176.243:25565",
-                serverDirectory: "/var/minecraft_26.1.2",
-                systemdUnit: "Minecraft2612.service",
-                dmgURL: "https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.1.2.dmg",
-                sortOrder: 1
-            )
-        ]
+    private static func defaultServerDirectory(for minecraftVersion: String) -> String? {
+        minecraftVersion == "26.1.2" ? "/var/minecraft_26.1.2" : nil
+    }
+
+    private static func defaultSystemdUnit(for minecraftVersion: String) -> String? {
+        minecraftVersion == "26.1.2" ? "Minecraft2612.service" : nil
     }
 
     private static func defaultMinecraftServerVersion(_ target: MinecraftServerRuntimeTarget) -> [String: Any] {

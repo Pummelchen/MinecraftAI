@@ -1043,6 +1043,70 @@ struct MCPummelchenModServerCoreTests {
         #expect(String(decoding: controlResponse.body, as: UTF8.self).contains("unsupported Minecraft server version"))
     }
 
+    @Test("managed Minecraft target can be configured for a dedicated 26.2 app")
+    func managedMinecraftTargetCanBeConfiguredForDedicated262App() throws {
+        try requireDuckDB()
+        let fixture = try makeProjectFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        try DuckDBDatabase(databaseURL: fixture.root.appendingPathComponent("data/test-phase6.duckdb")).execute("""
+        CREATE SCHEMA IF NOT EXISTS core;
+        CREATE SCHEMA IF NOT EXISTS reporting;
+        CREATE TABLE core.minecraft_server_versions (
+          minecraft_version VARCHAR PRIMARY KEY,
+          loader VARCHAR NOT NULL,
+          loader_version VARCHAR NOT NULL,
+          server_name VARCHAR NOT NULL,
+          server_address VARCHAR NOT NULL,
+          server_dir VARCHAR,
+          status VARCHAR NOT NULL,
+          is_live BOOLEAN NOT NULL,
+          sort_order INTEGER NOT NULL,
+          updated_at TIMESTAMP NOT NULL,
+          notes VARCHAR
+        );
+        INSERT INTO core.minecraft_server_versions(
+          minecraft_version, loader, loader_version, server_name, server_address,
+          server_dir, status, is_live, sort_order, updated_at, notes
+        )
+        VALUES
+          ('26.1.2', 'neoforge', '26.1.2.76', 'Pummelchen Server 26.1.2', '127.0.0.1:25565', '/srv/minecraft-26.1.2', 'live', true, 10, now(), 'live'),
+          ('26.2', 'vanilla', '', 'Pummelchen Server 26.2', '127.0.0.1:25566', '/srv/minecraft-26.2', 'live', true, 20, now(), 'live');
+        CREATE OR REPLACE VIEW reporting.v_minecraft_server_versions AS
+        SELECT * FROM core.minecraft_server_versions;
+        """)
+
+        let api = makeAPI(
+            fixture: fixture,
+            serverControlPassword: "test-password",
+            managedMinecraftVersion: "26.2",
+            managedMinecraftServerDirectory: "/var/minecraft_26.2",
+            managedMinecraftSystemdUnit: "Minecraft262.service",
+            managedMinecraftLoader: "vanilla",
+            managedMinecraftLoaderVersion: "",
+            managedMinecraftServerName: "MC Server 26.2",
+            managedMinecraftServerAddress: "91.99.176.243:25566",
+            managedMinecraftSortOrder: 2
+        )
+        let response = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/minecraft/server-versions"))
+        let object = try JSONSerialization.jsonObject(with: response.body) as? [String: Any]
+        let versions = try #require(object?["versions"] as? [[String: Any]])
+
+        #expect(response.statusCode == 200)
+        #expect(versions.count == 1)
+        #expect(versions.first?["minecraft_version"] as? String == "26.2")
+        #expect(versions.first?["loader"] as? String == "vanilla")
+        #expect(versions.first?["server_dir"] as? String == "/srv/minecraft-26.2")
+        #expect(versions.first?["systemd_unit"] as? String == "Minecraft262.service")
+
+        let controlBody = Data("""
+        {"minecraft_version":"26.1.2","action":"stop","password":"test-password"}
+        """.utf8)
+        let controlResponse = api.response(for: HTTPRequest(method: "POST", path: "/api/v1/minecraft/server-control", body: controlBody))
+        #expect(controlResponse.statusCode == 400)
+        #expect(String(decoding: controlResponse.body, as: UTF8.self).contains("unsupported Minecraft server version"))
+    }
+
     @Test("release history API includes live DuckDB releases")
     func releaseHistoryAPIIncludesLiveDuckDBReleases() throws {
         try requireDuckDB()
@@ -2969,7 +3033,13 @@ struct MCPummelchenModServerCoreTests {
         serverControlPassword: String? = nil,
         managedMinecraftVersion: String? = nil,
         managedMinecraftServerDirectory: String? = nil,
-        managedMinecraftSystemdUnit: String? = nil
+        managedMinecraftSystemdUnit: String? = nil,
+        managedMinecraftLoader: String = "neoforge",
+        managedMinecraftLoaderVersion: String = "26.1.2.76",
+        managedMinecraftServerName: String? = nil,
+        managedMinecraftServerAddress: String? = nil,
+        managedMinecraftDMGURL: String? = nil,
+        managedMinecraftSortOrder: Int = 100
     ) -> MCPummelchenModServerAPI {
         MCPummelchenModServerAPI(config: MCPummelchenModServerConfig(
             projectRoot: fixture.root,
@@ -2979,7 +3049,13 @@ struct MCPummelchenModServerCoreTests {
             maxWritePayloadBytes: maxWritePayloadBytes,
             managedMinecraftVersion: managedMinecraftVersion,
             managedMinecraftServerDirectory: managedMinecraftServerDirectory,
-            managedMinecraftSystemdUnit: managedMinecraftSystemdUnit
+            managedMinecraftSystemdUnit: managedMinecraftSystemdUnit,
+            managedMinecraftLoader: managedMinecraftLoader,
+            managedMinecraftLoaderVersion: managedMinecraftLoaderVersion,
+            managedMinecraftServerName: managedMinecraftServerName,
+            managedMinecraftServerAddress: managedMinecraftServerAddress,
+            managedMinecraftDMGURL: managedMinecraftDMGURL,
+            managedMinecraftSortOrder: managedMinecraftSortOrder
         ))
     }
 

@@ -1,0 +1,32 @@
+[Unit]
+Description=MCPummelchenModServer API 26.3
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/var/minecraftai/26.3/runtime
+EnvironmentFile=/var/minecraftai/26.3/etc/server.env
+Environment=PUMMELCHEN_MANAGED_MINECRAFT_VERSION=26.3
+Environment=PUMMELCHEN_MANAGED_MINECRAFT_DIR=/var/minecraft_26.3
+Environment=PUMMELCHEN_MANAGED_MINECRAFT_SYSTEMD_UNIT=Minecraft263.service
+Environment=PUMMELCHEN_MANAGED_MINECRAFT_LOADER=vanilla
+Environment=PUMMELCHEN_MANAGED_MINECRAFT_LOADER_VERSION=
+Environment="PUMMELCHEN_MANAGED_MINECRAFT_SERVER_NAME=MC Server 26.3"
+Environment=PUMMELCHEN_MANAGED_MINECRAFT_SERVER_ADDRESS=91.99.176.243:25567
+Environment=PUMMELCHEN_MANAGED_MINECRAFT_SORT_ORDER=3
+ExecStart=/var/minecraftai/26.3/bin/MCPummelchenModServer serve --project-root /var/minecraftai/26.3/runtime --host 127.0.0.1 --port 8789
+Restart=on-failure
+RestartSec=5
+KillMode=process
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+RestrictSUIDSGID=true
+ReadWritePaths=/var/minecraftai/26.3/runtime /var/minecraftai/26.3/etc /var/minecraft_26.3 /var/minecraftai/web/site
+
+[Install]
+WantedBy=multi-user.target
