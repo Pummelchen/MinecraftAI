@@ -174,12 +174,12 @@ struct MCPummelchenModServerCoreTests {
 
         let activityObject = try JSONSerialization.jsonObject(with: updateActivity.body) as? [String: Any]
         let neoForgeObject = try JSONSerialization.jsonObject(with: neoForgeVersion.body) as? [String: Any]
-        #expect(activityObject?["source"] as? String == "duckdb.release_events_mod_scans_release_health")
+        #expect(activityObject?["source"] as? String == "server-records.release_events_mod_scans_release_health")
         #expect((activityObject?["entries"] as? [[String: Any]])?.isEmpty == false)
         #expect(neoForgeObject?["official_url"] as? String == "https://neoforged.net/")
         #expect(neoForgeObject?["official_download_url"] as? String == "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.1.2.76/neoforge-26.1.2.76-installer.jar")
         #expect(neoForgeObject?["latest_neoforge_version"] as? String == "26.1.2.76")
-        #expect(neoForgeObject?["generated_by"] as? String == "MCPummelchenModServer-duckdb-neoforge-version")
+        #expect(neoForgeObject?["generated_by"] as? String == "MCPummelchenModServer-server-records-neoforge-version")
     }
 
     @Test("serves failed mods with DuckDB scan status")
@@ -235,7 +235,7 @@ struct MCPummelchenModServerCoreTests {
 
         #expect(response.statusCode == 200)
         #expect(response.headers["Cache-Control"] == "no-store, max-age=0")
-        #expect(object?["generated_by"] as? String == "MCPummelchenModServer-duckdb-failed-mods")
+        #expect(object?["generated_by"] as? String == "MCPummelchenModServer-server-records-failed-mods")
         #expect(row["title"] as? String == "GiraffeMob")
         #expect(row["latest_status"] as? String == "unresolved")
         #expect(row["latest_version"] as? String == "1.1.0")
@@ -969,7 +969,7 @@ struct MCPummelchenModServerCoreTests {
         let versions = try #require(object?["versions"] as? [[String: Any]])
 
         #expect(response.statusCode == 200)
-        #expect(response.headers["X-Pummelchen-Stats-Source"] == "swift-server-duckdb")
+        #expect(response.headers["X-Pummelchen-Stats-Source"] == "swift-server-records")
         #expect(versions.count == 2)
         #expect(versions.first?["minecraft_version"] as? String == "26.1.2")
         #expect(versions.first?["is_live"] as? Bool == true)
@@ -1040,7 +1040,7 @@ struct MCPummelchenModServerCoreTests {
         let updates = try #require(object?["updates"] as? [[String: Any]])
 
         #expect(response.statusCode == 200)
-        #expect(response.headers["X-Pummelchen-Stats-Source"] == "swift-server-duckdb")
+        #expect(response.headers["X-Pummelchen-Stats-Source"] == "swift-server-records")
         #expect(updates.contains { ($0["id"] as? String) == "pr_release_20260613_V23_update_check" })
         #expect(updates.first?["test_label"] as? String == "release_20260613_V23_update_check")
         #expect(updates.first?["source_url"] as? String == "/release.html?release=release_20260613_V23_update_check")

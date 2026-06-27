@@ -77,6 +77,7 @@ public struct MCPummelchenModServerConfig: Sendable {
     public let port: Int
     public let duckDBURL: URL
     public let clientAPIToken: String?
+    public let serverControlPassword: String?
     public let maxWritePayloadBytes: Int
     public let transportTarget: String
     public let transportFallback: String
@@ -87,6 +88,7 @@ public struct MCPummelchenModServerConfig: Sendable {
         port: Int = 8787,
         duckDBURL: URL? = nil,
         clientAPIToken: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_CLIENT_API_TOKEN"],
+        serverControlPassword: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_SERVER_CONTROL_PASSWORD"],
         maxWritePayloadBytes: Int = 256 * 1024,
         transportTarget: String = ProcessInfo.processInfo.environment["PUMMELCHEN_TRANSPORT_TARGET"] ?? "nginx_https_api",
         transportFallback: String = "none"
@@ -96,10 +98,36 @@ public struct MCPummelchenModServerConfig: Sendable {
         self.port = port
         self.duckDBURL = duckDBURL ?? projectRoot.appendingPathComponent("data/pummelchen.duckdb")
         self.clientAPIToken = clientAPIToken
+        self.serverControlPassword = serverControlPassword
         self.maxWritePayloadBytes = maxWritePayloadBytes
         self.transportTarget = transportTarget
         self.transportFallback = transportFallback
     }
+}
+
+private struct MinecraftServerControlCommand: Decodable, Sendable {
+    let minecraftVersion: String
+    let action: String
+    let password: String
+
+    enum CodingKeys: String, CodingKey {
+        case minecraftVersion = "minecraft_version"
+        case action
+        case password
+    }
+}
+
+private struct MinecraftServerRuntimeTarget: Sendable {
+    let minecraftVersion: String
+    let loader: String
+    let loaderVersion: String
+    let serverName: String
+    let serverAddress: String
+    let serverDirectory: String
+    let systemdUnit: String
+    let javaVersionRequired: String
+    let dmgURL: String
+    let sortOrder: Int
 }
 
 public struct ServerStatusPayload: Codable, Equatable, Sendable {
@@ -159,6 +187,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 return try siteLiveStats()
             case ("GET", "/api/v1/minecraft/server-versions"):
                 return try minecraftServerVersions()
+            case ("POST", "/api/v1/minecraft/server-control"):
+                return try minecraftServerControl(request)
             case ("GET", "/api/v1/site/mod-inventory/mods"):
                 return try siteMergedModInventory()
             case ("GET", "/api/v1/site/mod-inventory/server"):
@@ -393,7 +423,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     }
 
     private static func isGeneratedDuckDBInventoryRow(_ row: [String: Any]) -> Bool {
-        return (row["details"] as? String ?? "").contains("generated from DuckDB")
+        return (row["details"] as? String ?? "").contains("generated from server records")
     }
 
     private static func modInventoryMergeKey(_ row: [String: Any]) -> String {
@@ -555,14 +585,14 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         let payload: [String: Any] = [
             "api_version": "v1",
             "generated_at": Self.isoNow(),
-            "generated_by": "MCPummelchenModServer-duckdb-failed-mods",
+            "generated_by": "MCPummelchenModServer-server-records-failed-mods",
             "total_entries": rows.count,
             "rows": rows
         ]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         return .json(data, headers: [
             "Cache-Control": "no-store, max-age=0",
-            "X-Pummelchen-Stats-Source": "swift-server-duckdb"
+            "X-Pummelchen-Stats-Source": "swift-server-records"
         ])
     }
 
@@ -585,7 +615,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                 "sort_order": Int(row["sort_order"] ?? "") ?? 100
             ]
         }
-        try ContractValidation.require(!rows.isEmpty, "DuckDB supported Minecraft versions view returned no live/staging rows")
+        try ContractValidation.require(!rows.isEmpty, "server records supported Minecraft versions view returned no live/staging rows")
         return rows
     }
 
@@ -934,7 +964,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
                     "versionFile": fileName,
                     "sourceUrl": "",
                     "sourceHost": "release manifest",
-                    "details": "\(displayName) is shipped by the active release manifest. No source URL is recorded in DuckDB yet.",
+                    "details": "\(displayName) is shipped by the active release manifest. No source URL is recorded in server records yet.",
                     "search": "\(displayName) \(fileName) \(role)",
                     "_manifest_role": role
                 ]
@@ -1248,89 +1278,347 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     }
 
     private func minecraftServerVersions() throws -> HTTPResponse {
-        let hasInstallerName = try reportingViewHasColumn("v_minecraft_server_versions", column: "installer_name")
-        let hasInstallerSHA256 = try reportingViewHasColumn("v_minecraft_server_versions", column: "installer_sha256")
-        let hasInstallerURL = try reportingViewHasColumn("v_minecraft_server_versions", column: "installer_url")
-        let installerNameSQL = hasInstallerName
-            ? "COALESCE(installer_name, '') AS installer_name"
-            : "'' AS installer_name"
-        let installerSHA256SQL = hasInstallerSHA256
-            ? "COALESCE(installer_sha256, '') AS installer_sha256"
-            : "'' AS installer_sha256"
-        let installerURLSQL = hasInstallerURL
-            ? "COALESCE(installer_url, '') AS installer_url"
-            : "'' AS installer_url"
-        let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
-        SELECT
-          minecraft_version,
-          loader,
-          loader_version,
-          server_name,
-          server_address,
-          server_dir,
-          status,
-          is_live,
-          sort_order,
-          CAST(updated_at AS VARCHAR) AS updated_at,
-          COALESCE(notes, '') AS notes,
-          \(installerNameSQL),
-          \(installerSHA256SQL),
-          \(installerURLSQL)
-        FROM reporting.v_minecraft_server_versions
-        ORDER BY sort_order, minecraft_version;
-        """)
-        var versions = Self.parseCSV(csv).map { row -> [String: Any] in
-            let minecraftVersion = row["minecraft_version"] ?? ""
-            let loaderVersion = row["loader_version"] ?? ""
-            let installerName = row["installer_name"] ?? Self.neoForgeInstallerName(loaderVersion: loaderVersion)
-            let installerURL = row["installer_url"] ?? Self.neoForgeInstallerURL(loaderVersion: loaderVersion)
-            return [
-                "minecraft_version": minecraftVersion,
-                "loader": row["loader"] ?? "neoforge",
-                "loader_version": loaderVersion,
-                "server_name": row["server_name"] ?? "Pummelchen Server \(minecraftVersion)",
-                "server_address": row["server_address"] ?? "",
-                "server_dir": row["server_dir"] ?? "",
-                "status": row["status"] ?? "unknown",
-                "is_live": Self.duckBool(row["is_live"] ?? ""),
-                "sort_order": Int(row["sort_order"] ?? "") ?? 100,
-                "updated_at": Self.isoTimestamp(fromDuckDB: row["updated_at"] ?? ""),
-                "installer_name": installerName.isEmpty ? Self.neoForgeInstallerName(loaderVersion: loaderVersion) : installerName,
-                "installer_sha256": row["installer_sha256"] ?? "",
-                "installer_url": installerURL.isEmpty ? Self.neoForgeInstallerURL(loaderVersion: loaderVersion) : installerURL,
-                "page_url": Self.versionPageURL(minecraftVersion: minecraftVersion),
-                "notes": row["notes"] ?? ""
-            ]
+        let targets = Self.managedMinecraftServerTargets()
+        var versions: [[String: Any]] = []
+
+        do {
+            let hasInstallerName = try reportingViewHasColumn("v_minecraft_server_versions", column: "installer_name")
+            let hasInstallerSHA256 = try reportingViewHasColumn("v_minecraft_server_versions", column: "installer_sha256")
+            let hasInstallerURL = try reportingViewHasColumn("v_minecraft_server_versions", column: "installer_url")
+            let installerNameSQL = hasInstallerName
+                ? "COALESCE(installer_name, '') AS installer_name"
+                : "'' AS installer_name"
+            let installerSHA256SQL = hasInstallerSHA256
+                ? "COALESCE(installer_sha256, '') AS installer_sha256"
+                : "'' AS installer_sha256"
+            let installerURLSQL = hasInstallerURL
+                ? "COALESCE(installer_url, '') AS installer_url"
+                : "'' AS installer_url"
+            let csv = try DuckDBDatabase(databaseURL: config.duckDBURL, readOnly: true).queryCSV("""
+            SELECT
+              minecraft_version,
+              loader,
+              loader_version,
+              server_name,
+              server_address,
+              server_dir,
+              status,
+              is_live,
+              sort_order,
+              CAST(updated_at AS VARCHAR) AS updated_at,
+              COALESCE(notes, '') AS notes,
+              \(installerNameSQL),
+              \(installerSHA256SQL),
+              \(installerURLSQL)
+            FROM reporting.v_minecraft_server_versions
+            ORDER BY sort_order, minecraft_version;
+            """)
+            versions = Self.parseCSV(csv).map { row -> [String: Any] in
+                let minecraftVersion = row["minecraft_version"] ?? ""
+                let target = Self.managedMinecraftServerTarget(minecraftVersion: minecraftVersion)
+                let loaderVersion = row["loader_version"] ?? target?.loaderVersion ?? ""
+                let installerName = row["installer_name"] ?? Self.neoForgeInstallerName(loaderVersion: loaderVersion)
+                let installerURL = row["installer_url"] ?? Self.neoForgeInstallerURL(loaderVersion: loaderVersion)
+                return [
+                    "minecraft_version": minecraftVersion,
+                    "loader": row["loader"] ?? target?.loader ?? "neoforge",
+                    "loader_version": loaderVersion,
+                    "server_name": row["server_name"] ?? target?.serverName ?? "Pummelchen Server \(minecraftVersion)",
+                    "server_address": row["server_address"] ?? target?.serverAddress ?? "",
+                    "server_dir": row["server_dir"] ?? target?.serverDirectory ?? "",
+                    "status": row["status"] ?? "unknown",
+                    "is_live": Self.duckBool(row["is_live"] ?? ""),
+                    "sort_order": Int(row["sort_order"] ?? "") ?? target?.sortOrder ?? 100,
+                    "updated_at": Self.isoTimestamp(fromDuckDB: row["updated_at"] ?? ""),
+                    "installer_name": installerName.isEmpty ? Self.neoForgeInstallerName(loaderVersion: loaderVersion) : installerName,
+                    "installer_sha256": row["installer_sha256"] ?? "",
+                    "installer_url": installerURL.isEmpty ? Self.neoForgeInstallerURL(loaderVersion: loaderVersion) : installerURL,
+                    "page_url": Self.versionPageURL(minecraftVersion: minecraftVersion),
+                    "notes": row["notes"] ?? ""
+                ]
+            }
+        } catch {
+            versions = []
         }
-        let current = try CurrentReleaseValidator.decode(readCurrentReleaseData())
-        let serverRows = try siteModInventoryRows(scope: "server", current: current, supportedVersions: versions)
-        let clientRows = try siteModInventoryRows(scope: "client", current: current, supportedVersions: versions)
-        let serverDBCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: serverRows)
-        let clientDBCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: clientRows)
+
+        let useManagedFallback = Self.duckBool(ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_SERVER_VERSION_FALLBACK"] ?? "")
+        if useManagedFallback {
+            if versions.isEmpty {
+                versions = targets.map(Self.defaultMinecraftServerVersion)
+            } else {
+                var byVersion = Dictionary(uniqueKeysWithValues: versions.compactMap { row -> (String, [String: Any])? in
+                    guard let version = row["minecraft_version"] as? String, !version.isEmpty else { return nil }
+                    return (version, row)
+                })
+                for target in targets where byVersion[target.minecraftVersion] == nil {
+                    byVersion[target.minecraftVersion] = Self.defaultMinecraftServerVersion(target)
+                }
+                versions = targets.compactMap { byVersion[$0.minecraftVersion] }
+            }
+        }
+
+        let serverDBCounts: [String: Int]
+        let clientDBCounts: [String: Int]
+        if let current = try? CurrentReleaseValidator.decode(readCurrentReleaseData()),
+           let serverRows = try? siteModInventoryRows(scope: "server", current: current, supportedVersions: versions),
+           let clientRows = try? siteModInventoryRows(scope: "client", current: current, supportedVersions: versions) {
+            serverDBCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: serverRows)
+            clientDBCounts = Self.compatibleInventoryCountsByMinecraftVersion(rows: clientRows)
+        } else {
+            serverDBCounts = [:]
+            clientDBCounts = [:]
+        }
         let serverFSCounts = Self.filesystemModCounts(versions: versions, scope: "server")
-        let clientFSCounts = Self.filesystemModCounts(versions: versions, scope: "client")
+        let clientFSCounts = Self.filesystemClientAssetCounts(versions: versions)
         versions = versions.map { version in
             var enriched = version
             let minecraftVersion = version["minecraft_version"] as? String ?? ""
+            let target = Self.managedMinecraftServerTarget(minecraftVersion: minecraftVersion)
             let dbServer = serverDBCounts[minecraftVersion] ?? 0
             let dbClient = clientDBCounts[minecraftVersion] ?? 0
             let fsServer = serverFSCounts[minecraftVersion] ?? 0
             let fsClient = clientFSCounts[minecraftVersion] ?? 0
             enriched["server_mod_count"] = max(dbServer, fsServer)
             enriched["client_mod_count"] = max(dbClient, fsClient)
+            enriched["java_version_required"] = target?.javaVersionRequired ?? "Java 21+"
+            enriched["dmg_url"] = target?.dmgURL ?? ""
+            enriched["systemd_unit"] = target?.systemdUnit ?? ""
+            enriched["runtime_status"] = target.map(Self.minecraftRuntimeStatus) ?? "Unknown"
+            enriched["latest_version"] = Self.clientLatestVersion(minecraftVersion: minecraftVersion)
+            enriched["client_mod_pack_generated"] = Self.clientModPackGenerated(minecraftVersion: minecraftVersion)
+            enriched["client_mod_pack_size"] = Self.clientModPackSize(minecraftVersion: minecraftVersion, dmgURL: target?.dmgURL)
+            enriched["mod_pack_news"] = Self.modPackNews(minecraftVersion: minecraftVersion)
             return enriched
+        }.sorted {
+            (($0["sort_order"] as? Int ?? 100), String(describing: $0["minecraft_version"] ?? ""))
+                < (($1["sort_order"] as? Int ?? 100), String(describing: $1["minecraft_version"] ?? ""))
         }
         let payload: [String: Any] = [
             "api_version": "v1",
             "generated_at": Self.isoNow(),
-            "generated_by": "MCPummelchenModServer-duckdb-live",
+            "generated_by": useManagedFallback ? "MCPummelchenModServer-filesystem-and-server-records" : "MCPummelchenModServer-server-records-live",
             "versions": versions
         ]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         return .json(data, headers: [
             "Cache-Control": "no-store, max-age=0",
-            "X-Pummelchen-Stats-Source": "swift-server-duckdb"
+            "X-Pummelchen-Stats-Source": useManagedFallback ? "swift-server-filesystem-records" : "swift-server-records"
         ])
+    }
+
+    private func minecraftServerControl(_ request: HTTPRequest) throws -> HTTPResponse {
+        let command: MinecraftServerControlCommand = try decodeBody(request)
+        guard let expected = config.serverControlPassword, !expected.isEmpty else {
+            throw MCPummelchenModServerError.unauthorized("server control password is not configured")
+        }
+        guard Self.constantTimeEquals(command.password, expected) else {
+            throw MCPummelchenModServerError.unauthorized("invalid server control password")
+        }
+        guard let target = Self.managedMinecraftServerTarget(minecraftVersion: command.minecraftVersion) else {
+            throw MCPummelchenModServerError.badRequest("unsupported Minecraft server version")
+        }
+        let action = command.action.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard ["start", "stop"].contains(action) else {
+            throw MCPummelchenModServerError.badRequest("unsupported Minecraft server control action")
+        }
+        let result = Self.runCommand("/usr/bin/systemctl", [action, target.systemdUnit])
+        guard result.status == 0 else {
+            throw MCPummelchenModServerError.badRequest("systemctl \(action) failed for \(target.systemdUnit): \(result.output.prefix(500))")
+        }
+        let payload: [String: Any] = [
+            "api_version": "v1",
+            "minecraft_version": target.minecraftVersion,
+            "action": action,
+            "systemd_unit": target.systemdUnit,
+            "runtime_status": Self.minecraftRuntimeStatus(target),
+            "server_time": Self.isoNow()
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        return .json(data, headers: ["Cache-Control": "no-store, max-age=0"])
+    }
+
+    private static func managedMinecraftServerTargets() -> [MinecraftServerRuntimeTarget] {
+        [
+            MinecraftServerRuntimeTarget(
+                minecraftVersion: "26.1.2",
+                loader: "neoforge",
+                loaderVersion: "26.1.2.76",
+                serverName: "MC Server 26.1.2",
+                serverAddress: "91.99.176.243:25565",
+                serverDirectory: "/var/minecraft_26.1.2",
+                systemdUnit: "Minecraft2612.service",
+                javaVersionRequired: "Java 21+",
+                dmgURL: "https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.1.2.dmg",
+                sortOrder: 1
+            ),
+            MinecraftServerRuntimeTarget(
+                minecraftVersion: "26.2",
+                loader: "vanilla",
+                loaderVersion: "",
+                serverName: "MC Server 26.2",
+                serverAddress: "91.99.176.243:25566",
+                serverDirectory: "/var/minecraft_26.2",
+                systemdUnit: "Minecraft262.service",
+                javaVersionRequired: "Java 21+",
+                dmgURL: "https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.2.dmg",
+                sortOrder: 2
+            ),
+            MinecraftServerRuntimeTarget(
+                minecraftVersion: "26.3",
+                loader: "vanilla",
+                loaderVersion: "snapshot-1",
+                serverName: "MC Server 26.3",
+                serverAddress: "91.99.176.243:25567",
+                serverDirectory: "/var/minecraft_26.3",
+                systemdUnit: "Minecraft263.service",
+                javaVersionRequired: "Java 21+",
+                dmgURL: "https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.3.dmg",
+                sortOrder: 3
+            )
+        ]
+    }
+
+    private static func managedMinecraftServerTarget(minecraftVersion: String) -> MinecraftServerRuntimeTarget? {
+        managedMinecraftServerTargets().first { $0.minecraftVersion == minecraftVersion }
+    }
+
+    private static func defaultMinecraftServerVersion(_ target: MinecraftServerRuntimeTarget) -> [String: Any] {
+        [
+            "minecraft_version": target.minecraftVersion,
+            "loader": target.loader,
+            "loader_version": target.loaderVersion,
+            "server_name": target.serverName,
+            "server_address": target.serverAddress,
+            "server_dir": target.serverDirectory,
+            "status": "managed",
+            "is_live": target.sortOrder == 1,
+            "sort_order": target.sortOrder,
+            "updated_at": Self.isoNow(),
+            "installer_name": target.loaderVersion.isEmpty ? "" : Self.neoForgeInstallerName(loaderVersion: target.loaderVersion),
+            "installer_sha256": "",
+            "installer_url": target.loaderVersion.isEmpty ? "" : Self.neoForgeInstallerURL(loaderVersion: target.loaderVersion),
+            "page_url": Self.versionPageURL(minecraftVersion: target.minecraftVersion),
+            "notes": "Dedicated server/client lane"
+        ]
+    }
+
+    private static func minecraftRuntimeStatus(_ target: MinecraftServerRuntimeTarget) -> String {
+        let result = runCommand("/usr/bin/systemctl", ["is-active", target.systemdUnit])
+        switch result.output.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "active": return "Online"
+        case "activating": return "Starting"
+        case "deactivating": return "Stopping"
+        case "failed": return "Failed"
+        default: return "Offline"
+        }
+    }
+
+    private static func runCommand(_ executable: String, _ arguments: [String]) -> (status: Int32, output: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+        } catch {
+            return (127, String(describing: error))
+        }
+    }
+
+    private static func filesystemClientAssetCounts(versions: [[String: Any]]) -> [String: Int] {
+        let fm = FileManager.default
+        var counts: [String: Int] = [:]
+        let sections = ["mods", "resourcepacks", "shaderpacks", "config", "defaultconfigs"]
+        for version in versions {
+            guard let minecraftVersion = version["minecraft_version"] as? String,
+                  let serverDir = version["server_dir"] as? String,
+                  !serverDir.isEmpty else { continue }
+            var count = 0
+            for section in sections {
+                let path = "\(serverDir)/client-package/\(section)"
+                if let files = try? fm.contentsOfDirectory(atPath: path) {
+                    count += files.filter { !$0.hasPrefix(".") }.count
+                }
+            }
+            if count > 0 {
+                counts[minecraftVersion] = count
+            }
+        }
+        return counts
+    }
+
+    private static func clientLatestVersion(minecraftVersion: String) -> String {
+        guard splitClientDMGPath(minecraftVersion: minecraftVersion) != nil,
+              let path = currentReleasePath(minecraftVersion: minecraftVersion),
+              let data = try? Data(contentsOf: path),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let releaseID = json["release_id"] as? String,
+              !releaseID.isEmpty else {
+            return "Not generated yet"
+        }
+        return releaseID
+    }
+
+    private static func clientModPackGenerated(minecraftVersion: String) -> String {
+        guard splitClientDMGPath(minecraftVersion: minecraftVersion) != nil,
+              let path = currentReleasePath(minecraftVersion: minecraftVersion),
+              let data = try? Data(contentsOf: path),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let createdAt = json["created_at"] as? String,
+              !createdAt.isEmpty else {
+            return "Not generated yet"
+        }
+        return Self.displayTimestamp(fromISO: createdAt)
+    }
+
+    private static func clientModPackSize(minecraftVersion: String, dmgURL: String?) -> String {
+        guard let dmg = splitClientDMGPath(minecraftVersion: minecraftVersion, dmgURL: dmgURL),
+              let size = try? FileManager.default.attributesOfItem(atPath: dmg.path)[.size] as? NSNumber else {
+            return "Not generated yet"
+        }
+        return Self.humanFileSize(size.uint64Value)
+    }
+
+    private static func modPackNews(minecraftVersion: String) -> String {
+        switch minecraftVersion {
+        case "26.1.2": return "Dedicated 26.1.2 client app pending."
+        case "26.2": return "Dedicated 26.2 client app pending."
+        case "26.3": return "Dedicated 26.3 snapshot client app pending."
+        default: return "Dedicated client app pending."
+        }
+    }
+
+    private static func humanFileSize(_ bytes: UInt64) -> String {
+        let units = ["B", "KB", "MB", "GB"]
+        var value = Double(bytes)
+        var index = 0
+        while value >= 1024, index < units.count - 1 {
+            value /= 1024
+            index += 1
+        }
+        return index == 0 ? "\(Int(value)) \(units[index])" : String(format: "%.1f %@", value, units[index])
+    }
+
+    private static func splitClientDMGPath(minecraftVersion: String, dmgURL: String? = nil) -> URL? {
+        let downloads = URL(fileURLWithPath: "/var/minecraftai/web/site/public/downloads", isDirectory: true)
+        let fileName = dmgURL.flatMap(URL.init(string:))?.lastPathComponent ?? "MCPummelchenModClient_\(minecraftVersion).dmg"
+        let path = downloads.appendingPathComponent(fileName)
+        return FileManager.default.fileExists(atPath: path.path) ? path : nil
+    }
+
+    private static func currentReleasePath(minecraftVersion: String) -> URL? {
+        let safe = minecraftVersion.replacingOccurrences(of: ".", with: "_")
+        let downloads = URL(fileURLWithPath: "/var/minecraftai/web/site/public/downloads", isDirectory: true)
+        let candidates = [
+            downloads.appendingPathComponent("current-release-\(minecraftVersion).json"),
+            downloads.appendingPathComponent("current-release-minecraft_\(safe).json")
+        ]
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     private func reportingViewHasColumn(_ view: String, column: String) throws -> Bool {
@@ -1401,7 +1689,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             release_id,
             NULL AS minecraft_version
           FROM release.release_events
-          WHERE event_at >= now() - INTERVAL 14 DAYS
+          WHERE event_at >= now() - INTERVAL 30 DAYS
 
           UNION ALL
 
@@ -1415,7 +1703,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             NULL AS release_id,
             minecraft_version
           FROM core.mod_update_scans
-          WHERE COALESCE(finished_at, started_at) >= now() - INTERVAL 14 DAYS
+          WHERE COALESCE(finished_at, started_at) >= now() - INTERVAL 30 DAYS
 
           UNION ALL
 
@@ -1427,7 +1715,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             release_id,
             NULL AS minecraft_version
           FROM release.release_health_results
-          WHERE checked_at >= now() - INTERVAL 14 DAYS
+          WHERE checked_at >= now() - INTERVAL 30 DAYS
         )
         SELECT
           CAST(timestamp AS VARCHAR) AS timestamp,
@@ -1457,15 +1745,15 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
             "api_version": "v1",
             "updated_at": Self.displayTimestamp(fromISO: Self.isoNow()),
             "generated_at": Self.isoNow(),
-            "generated_by": "MCPummelchenModServer-duckdb-update-activity",
-            "source": "duckdb.release_events_mod_scans_release_health",
+            "generated_by": "MCPummelchenModServer-server-records-update-activity",
+            "source": "server-records.release_events_mod_scans_release_health",
             "entry_count": entries.count,
             "entries": entries
         ]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         return .json(data, headers: [
             "Cache-Control": "no-store, max-age=0",
-            "X-Pummelchen-Stats-Source": "swift-server-duckdb"
+            "X-Pummelchen-Stats-Source": "swift-server-records"
         ])
     }
 
@@ -1484,7 +1772,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         LIMIT 1;
         """)
         guard let row = Self.parseCSV(csv).first else {
-            throw MCPummelchenModServerError.notFound("DuckDB Minecraft server version \(minecraftVersion)")
+            throw MCPummelchenModServerError.notFound("server records Minecraft server version \(minecraftVersion)")
         }
         let currentLoaderVersion = current.loaderVersion ?? ""
         let latestLoaderVersion = row["loader_version"] ?? currentLoaderVersion
@@ -1500,7 +1788,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         let payload: [String: Any] = [
             "api_version": "v1",
             "checked_at": checkedAt.isEmpty ? Self.isoNow() : checkedAt,
-            "generated_by": "MCPummelchenModServer-duckdb-neoforge-version",
+            "generated_by": "MCPummelchenModServer-server-records-neoforge-version",
             "current_neoforge_version": currentLoaderVersion,
             "latest_neoforge_version": latestLoaderVersion,
             "minecraft_version": minecraftVersion,
@@ -1516,7 +1804,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         return .json(data, headers: [
             "Cache-Control": "no-store, max-age=0",
-            "X-Pummelchen-Stats-Source": "swift-server-duckdb"
+            "X-Pummelchen-Stats-Source": "swift-server-records"
         ])
     }
 
@@ -1554,7 +1842,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         let payload: [String: Any] = [
             "api_version": "v1",
             "checked_at": Self.isoNow(),
-            "generated_by": "MCPummelchenModServer-duckdb-release-health",
+            "generated_by": "MCPummelchenModServer-server-records-release-health",
             "overall": overall,
             "ok_count": statuses.filter { ["ok", "passed", "healthy"].contains($0) }.count,
             "warn_count": statuses.filter { ["warning", "warn"].contains($0) }.count,
@@ -1564,7 +1852,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         return .json(data, headers: [
             "Cache-Control": "no-store, max-age=0",
-            "X-Pummelchen-Stats-Source": "swift-server-duckdb"
+            "X-Pummelchen-Stats-Source": "swift-server-records"
         ])
     }
 
@@ -1573,8 +1861,8 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         let object: [String: Any] = [
             "api_version": "v1",
             "generated_at": Self.isoNow(),
-            "generated_by": "MCPummelchenModServer-duckdb-live",
-            "source": "duckdb.release.pack_releases",
+            "generated_by": "MCPummelchenModServer-server-records-live",
+            "source": "server-records.release.pack_releases",
             "cutoff_days": 30,
             "total_entries": updates.count,
             "updates": updates
@@ -1582,7 +1870,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
         return .json(data, headers: [
             "Cache-Control": "no-store, max-age=0",
-            "X-Pummelchen-Stats-Source": "swift-server-duckdb"
+            "X-Pummelchen-Stats-Source": "swift-server-records"
         ])
     }
 
@@ -1660,7 +1948,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
         let batch = ControlEventBatch(
             events: events,
             nextAfterEventID: events.last?.eventID ?? params["after_event_id"],
-            transport: "https_control_poll",
+            transport: "authenticated_https_operator_poll",
             fallback: "none"
         )
         return .json(try encoder.encode(batch), headers: ["X-Pummelchen-Downloads-Allowed": "false"])
@@ -1674,6 +1962,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     }
 
     private func registerClient(_ request: HTTPRequest) throws -> HTTPResponse {
+        try requireAuthorized(request)
         let payload: ClientRegistrationRequest = try decodeBody(request)
         try validateClientID(payload.clientID, header: request.headers["x-pummelchen-client-id"])
         try store.register(payload)
@@ -1681,6 +1970,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     }
 
     private func statusReport(_ request: HTTPRequest) throws -> HTTPResponse {
+        try requireAuthorized(request)
         let payload: ClientStatusReport = try decodeBody(request)
         try validateClientID(payload.clientID, header: request.headers["x-pummelchen-client-id"])
         try store.recordStatus(payload)
@@ -1688,6 +1978,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     }
 
     private func inventoryUpload(_ request: HTTPRequest) throws -> HTTPResponse {
+        try requireAuthorized(request)
         let payload: ClientInventoryUpload = try decodeBody(request)
         try validateClientID(payload.clientID, header: request.headers["x-pummelchen-client-id"])
         try store.recordInventory(payload)
@@ -1695,6 +1986,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     }
 
     private func diagnosticsUpload(_ request: HTTPRequest) throws -> HTTPResponse {
+        try requireAuthorized(request)
         let payload: ClientDiagnosticsUpload = try decodeBody(request)
         try validateClientID(payload.clientID, header: request.headers["x-pummelchen-client-id"])
         try store.recordDiagnostics(payload)
@@ -1702,6 +1994,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     }
 
     private func defaultsEventUpload(_ request: HTTPRequest) throws -> HTTPResponse {
+        try requireAuthorized(request)
         let payload: ClientDefaultsEventUpload = try decodeBody(request)
         try validateClientID(payload.clientID, header: request.headers["x-pummelchen-client-id"])
         try store.recordDefaultsEvent(payload)

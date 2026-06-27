@@ -169,6 +169,15 @@
       color: var(--green);
       border-color: var(--line);
     }
+    .button.danger {
+      background: #2a0d0d;
+      color: #f5b8b8;
+      border-color: #6d2828;
+    }
+    .button:disabled {
+      opacity: 0.58;
+      cursor: wait;
+    }
     .release-version {
       display: inline-flex;
       align-items: center;
@@ -742,9 +751,10 @@
   <header>
     <div class="wrap hero">
       <div>
-        <h1>Pummelchen Server</h1>
-        <p class="subtitle">Status and install page for the Pummelchen Minecraft NeoForge Server.</p>
+        <h1>Pummelchen Minecraft Servers</h1>
+        <p class="subtitle">Status and install page for the Pummelchen Minecraft NeoForge Servers.</p>
         <p class="seed-viewer"><strong>World Seed Viewer:</strong> <span id="worldSeedLink"><a href="https://mcseedmap.net/1.21.5-Java/8175585594372878641#l=-1" target="_blank" rel="noopener">8175585594372878641</a></span></p>
+        <p class="seed-viewer"><strong>Mod Database:</strong> <a href="https://docs.google.com/spreadsheets/d/1vgUZC2iymSG4PQIZOSowAXGq-gxrggP9syOwoijrzJk/edit?usp=sharing" target="_blank" rel="noopener">Google Sheets</a></p>
       </div>
     </div>
   </header>
@@ -756,12 +766,7 @@
 <article class="stat" data-stat-key="Server OS"><span>Server OS</span><strong data-live-stat>--</strong></article>
 <article class="stat" data-stat-key="OS Kernel"><span>OS Kernel</span><strong data-live-stat>--</strong></article>
 <article class="stat" data-stat-key="Uptime"><span>Server Uptime</span><strong data-live-stat>--</strong></article>
-<article class="stat" data-stat-key="Server Java"><span>Server Java</span><strong data-live-stat>--</strong></article>
-<article class="stat" data-stat-key="Minecraft Java"><span>Minecraft Java</span><strong data-live-stat>--</strong></article>
-<article class="stat" data-stat-key="Last Mod Version"><span>Last Mod Version</span><strong data-live-stat>--</strong></article>
-<article class="stat" data-stat-key="Client Mod Pack"><span>Client Mod Pack</span><strong data-live-stat>--</strong></article>
-<article class="stat" data-stat-key="Client Mod Pack SHA256"><span>Client Mod Pack SHA256</span><strong data-live-stat>--</strong></article>
-<article class="stat" data-stat-key="Client Mod Pack Generated"><span>Client Mod Pack Generated</span><strong data-live-stat>--</strong><small class="stat-age" data-live-stat-age></small></article></div>
+<article class="stat" data-stat-key="Server Java"><span>Server Java</span><strong data-live-stat>--</strong></article></div>
       <br>
       <div class="live-status" aria-live="polite"><span id="liveDot" class="live-dot"></span><span id="liveStatus">Live stats loading...</span></div>
       <div class="chart-grid" aria-label="Live system graphs">
@@ -788,19 +793,16 @@
 
     <section id="install">
       <h2>Mac Client Install</h2>
-      <p class="note">For macOS Apple Silicon clients. Install the Pummelchen Swift client app from the DMG. The app handles sync status, updates, release history, shader/resource-pack defaults, and client repair from its GUI.</p>
-      <div class="actions">
-        <a id="macInstallerDmgLink" class="button" href="https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient.dmg" data-live-href="Mac Installer DMG URL">Download Mac Installer DMG</a>
-        <a id="macInstallerReleaseLink" class="release-version" href="https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient.dmg" data-live-text="Mac Installer Latest Version" data-live-href="Mac Installer Release URL">Latest version: 2026-06-13_V23</a>
-      </div>
+      <p class="note">Each Minecraft server now has its own dedicated macOS Apple Silicon client app. The DMG links below are placeholders for the new split client apps.</p>
+      <div id="clientInstallGrid" class="version-grid install-version-grid" aria-label="Mac client downloads"></div>
     </section>
 
     <section id="add-mod-command">
       <h2>Add A Mod</h2>
       <div class="operator-section">
         <p class="note">Send a plain operator request through Codex, OpenCode, Qwen, or another AI coding tool with access to this project and the VPS.</p>
-        <p class="safe-reset-command">"Add this mod: https://www.curseforge.com/minecraft/mc-mods/example-mod"</p>
-        <p class="note">The Swift server app resolves the mod, downloads the correct NeoForge file, classifies whether it belongs on the server, client, or both, updates DuckDB, rebuilds release artifacts, runs the configured validation hooks, and only promotes the release when the release pipeline accepts all required checks.</p>
+        <p class="safe-reset-command">"Add this mod to server MC 26.1.2: https://www.curseforge.com/minecraft/mc-mods/example-mod"</p>
+        <p class="note">The Swift server app resolves the mod, downloads the correct NeoForge file, classifies whether it belongs on the server, client, or both, updates server metadata, rebuilds release artifacts, runs the configured validation hooks, and only promotes the release when the release pipeline accepts all required checks.</p>
         <p class="operator-warning">Do not copy mod files into the live folders by hand. Manual installs skip dependency records, validation, release manifests, client sync metadata, and rollback history.</p>
       </div>
     </section>
@@ -809,31 +811,11 @@
       <h2>Safe World Reset</h2>
       <div class="operator-section">
         <p class="note">Send the request through Codex, OpenCode, Qwen, or another AI coding tool as an operator command, for example:</p>
-        <p class="safe-reset-command">"Make a Safe World Reset"</p>
-        <p class="safe-reset-command">"Make a Safe World Reset with seed 12345"</p>
-        <p class="note">The Swift server app plans the reset, requires destructive confirmation, removes the old active world safely, applies the default seed 5605164115430518763 unless a different seed is provided, reinstalls required datapacks, reapplies safety gamerules, starts the server, pregenerates a 1000-block radius around spawn, verifies completion, and writes the result to DuckDB.</p>
+        <p class="safe-reset-command">"Make a Safe World Reset for MC Server 26.1.2"</p>
+        <p class="safe-reset-command">"Make a Safe World Reset for MC Server 26.1.2 with seed 5605164115430518763"</p>
+        <p class="note">The Swift server app plans the reset, requires destructive confirmation, removes the old active world safely, applies the default seed 5605164115430518763 unless a different seed is provided, reinstalls required datapacks, reapplies safety gamerules, starts the server, pregenerates a 1000-block radius around spawn, verifies completion, and writes the result to server records.</p>
         <p class="operator-warning">Do not delete world folders manually. Manual deletion skips Swift validation, audit records, datapacks, gamerules, backups, and pregeneration.</p>
       </div>
-    </section>
-
-    <section id="new-server-mod-upgrade">
-      <h2>Full Mod Upgrade For A New MC Server</h2>
-      <div class="operator-section">
-        <p class="note">Send this operator request through Codex, OpenCode, Qoder, or another AI coding tool with project and VPS access. Replace the Minecraft version with the new server version you want to prepare.</p>
-        <p class="safe-reset-command">"Run the full mod upgrade pipeline for Minecraft Server 26.2: bootstrap from the previous live server, scan all server and client mods for compatible updates, preserve Priority Mod and Admin Locked entries, run the full validation and headless client test chain, build the new DMG if validation passes, update DuckDB and the website, and report the release result."</p>
-        <p class="note">The Swift server app will carry forward working mods from the previous supported server, search for newer compatible files, keep admin-forced mods protected, run the configured checks, and only publish a validated client/server release when the pipeline passes.</p>
-        <p class="operator-warning">Do not manually copy old mods into the new server version. Manual carry-forward skips source tracking, priority rules, compatibility status, test history, release manifests, client sync metadata, and rollback records.</p>
-      </div>
-    </section>
-
-    <section id="mods">
-      <h2>Mods</h2>
-      <p class="note">Sortable and filterable list of all managed mods. The placement column shows whether each entry belongs to the server, the Mac client, or both.</p>
-      <div class="toolbar update-table-toolbar">
-        <input id="modsSearch" class="search" type="search" placeholder="Filter mods by name, type, placement, file, source, or details">
-        <span id="modsCount" class="table-count">Loading...</span>
-      </div>
-      <div id="modsGrid" class="sheet-grid" aria-label="Mods data grid"></div>
     </section>
 
     <section id="client-mods" hidden aria-hidden="true">
@@ -1017,34 +999,98 @@
         node.textContent = relativeTimeLabel(node.getAttribute('datetime') || '');
       });
     }
+    const managedServerVersions = [
+      {
+        minecraft_version: '26.1.2',
+        server_name: 'MC Server 26.1.2',
+        dmg_url: 'https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.1.2.dmg',
+        sort_order: 1
+      },
+      {
+        minecraft_version: '26.2',
+        server_name: 'MC Server 26.2',
+        dmg_url: 'https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.2.dmg',
+        sort_order: 2
+      },
+      {
+        minecraft_version: '26.3',
+        server_name: 'MC Server 26.3',
+        dmg_url: 'https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.3.dmg',
+        sort_order: 3
+      }
+    ];
+    function mergeManagedVersions(data) {
+      const incoming = Array.isArray(data?.versions) ? data.versions : [];
+      return managedServerVersions.map(defaults => ({
+        ...defaults,
+        ...(incoming.find(version => version.minecraft_version === defaults.minecraft_version) || {})
+      })).sort((left, right) => Number(left.sort_order || 100) - Number(right.sort_order || 100));
+    }
+    function formatCount(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? String(number) : '--';
+    }
+    function displayValue(value, fallback = 'Not generated yet') {
+      const text = String(value ?? '').trim();
+      return text ? text : fallback;
+    }
     function renderServerVersions(data) {
       const grid = document.getElementById('serverVersionsGrid');
       if (!grid) return;
-      const versions = Array.isArray(data?.versions) ? data.versions : [];
-      if (!versions.length) {
-        grid.innerHTML = '<p class="note">No supported Minecraft server versions are published yet.</p>';
-        return;
-      }
-      const formatCount = value => {
-        const number = Number(value);
-        return Number.isFinite(number) ? String(number) : '-';
-      };
+      const versions = mergeManagedVersions(data);
       grid.innerHTML = versions.map(version => `
-        <article class="version-card">
-          <h3>${escapeHTML(version.server_name || `Pummelchen Server ${version.minecraft_version || ''}`)}</h3>
+        <article class="version-card server-version-card">
+          <h3>${escapeHTML(version.server_name || `MC Server ${version.minecraft_version || ''}`)}</h3>
           <dl>
-            <div><dt>Status</dt><dd>${escapeHTML(version.status || '-')}</dd></div>
-            <div><dt>Minecraft</dt><dd>${escapeHTML(version.minecraft_version || '-')}</dd></div>
-            <div><dt>NeoForge</dt><dd>${escapeHTML(version.loader_version || '-')}</dd></div>
             <div><dt>Server Mods</dt><dd>${escapeHTML(formatCount(version.server_mod_count))}</dd></div>
             <div><dt>Client Mods</dt><dd>${escapeHTML(formatCount(version.client_mod_count))}</dd></div>
-            <div><dt>Address</dt><dd>${escapeHTML(version.server_address || '-')}</dd></div>
+            <div><dt>Java Version Required</dt><dd>${escapeHTML(displayValue(version.java_version_required, 'Java 21+'))}</dd></div>
+            <div><dt>Status</dt><dd><span class="runtime-status ${escapeHTML(String(version.runtime_status || 'offline').toLowerCase())}">${escapeHTML(version.runtime_status || 'Offline')}</span></dd></div>
           </dl>
-          <div class="version-actions">
-            <a class="button secondary" href="${escapeHTML(version.page_url || '#')}">Open Version Page</a>
+          <div class="version-actions server-control-row">
+            <button class="button secondary" type="button" data-server-control="start" data-minecraft-version="${escapeHTML(version.minecraft_version || '')}">Start</button>
+            <button class="button danger" type="button" data-server-control="stop" data-minecraft-version="${escapeHTML(version.minecraft_version || '')}">Stop</button>
           </div>
         </article>
       `).join('');
+    }
+    function renderClientInstalls(data) {
+      const grid = document.getElementById('clientInstallGrid');
+      if (!grid) return;
+      const versions = mergeManagedVersions(data);
+      grid.innerHTML = versions.map(version => `
+        <article class="version-card client-install-card">
+          <h3>MC Server ${escapeHTML(version.minecraft_version || '')}</h3>
+          <dl>
+            <div><dt>Latest Version</dt><dd>${escapeHTML(displayValue(version.latest_version))}</dd></div>
+            <div><dt>Client Mod Pack Generated</dt><dd>${escapeHTML(displayValue(version.client_mod_pack_generated))}</dd></div>
+            <div><dt>Client Mod Pack Size</dt><dd>${escapeHTML(displayValue(version.client_mod_pack_size))}</dd></div>
+            <div><dt>New in the Mod Pack</dt><dd>${escapeHTML(displayValue(version.mod_pack_news, 'Dedicated client app pending.'))}</dd></div>
+          </dl>
+          <div class="version-actions">
+            <a class="button" href="${escapeHTML(version.dmg_url || '#')}">Download DMG</a>
+          </div>
+        </article>
+      `).join('');
+    }
+    async function controlMinecraftServer(version, action, button) {
+      const password = window.prompt(`Passport for ${action} MC Server ${version}`);
+      if (!password) return;
+      if (button) button.disabled = true;
+      try {
+        const response = await fetch('/api/v1/minecraft/server-control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ minecraft_version: version, action, password })
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+        await refreshServerVersions();
+      } catch (error) {
+        window.alert(`Server control failed: ${error.message}`);
+      } finally {
+        if (button) button.disabled = false;
+      }
     }
     async function refreshServerVersions() {
       try {
@@ -1054,264 +1100,6 @@
       } catch {
         renderServerVersions({ versions: [] });
       }
-    }
-    const modInventoryTableState = {};
-    const modInventoryConfigs = [
-      {
-        gridId: 'modsGrid',
-        searchId: 'modsSearch',
-        countId: 'modsCount',
-        endpoint: '/api/v1/site/mod-inventory/mods',
-        placeholder: 'No mods',
-      },
-    ];
-    function updateModInventoryCount(countId, visible, total, metadata = {}) {
-      const count = document.getElementById(countId);
-      if (!count) return;
-      count.textContent = visible === total ? `${total} entries` : `${visible} of ${total} entries`;
-    }
-    function compatibilityClass(value) {
-      return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unknown';
-    }
-    function modInventoryColumns(supportedVersions = []) {
-      const baseColumns = [
-        { title: 'Name', field: 'name', minWidth: 240, frozen: true, formatter: cell => {
-          const data = cell.getRow().getData();
-          if (!data.sourceUrl) return escapeHTML(data.name);
-          return `<a href="${escapeHTML(data.sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHTML(data.name)}</a>`;
-        } },
-        { title: 'Type', field: 'type', minWidth: 190 },
-        { title: 'Placement', field: 'placement', minWidth: 170 },
-        { title: 'Files', field: 'files', minWidth: 320 },
-        { title: 'Details', field: 'details', minWidth: 520 },
-      ];
-      const versionColumns = supportedVersions.map(version => {
-        const minecraftVersion = version.minecraft_version || version.minecraftVersion || '';
-        const label = minecraftVersion ? `MC ${minecraftVersion}` : 'MC';
-        const field = `compatibility_${minecraftVersion.replace(/[^a-z0-9]+/gi, '_')}`;
-        return {
-          title: label,
-          field,
-          minWidth: 120,
-          hozAlign: 'center',
-          headerTooltip: `${label} compatibility`,
-          formatter: cell => {
-            const data = cell.getRow().getData();
-            const value = data.compatibility?.[minecraftVersion] || 'Not installed';
-            return `<span class="compat compat-${compatibilityClass(value)}">${escapeHTML(value)}</span>`;
-          },
-          sorter: (a, b, aRow, bRow) => {
-            const aValue = aRow.getData().compatibility?.[minecraftVersion] || '';
-            const bValue = bRow.getData().compatibility?.[minecraftVersion] || '';
-            return aValue.localeCompare(bValue);
-          },
-        };
-      });
-      return [...baseColumns, ...versionColumns];
-    }
-    function modInventoryRowKey(row) {
-      if (row.sourceUrl) return `url:${String(row.sourceUrl).toLowerCase()}`;
-      if (row.name) return `name:${String(row.name).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
-      return `files:${String(row.files || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
-    }
-    function splitInventoryFiles(value) {
-      return String(value || '')
-        .replaceAll(' + ', ',')
-        .replaceAll(';', ',')
-        .split(',')
-        .map(item => item.trim())
-        .filter(Boolean);
-    }
-    function mergeInventoryFileList(left, right) {
-      const seen = new Set();
-      const values = [];
-      [...splitInventoryFiles(left), ...splitInventoryFiles(right)].forEach(item => {
-        const key = item.toLowerCase();
-        if (!seen.has(key)) {
-          seen.add(key);
-          values.push(item);
-        }
-      });
-      return values.join(', ');
-    }
-    function compatibilityRank(value) {
-      switch (String(value || '').toLowerCase()) {
-        case 'active': return 6;
-        case 'staged': return 5;
-        case 'compatible': return 4;
-        case 'compatible by file': return 3;
-        case 'needs test': return 2;
-        case 'not installed': return 1;
-        default: return 0;
-      }
-    }
-    function mergeCompatibility(left = {}, right = {}) {
-      const merged = { ...left };
-      Object.entries(right || {}).forEach(([version, status]) => {
-        if (compatibilityRank(status) > compatibilityRank(merged[version])) {
-          merged[version] = status;
-        }
-      });
-      return merged;
-    }
-    function placementLabel(flags) {
-      if (flags.server && flags.client) return 'Server & Client Mod';
-      if (flags.server) return 'Server Mod';
-      if (flags.client) return 'Client Mod';
-      return 'Unknown';
-    }
-    function mergeModInventoryRows(serverRows = [], clientRows = []) {
-      const merged = new Map();
-      const placement = new Map();
-      const add = (row, flags) => {
-        const key = modInventoryRowKey(row);
-        const existing = merged.get(key);
-        if (!existing) {
-          merged.set(key, { ...row });
-        } else {
-          merged.set(key, {
-            ...existing,
-            name: existing.name || row.name,
-            type: existing.type || row.type,
-            sourceUrl: existing.sourceUrl || row.sourceUrl,
-            sourceHost: existing.sourceHost || row.sourceHost,
-            files: mergeInventoryFileList(existing.files, row.files),
-            versionFile: mergeInventoryFileList(existing.versionFile, row.versionFile),
-            installed_version: mergeInventoryFileList(existing.installed_version, row.installed_version),
-            compatibility: mergeCompatibility(existing.compatibility, row.compatibility),
-            details: existing.details || row.details,
-            search: [existing.search, row.search].filter(Boolean).join(' '),
-          });
-        }
-        const previous = placement.get(key) || { server: false, client: false };
-        placement.set(key, { server: previous.server || flags.server, client: previous.client || flags.client });
-      };
-      serverRows.forEach(row => add(row, { server: true, client: false }));
-      clientRows.forEach(row => add(row, { server: false, client: true }));
-      return [...merged.entries()].map(([key, row]) => {
-        const label = placementLabel(placement.get(key) || {});
-        return {
-          ...row,
-          placement: label,
-          scope: label,
-          search: [row.search, label].filter(Boolean).join(' '),
-        };
-      }).sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), undefined, { sensitivity: 'base' }));
-    }
-    function searchableModRow(row) {
-      return [
-        row.name,
-        row.type,
-        row.placement,
-        row.files,
-        row.versionFile,
-        row.sourceHost,
-        row.details,
-        row.search,
-        row.compatibility ? Object.values(row.compatibility).join(' ') : '',
-      ].filter(Boolean).join(' ').toLowerCase();
-    }
-    function normalizeModInventoryRows(rows) {
-      return rows.map(row => ({
-        ...row,
-        searchText: searchableModRow(row),
-      }));
-    }
-    function metadataFromInventoryPayload(payload) {
-      return {
-        minecraftVersion: payload?.minecraft_version || '',
-        releaseID: payload?.release_id || '',
-        supportedVersions: Array.isArray(payload?.supported_versions) ? payload.supported_versions : [],
-      };
-    }
-    function rowsFromInventoryPayload(payload, fallbackRows) {
-      const rows = Array.isArray(payload?.rows) ? payload.rows : fallbackRows;
-      return normalizeModInventoryRows(Array.isArray(rows) ? rows : []);
-    }
-    function applyModInventoryRows(config, rows, metadata = {}) {
-      const input = document.getElementById(config.searchId);
-      const grid = document.getElementById(config.gridId);
-      updateModInventoryCount(config.countId, rows.length, rows.length, metadata);
-      if (!grid || !window.Tabulator) return;
-      const existing = modInventoryTableState[config.gridId];
-      if (existing) {
-        existing.rows = rows;
-        existing.metadata = metadata;
-        const signature = JSON.stringify((metadata.supportedVersions || []).map(version => version.minecraft_version || version.minecraftVersion || ''));
-        if (signature !== existing.versionSignature) {
-          existing.versionSignature = signature;
-          existing.table.setColumns(modInventoryColumns(metadata.supportedVersions || []));
-        }
-        existing.table.replaceData(rows).then(() => existing.applyFilter());
-        return;
-      }
-      const versionSignature = JSON.stringify((metadata.supportedVersions || []).map(version => version.minecraft_version || version.minecraftVersion || ''));
-      const table = new Tabulator(grid, {
-        data: rows,
-        layout: 'fitColumns',
-        height: rows.length > 12 ? '620px' : undefined,
-        placeholder: config.placeholder,
-        initialSort: [{ column: 'name', dir: 'asc' }],
-        pagination: rows.length > 25 ? 'local' : false,
-        paginationSize: 25,
-        paginationSizeSelector: [25, 50, 100, 250],
-        columnDefaults: {
-          headerSort: true,
-          resizable: true,
-          tooltip: true,
-        },
-        columns: modInventoryColumns(metadata.supportedVersions || []),
-      });
-      table.on('dataFiltered', (filters, activeRows) => {
-        const state = modInventoryTableState[config.gridId];
-        const tableRows = state?.rows || rows;
-        const tableMetadata = state?.metadata || metadata;
-        updateModInventoryCount(config.countId, Array.isArray(activeRows) ? activeRows.length : tableRows.length, tableRows.length, tableMetadata);
-      });
-      const applyFilter = () => {
-        const state = modInventoryTableState[config.gridId];
-        const tableRows = state?.rows || rows;
-        const tableMetadata = state?.metadata || metadata;
-        const query = input ? input.value.trim().toLowerCase() : '';
-        if (!query) {
-          table.clearFilter(true);
-        } else {
-          table.setFilter(data => String(data.searchText || '').includes(query));
-        }
-        const visibleRows = query
-          ? tableRows.filter(row => String(row.searchText || '').includes(query)).length
-          : tableRows.length;
-        updateModInventoryCount(config.countId, visibleRows, tableRows.length, tableMetadata);
-      };
-      modInventoryTableState[config.gridId] = { table, rows, metadata, applyFilter, versionSignature };
-      table.on('tableBuilt', applyFilter);
-      if (input) input.addEventListener('input', applyFilter);
-    }
-    function wireModInventoryTable(config) {
-      applyModInventoryRows(config, []);
-    }
-    function wireModInventoryTables() {
-      modInventoryConfigs.forEach(wireModInventoryTable);
-    }
-    async function refreshModInventoryTable(config) {
-      try {
-        const response = await fetch(config.endpoint, { cache: 'no-store' });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const payload = await response.json();
-        applyModInventoryRows(config, rowsFromInventoryPayload(payload, []), metadataFromInventoryPayload(payload));
-      } catch (error) {
-        const state = modInventoryTableState[config.gridId];
-        if (!state) {
-          applyModInventoryRows(config, []);
-        }
-        const count = document.getElementById(config.countId);
-        if (count) {
-          count.textContent = `Live data unavailable: ${error.message}`;
-        }
-      }
-    }
-    function refreshModInventoryTables() {
-      modInventoryConfigs.forEach(refreshModInventoryTable);
     }
     function copySnippetText(text) {
       if (navigator.clipboard && window.isSecureContext) {
@@ -1389,15 +1177,18 @@
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
     }
+    document.addEventListener('click', async event => {
+      const button = event.target.closest('[data-server-control]');
+      if (!button) return;
+      event.preventDefault();
+      await controlMinecraftServer(button.dataset.minecraftVersion || '', button.dataset.serverControl || '', button);
+    });
     updateRelativeTimes();
     window.setInterval(updateRelativeTimes, 60000);
     refreshLiveStats();
     window.setInterval(refreshLiveStats, 5000);
     refreshServerVersions();
     window.setInterval(refreshServerVersions, 5000);
-    wireModInventoryTables();
-    refreshModInventoryTables();
-    window.setInterval(refreshModInventoryTables, 15000);
     window.addEventListener('resize', refreshLiveStats);
     wireSnippetCopyButtons();
   </script>
