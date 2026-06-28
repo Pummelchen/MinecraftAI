@@ -113,7 +113,7 @@ public struct ClientDMGBuilder: Sendable {
     }
 
     public static func appDisplayName(minecraftVersion: String) -> String {
-        "MCPummelchenModClient \(artifactVersion(minecraftVersion))"
+        "MCPummelchenModClient_\(artifactVersion(minecraftVersion))"
     }
 
     public static func appBundleName(minecraftVersion: String) -> String {
