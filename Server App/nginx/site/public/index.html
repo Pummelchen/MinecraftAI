@@ -1105,6 +1105,7 @@
         <article class="version-card server-version-card">
           <h3>${escapeHTML(version.server_name || `MC Server ${version.minecraft_version || ''}`)}</h3>
           <dl>
+            <div><dt>Server IP:Port</dt><dd>${escapeHTML(displayValue(version.server_address, '--'))}</dd></div>
             <div><dt>Server Mods</dt><dd>${escapeHTML(formatCount(version.server_mod_count))}</dd></div>
             <div><dt>Client Mods</dt><dd>${escapeHTML(formatCount(version.client_mod_count))}</dd></div>
             <div><dt>Game Mode</dt><dd>${escapeHTML(displayValue(version.server_game_mode, '--'))}</dd></div>
