@@ -755,6 +755,46 @@
       gap: 10px;
       margin-top: 14px;
     }
+    .server-control-button {
+      min-width: 60px;
+      border-color: rgba(255, 255, 255, 0.24);
+      transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+    }
+    .server-control-button.is-available-start {
+      background: #b9f6cf;
+      border-color: #8ee8ad;
+      color: #062813;
+    }
+    .server-control-button.is-available-stop {
+      background: #ffc2c2;
+      border-color: #f29a9a;
+      color: #3a0909;
+    }
+    .server-control-button.is-inactive-action {
+      background: rgba(244, 248, 252, 0.13);
+      border-color: rgba(255, 255, 255, 0.2);
+      color: var(--ink);
+      opacity: 0.78;
+    }
+    html[data-theme="glass"] .server-control-button.is-available-start {
+      background: rgba(185, 246, 207, 0.9);
+      border-color: rgba(142, 232, 173, 0.88);
+      color: #052414;
+    }
+    html[data-theme="glass"] .server-control-button.is-available-stop {
+      background: rgba(255, 194, 194, 0.9);
+      border-color: rgba(242, 154, 154, 0.88);
+      color: #330707;
+    }
+    html[data-theme="glass"] .server-control-button.is-inactive-action {
+      background: rgba(244, 248, 252, 0.13);
+      border-color: rgba(255, 255, 255, 0.2);
+      color: var(--ink);
+    }
+    .server-control-button:hover,
+    .server-control-button:focus-visible {
+      opacity: 1;
+    }
     footer { padding: 24px 0 42px; color: var(--muted); }
     @media (max-width: 980px) {
       .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -1097,11 +1137,26 @@
       const text = String(value ?? '').trim();
       return text ? text : fallback;
     }
+    function normalizeRuntimeStatus(value) {
+      return String(value || 'offline').trim().toLowerCase();
+    }
+    function serverControlClasses(action, runtimeStatus) {
+      const isOnline = runtimeStatus === 'online';
+      const isActionAvailable = (action === 'start' && !isOnline) || (action === 'stop' && isOnline);
+      if (isActionAvailable) return action === 'start' ? 'is-available-start' : 'is-available-stop';
+      return 'is-inactive-action';
+    }
     function renderServerVersions(data) {
       const grid = document.getElementById('serverVersionsGrid');
       if (!grid) return;
       const versions = mergeManagedVersions(data);
-      grid.innerHTML = versions.map(version => `
+      grid.innerHTML = versions.map(version => {
+        const runtimeStatus = normalizeRuntimeStatus(version.runtime_status);
+        const statusLabel = displayValue(version.runtime_status, 'Offline');
+        const minecraftVersion = escapeHTML(version.minecraft_version || '');
+        const startClass = serverControlClasses('start', runtimeStatus);
+        const stopClass = serverControlClasses('stop', runtimeStatus);
+        return `
         <article class="version-card server-version-card">
           <h3>${escapeHTML(version.server_name || `MC Server ${version.minecraft_version || ''}`)}</h3>
           <dl>
@@ -1110,14 +1165,15 @@
             <div><dt>Client Mods</dt><dd>${escapeHTML(formatCount(version.client_mod_count))}</dd></div>
             <div><dt>Game Mode</dt><dd>${escapeHTML(displayValue(version.server_game_mode, '--'))}</dd></div>
             <div><dt>Java Version Required</dt><dd>${escapeHTML(displayValue(version.java_version_required, 'Unavailable'))}</dd></div>
-            <div><dt>Status</dt><dd><span class="runtime-status ${escapeHTML(String(version.runtime_status || 'offline').toLowerCase())}">${escapeHTML(version.runtime_status || 'Offline')}</span></dd></div>
+            <div><dt>Status</dt><dd><span class="runtime-status ${escapeHTML(runtimeStatus)}">${escapeHTML(statusLabel)}</span></dd></div>
           </dl>
           <div class="version-actions server-control-row">
-            <button class="button secondary" type="button" data-server-control="start" data-minecraft-version="${escapeHTML(version.minecraft_version || '')}">Start</button>
-            <button class="button danger" type="button" data-server-control="stop" data-minecraft-version="${escapeHTML(version.minecraft_version || '')}">Stop</button>
+            <button class="button server-control-button ${startClass}" type="button" data-server-control="start" data-minecraft-version="${minecraftVersion}" aria-label="Start MC Server ${minecraftVersion}">Start</button>
+            <button class="button server-control-button ${stopClass}" type="button" data-server-control="stop" data-minecraft-version="${minecraftVersion}" aria-label="Stop MC Server ${minecraftVersion}">Stop</button>
           </div>
         </article>
-      `).join('');
+      `;
+      }).join('');
     }
     function renderClientInstalls(data) {
       const grid = document.getElementById('clientInstallGrid');
