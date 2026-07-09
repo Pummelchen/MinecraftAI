@@ -10,6 +10,38 @@ Human edits are allowed. Future refreshes should preserve valid human edits.
 -->
 # AI Onboarding Changelog
 
+## 2026-07-09T05:25:00+02:00 — project-management control plane
+
+**Operation mode:** `project-management-control-plane`  
+**Base branch head inspected for PM setup:** `aa52bcab16cda5cfca5a8e146f4356842cc4bbcb`
+
+### Change reason
+
+Added repository-specific GitHub project-management rules so GitHub Issues, Milestones, Projects, labels, Codex-ready queues, human-review queues, and release-evidence work are discoverable from the AI onboarding entrypoints.
+
+### Files added or updated
+
+- Added `.ai/PROJECT_MANAGEMENT.md`.
+- Updated `AI_INDEX.md` recommended read order and task map.
+- Updated `.ai/START_HERE.md` task-specific reading order.
+- Updated `.ai/MANIFEST.json` generated file list, recommended read order, source list, refresh reason, warnings, and relevant change paths.
+- Added GitHub issue templates under `.github/ISSUE_TEMPLATE/`.
+
+### Validation status
+
+Performed through GitHub connector/API operations:
+
+- PR created for the project-management control-plane files.
+- Automated Codex review feedback was inspected.
+- `.ai/PROJECT_MANAGEMENT.md` was registered in onboarding metadata/read order.
+
+Not performed:
+
+- Swift builds/tests;
+- local JSON parsing in a checkout;
+- GitHub label, milestone, or Project field/view creation through the connector;
+- production deployment, migration, release, RCON, or live service validation.
+
 ## 2026-06-25T22:08:15+02:00 — full refresh and rewrite
 
 **Operation mode:** `refresh`  
@@ -106,3 +138,4 @@ The initial bootstrap added the vendor-neutral file set and README onboarding bl
 - Git comparison between the previous and current indexed commits
 - current repository source/configuration/test files listed in `.ai/MANIFEST.json`
 - this generated ZIP's validation report/checksums
+- `.ai/PROJECT_MANAGEMENT.md`
