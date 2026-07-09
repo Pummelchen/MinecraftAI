@@ -10,7 +10,7 @@ Human edits are allowed. Future refreshes should preserve valid human edits.
 -->
 # AI Index: MinecraftAI
 
-This is the primary entrypoint for a new AI coding session. Read this file first, then `AGENTS.md`, then the task-specific files under `.ai/`. Re-open current source before editing: this index is a map, not a substitute for code.
+This is the primary entrypoint for a new AI coding session. Read this file first, then `AGENTS.md`, then the task-specific files under `.ai/`. Re-open current source before editing: this index is a map, not a substitute for code. For GitHub issue, milestone, project-board, Codex queue, human-review queue, or release-evidence triage, also read `.ai/PROJECT_MANAGEMENT.md`.
 
 ## Repository snapshot
 
@@ -84,7 +84,8 @@ See `.ai/ARCHITECTURE.md` for detailed request, release, scan, client-sync, DMG,
 | `Server App/nginx/` | nginx configuration and tracked public website source. | Runtime `/downloads/` contents are generated and intentionally not tracked. |
 | `Server App/systemd/` | Server/update-scan units, timer, and service drop-ins. | Root-owned live service; preserve hardening and write-path restrictions. |
 | `Live Backup/` | In-repository production DuckDB backup/checksum snapshots described by README. | Treat as recovery/audit material, not ordinary source. Do not rewrite casually. |
-| `.ai/` | Vendor-neutral AI onboarding system. | Refresh after architectural, command, deployment, schema, security, or testing changes. |
+| `.ai/` | Vendor-neutral AI onboarding system. | Refresh after architectural, command, deployment, schema, security, testing, or project-management workflow changes. |
+| `.ai/PROJECT_MANAGEMENT.md` | GitHub PM/Codex control-plane rules. | Read before creating/triaging issues, milestones, project fields, Codex-ready queues, human-review queues, or release-evidence workflows. |
 
 ## Swift package and product map
 
@@ -141,6 +142,7 @@ Manifest: `Server App/MCPummelchenModShared/Package.swift`
 | Public website | `Server App/nginx/site/public/index.html` and companion pages | changing live site UI or API consumption. |
 | Public edge | `Server App/nginx/sites-available/pummelchen-swift.conf` | changing TLS/listeners, API proxying, aliases, caching, or downloads. |
 | Live service | `Server App/systemd/MCPummelchenModServer_26.1.2.service` | changing process ownership, runtime paths, restart policy, or hardening. |
+| GitHub PM control plane | `.ai/PROJECT_MANAGEMENT.md` | creating/triaging issues, labels, milestones, project fields/views, Codex queues, human-review queues, or release evidence. |
 
 ## Server HTTP API surface
 
@@ -324,6 +326,7 @@ Unless the task explicitly targets generated artifacts, avoid editing or committ
 | Change website | `Server App/nginx/site/public/` and API payloads it consumes | static review plus endpoint tests |
 | Change nginx/systemd | corresponding config/docs and `.ai/SECURITY.md` | config review; deployment-owner approval |
 | Change world reset/RCON | world pipeline, RCON client, supervisor, contracts | dry-run only unless explicitly authorized |
+| Triage GitHub PM/Codex work | `.ai/PROJECT_MANAGEMENT.md`, issue body, project fields, safety labels | metadata review; do not mark production-sensitive work Codex-ready |
 
 ## Recommended first-read order
 
@@ -336,9 +339,10 @@ Unless the task explicitly targets generated artifacts, avoid editing or committ
 7. `.ai/COMMANDS.md`
 8. `.ai/TESTING.md`
 9. `.ai/SECURITY.md`
-10. `.ai/PLAYBOOKS.md`
-11. `.ai/KNOWN_UNKNOWNS.md`
-12. Current source files for the requested task
+10. `.ai/PROJECT_MANAGEMENT.md`
+11. `.ai/PLAYBOOKS.md`
+12. `.ai/KNOWN_UNKNOWNS.md`
+13. Current source files for the requested task
 
 ## Refresh analysis
 
@@ -354,6 +358,7 @@ The previous index referenced `743356f85b0d4343cb8b1f71a92731eaf479bf47`. Curren
 ## Evidence
 
 - `README.md`
+- `.ai/PROJECT_MANAGEMENT.md`
 - `Client App/MCPummelchenModClient/Package.swift`
 - `Client App/MCPummelchenModClient/Sources/MCPummelchenModClient/main.swift`
 - `Client App/MCPummelchenModClient/Sources/MCPummelchenModClientCore/ClientSyncEngine.swift`

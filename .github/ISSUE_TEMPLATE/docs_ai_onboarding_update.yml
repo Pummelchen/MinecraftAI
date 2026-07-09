@@ -1,0 +1,125 @@
+name: Docs / AI Onboarding Update
+description: Refresh AI onboarding or project documentation without replacing the existing system
+title: "[Docs] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Preserve `AI_INDEX.md`, `AGENTS.md`, and `.ai/*`. Update only when current source, commands, architecture, routes, tests, deployment, security, or schema have drifted.
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What documentation or onboarding drift should be corrected?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Specific docs and current source/config files to compare.
+    validations:
+      required: true
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Non-goals
+      description: What docs or generated systems must not be replaced.
+    validations:
+      required: true
+  - type: textarea
+    id: source-evidence
+    attributes:
+      label: Source evidence
+      description: Current source/config/test evidence proving docs are stale or incomplete.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] Current source was inspected before editing docs.
+        - [ ] Human edits are preserved.
+        - [ ] `.ai/CHANGELOG.md` / `.ai/MANIFEST.json` are updated if required by the existing onboarding process.
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Relevant files/directories
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: Safe documentation checks from `.ai/COMMANDS.md` where applicable.
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - Low
+        - Medium
+        - High
+        - Critical
+    validations:
+      required: true
+  - type: dropdown
+    id: human-review
+    attributes:
+      label: Human review required
+      options:
+        - "No"
+        - "Yes"
+    validations:
+      required: true
+  - type: textarea
+    id: human-review-reason
+    attributes:
+      label: Human review reason
+    validations:
+      required: true
+  - type: dropdown
+    id: codex-suitability
+    attributes:
+      label: Codex suitability
+      options:
+        - Safe for Codex
+        - Needs Human Context
+        - Do Not Autocode
+    validations:
+      required: true
+  - type: textarea
+    id: codex-instructions
+    attributes:
+      label: Codex instructions
+      description: How Codex should compare source to docs and preserve existing onboarding structure.
+    validations:
+      required: true
+  - type: dropdown
+    id: expected-pr-size
+    attributes:
+      label: Expected PR size
+      options:
+        - Small
+        - Medium
+        - Large
+    validations:
+      required: true
+  - type: textarea
+    id: project-fields
+    attributes:
+      label: Project fields
+      placeholder: |
+        Phase: M1
+        Priority: P...
+        Area: AI Onboarding / Docs
+        Risk: ...
+        Codex suitability: ...
+        Evidence required: Yes/No
+    validations:
+      required: true
