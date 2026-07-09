@@ -1,0 +1,128 @@
+name: Codex Task
+description: Focused implementation task intended for AI-assisted coding
+title: "[Codex] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for focused PR-sized tasks. Do not use it for production-destructive work, release activation, live-version promotion, RCON operations, production DB mutation, or unresolved security policy decisions.
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What should this issue accomplish?
+      placeholder: "Implement..."
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Specific files, directories, commands, APIs, docs, or behavior in scope.
+    validations:
+      required: true
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Non-goals
+      description: What must not be changed.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Verifiable checklist.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Relevant files/directories
+      description: List likely paths.
+      placeholder: |
+        - `path/to/file.swift`
+        - `path/to/tests/`
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: Smallest safe commands first. Prefer commands from `.ai/COMMANDS.md`.
+      placeholder: |
+        - `swift build --package-path "..."`
+        - `swift test --package-path "..." --filter ...`
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - Low
+        - Medium
+        - High
+        - Critical
+    validations:
+      required: true
+  - type: dropdown
+    id: human-review
+    attributes:
+      label: Human review required
+      options:
+        - "No"
+        - "Yes"
+    validations:
+      required: true
+  - type: textarea
+    id: human-review-reason
+    attributes:
+      label: Human review reason
+      description: Explain why review is or is not required.
+    validations:
+      required: true
+  - type: dropdown
+    id: codex-suitability
+    attributes:
+      label: Codex suitability
+      options:
+        - Safe for Codex
+        - Needs Human Context
+        - Do Not Autocode
+    validations:
+      required: true
+  - type: textarea
+    id: codex-instructions
+    attributes:
+      label: Codex instructions
+      description: Specific implementation instructions for an AI coding agent.
+    validations:
+      required: true
+  - type: dropdown
+    id: expected-pr-size
+    attributes:
+      label: Expected PR size
+      options:
+        - Small
+        - Medium
+        - Large
+    validations:
+      required: true
+  - type: textarea
+    id: project-fields
+    attributes:
+      label: Project fields
+      description: Phase, priority, area, risk, Codex suitability, evidence required.
+      placeholder: |
+        Phase: M...
+        Priority: P...
+        Area: ...
+        Risk: ...
+        Codex suitability: ...
+        Evidence required: Yes/No
+    validations:
+      required: true
