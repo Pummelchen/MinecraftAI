@@ -1,3 +1,13 @@
+<!--
+AI onboarding file.
+Mode: project-management-control-plane
+Indexed commit: aa52bcab16cda5cfca5a8e146f4356842cc4bbcb
+Last generated: 2026-07-09T05:25:00+02:00
+Generator: GPT-5.5 Thinking
+Purpose: Define GitHub PM workflow, Codex routing, human review queues, and release evidence handling.
+Audience: Maintainers and high-capability AI coding agents working through GitHub Issues, Milestones, Projects, and PRs.
+Human edits are allowed. Future refreshes should preserve valid human edits.
+-->
 # Project Management Control Plane
 
 This document defines how MinecraftAI work should be routed through GitHub Issues, Milestones, and Projects so AI coding agents can safely pick up focused tasks while human operators retain authority over production-sensitive decisions.
