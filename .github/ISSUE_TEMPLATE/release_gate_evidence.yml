@@ -1,0 +1,131 @@
+name: Release Gate Evidence
+description: Track proof required before release activation or approval
+title: "[Release Gate] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for evidence inventory and approval tracking. Do not fabricate soak reports, release-health records, migration results, or test output.
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What release gate or evidence gap should this close?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Specific files, commands, artifacts, APIs, docs, or operator evidence in scope.
+    validations:
+      required: true
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Non-goals
+      description: What must not be changed or claimed.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence-local
+    attributes:
+      label: Local evidence
+      description: Evidence that can be generated safely from source, fixtures, or disposable state.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence-operator
+    attributes:
+      label: Operator or production evidence
+      description: Evidence requiring live host, credentials, account state, production DB, nginx/systemd, Minecraft, or human release approval.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] Local evidence list is complete.
+        - [ ] Operator evidence is clearly separated.
+        - [ ] No unrun command is marked as passed.
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Relevant files/directories
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: Smallest safe commands first. Prefer commands from `.ai/COMMANDS.md`.
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - Low
+        - Medium
+        - High
+        - Critical
+    validations:
+      required: true
+  - type: dropdown
+    id: human-review
+    attributes:
+      label: Human review required
+      options:
+        - "Yes"
+        - "No"
+    validations:
+      required: true
+  - type: textarea
+    id: human-review-reason
+    attributes:
+      label: Human review reason
+    validations:
+      required: true
+  - type: dropdown
+    id: codex-suitability
+    attributes:
+      label: Codex suitability
+      options:
+        - Needs Human Context
+        - Safe for Codex
+        - Do Not Autocode
+    validations:
+      required: true
+  - type: textarea
+    id: codex-instructions
+    attributes:
+      label: Codex instructions
+    validations:
+      required: true
+  - type: dropdown
+    id: expected-pr-size
+    attributes:
+      label: Expected PR size
+      options:
+        - Small
+        - Medium
+        - Large
+    validations:
+      required: true
+  - type: textarea
+    id: project-fields
+    attributes:
+      label: Project fields
+      placeholder: |
+        Phase: M10 or M11
+        Priority: P...
+        Area: Release Build / Headless Soak / CI / Docs
+        Risk: ...
+        Codex suitability: ...
+        Evidence required: Yes
+    validations:
+      required: true
