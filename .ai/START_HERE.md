@@ -28,6 +28,7 @@ Before editing anything:
    - COMMANDS.md for exact commands and safety classification
    - TESTING.md for test layout and validation expectations
    - SECURITY.md for trust boundaries and sensitive operations
+   - PROJECT_MANAGEMENT.md for GitHub issues, milestones, projects, Codex routing, human-review queues, and release evidence
    - PLAYBOOKS.md for repeatable change procedures
    - KNOWN_UNKNOWNS.md for conflicts and facts requiring human review
 3. Inspect the current source/configuration files directly involved in the task.
@@ -96,6 +97,14 @@ Production-only checks not run:
 ```
 
 ## Task-specific reading order
+
+### Project management, Codex queue, issue triage, or GitHub setup
+
+1. `.ai/PROJECT_MANAGEMENT.md` for milestone, label, project-field, Codex-ready, human-review, and evidence rules.
+2. `AI_INDEX.md` and `AGENTS.md` for repository-wide invariants.
+3. `.ai/SECURITY.md` and `.ai/KNOWN_UNKNOWNS.md` before marking production-sensitive work as Codex-ready.
+4. Existing GitHub issues, PRs, labels, milestones, and project fields/views.
+5. Current source/config files named in the issue before deciding Codex suitability.
 
 ### Server API or public site data
 
@@ -225,6 +234,7 @@ Onboarding update:
 
 - `AI_INDEX.md`
 - `AGENTS.md`
+- `.ai/PROJECT_MANAGEMENT.md`
 - `.ai/PROJECT_MAP.md`
 - `.ai/ARCHITECTURE.md`
 - `.ai/COMPONENTS.md`
