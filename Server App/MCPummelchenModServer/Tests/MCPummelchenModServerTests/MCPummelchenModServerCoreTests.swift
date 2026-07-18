@@ -54,7 +54,7 @@ struct MCPummelchenModServerCoreTests {
         #expect(object?["api_version"] as? String == "v1")
         #expect(object?["mode"] as? String == "read_only")
         #expect(object?["current_release_id"] as? String == "release_20260612_V6_modernarch-refresh")
-        #expect(object?["transport_target"] as? String == "nginx_https_api")
+        #expect(object?["transport_target"] as? String == "public_edge_https_api")
     }
 
     @Test("Minecraft autostart config is explicit and environment driven")
@@ -171,8 +171,8 @@ struct MCPummelchenModServerCoreTests {
         #expect(payload.stats["Mac Installer DMG URL"] == "https://pummelchen.91.99.176.243.nip.io/downloads/MCPummelchenModClient_26.2.dmg")
     }
 
-    @Test("publishes live site stats JSON for nginx")
-    func publishesLiveSiteStatsForNginx() throws {
+    @Test("publishes live site stats JSON for the public edge")
+    func publishesLiveSiteStatsForPublicEdge() throws {
         let fixture = try makeProjectFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
@@ -1177,8 +1177,8 @@ struct MCPummelchenModServerCoreTests {
         )
         VALUES (
           'release_20260613_V23_update_check',
-          TIMESTAMP '2026-06-13 18:25:41',
-          TIMESTAMP '2026-06-13 18:26:12',
+          now() - INTERVAL 1 MINUTE,
+          now(),
           'minecraft_26_1_2',
           '/srv/minecraft',
           '/srv/releases/release_20260613_V23_update_check',
@@ -1405,7 +1405,7 @@ struct MCPummelchenModServerCoreTests {
         try writeDMGHeadlessLiveSoakReport(releaseID: releaseID, dmgSHA: dmgSHA, serverDir: serverDir, minecraftVersion: "26.1.2")
         let tempCleanupRoot = root.appendingPathComponent("tmp", isDirectory: true)
         let clientBuildTemp = clientPackage.appendingPathComponent(".build/pummelchen-dmg/stage", isDirectory: true)
-        let projectBuildTemp = root.appendingPathComponent(".build/pummelchen-dmg/nginx-control-live-test", isDirectory: true)
+        let projectBuildTemp = root.appendingPathComponent(".build/pummelchen-dmg/public-edge-control-live-test", isDirectory: true)
         let binaryBackups = root.appendingPathComponent("bin/backups", isDirectory: true)
         let sparkTmp = serverDir.appendingPathComponent("config/spark/tmp", isDirectory: true)
         try FileManager.default.createDirectory(at: clientBuildTemp, withIntermediateDirectories: true)
@@ -2527,8 +2527,8 @@ struct MCPummelchenModServerCoreTests {
         #expect(try duckDBScalar(database: database, sql: "SELECT COALESCE(installed_file, '') FROM core.mod_sources;") == "adchimneys-26.1.0.0.jar")
     }
 
-    @Test("phase 8 control events use safe payloads over nginx HTTPS")
-    func phase8ControlEventsUseNginxHTTPSAndRejectDownloads() async throws {
+    @Test("phase 8 control events use safe payloads over the public HTTPS edge")
+    func phase8ControlEventsUsePublicEdgeHTTPSAndRejectDownloads() async throws {
         try requireDuckDB()
         let fixture = try makeProjectFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -2540,7 +2540,7 @@ struct MCPummelchenModServerCoreTests {
 
         let infoResponse = api.response(for: HTTPRequest(method: "GET", path: "/api/v1/control/info"))
         let info = try JSONDecoder().decode(ControlChannelInfo.self, from: infoResponse.body)
-        #expect(info.transportTarget == "nginx_https_poll")
+        #expect(info.transportTarget == "public_edge_https_poll")
         #expect(info.endpoint == "/api/v1/control/events")
         #expect(info.bidirectional)
         #expect(!info.downloadsAllowed)
@@ -2719,8 +2719,8 @@ struct MCPummelchenModServerCoreTests {
         #expect(batchB.events.map(\.eventID) == [event.eventID])
     }
 
-    @Test("phase 8 client fetches and acknowledges control events over nginx HTTPS")
-    func phase8ClientUsesNginxHTTPSControlChannel() async throws {
+    @Test("phase 8 client fetches and acknowledges control events over the public HTTPS edge")
+    func phase8ClientUsesPublicEdgeHTTPSControlChannel() async throws {
         try requireDuckDB()
         let fixture = try makeProjectFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -3021,7 +3021,7 @@ struct MCPummelchenModServerCoreTests {
         INSERT OR REPLACE INTO release.release_events VALUES (
           'fixture-event-1',
           'release_20260612_V6_modernarch-refresh',
-          TIMESTAMP '2026-06-12 17:04:13',
+          now() - INTERVAL 2 MINUTE,
           'health',
           'ok',
           'test',
@@ -3043,8 +3043,8 @@ struct MCPummelchenModServerCoreTests {
         );
         INSERT OR REPLACE INTO core.mod_update_scans VALUES (
           'fixture-scan-1',
-          TIMESTAMP '2026-06-12 17:02:00',
-          TIMESTAMP '2026-06-12 17:03:00',
+          now() - INTERVAL 4 MINUTE,
+          now() - INTERVAL 3 MINUTE,
           'completed',
           2,
           1,
@@ -3065,7 +3065,7 @@ struct MCPummelchenModServerCoreTests {
         INSERT OR REPLACE INTO release.release_health_results VALUES (
           'fixture-health-1',
           'release_20260612_V6_modernarch-refresh',
-          TIMESTAMP '2026-06-12 17:04:30',
+          now() - INTERVAL 1 MINUTE,
           'ok',
           'fixture health passed'
         );

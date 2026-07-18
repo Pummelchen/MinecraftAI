@@ -38,7 +38,7 @@ body:
     id: evidence-operator
     attributes:
       label: Operator or production evidence
-      description: Evidence requiring live host, credentials, account state, production DB, nginx/systemd, Minecraft, or human release approval.
+      description: Evidence requiring live host, credentials, account state, production DB, Caddy/systemd, Minecraft, or human release approval.
     validations:
       required: true
   - type: textarea

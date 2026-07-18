@@ -99,7 +99,7 @@ public struct MCPummelchenModServerConfig: Sendable {
         clientAPIToken: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_CLIENT_API_TOKEN"],
         serverControlPassword: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_SERVER_CONTROL_PASSWORD"],
         maxWritePayloadBytes: Int = 256 * 1024,
-        transportTarget: String = ProcessInfo.processInfo.environment["PUMMELCHEN_TRANSPORT_TARGET"] ?? "nginx_https_api",
+        transportTarget: String = ProcessInfo.processInfo.environment["PUMMELCHEN_TRANSPORT_TARGET"] ?? "public_edge_https_api",
         transportFallback: String = "none",
         managedMinecraftVersion: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_VERSION"] ?? "26.1.2",
         managedMinecraftServerDirectory: String? = ProcessInfo.processInfo.environment["PUMMELCHEN_MANAGED_MINECRAFT_DIR"],
@@ -1952,7 +1952,7 @@ public final class MCPummelchenModServerAPI: @unchecked Sendable {
     private func controlInfo() throws -> HTTPResponse {
         let payload = ControlChannelInfo(
             endpoint: "/api/v1/control/events",
-            transportTarget: "nginx_https_poll",
+            transportTarget: "public_edge_https_poll",
             bidirectional: true,
             fallbackEndpoint: "",
             maxPayloadBytes: ControlEventStore.maxControlPayloadBytes,

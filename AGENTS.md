@@ -1,8 +1,8 @@
 <!--
 AI onboarding file.
 Mode: refresh
-Indexed commit: 00e25e1a9584ca075e27b404305bda18157aa7f3
-Last generated: 2026-06-25T22:08:15+02:00
+Indexed commit: dc4cf76f7f0a60ffba9c8681708432a75faed1f2
+Last generated: 2026-07-18T22:16:29+07:00
 Generator: generic high-end AI coding agent
 Purpose: Help future AI sessions understand this repository quickly.
 Audience: Any high-capability AI coding agent, regardless of vendor or model family.
@@ -58,7 +58,7 @@ Never invent a command, service, schema, route, environment variable, platform r
 
 ### Runtime and language boundary
 
-- Production runtime duties belong to Swift, embedded DuckDB, nginx, and systemd.
+- Production runtime duties belong to Swift, embedded DuckDB, Caddy, and systemd.
 - Shell commands and small Python tools are acceptable for build/test/operator workflows only; do not introduce a new always-on script-based service without an explicit architectural decision.
 - The Swift packages use paths containing spaces. Quote every package path in commands.
 
@@ -96,7 +96,7 @@ Never invent a command, service, schema, route, environment variable, platform r
 
 - Operational website sections must use Swift API/DuckDB data.
 - Do not add stale committed JSON fallbacks for release history, live stats, mod inventory, failed mods, release health, update activity, or server versions.
-- Keep large downloads on nginx static paths, not the control API.
+- Keep large downloads on Caddy static paths, not the control API.
 - If changing an API payload, inspect all website and client consumers before editing.
 
 ### Control channel
@@ -134,17 +134,17 @@ Example:
 ```text
 Verified:
 - The endpoint is routed in MCPummelchenModServerCore.swift.
-- The website consumer is in Server App/nginx/site/public/index.html.
+- The website consumer is in Server App/caddy/site/public/index.html.
 
 Conflict/unknown:
-- Live nginx deployment cannot be inspected from Git.
+- Live Caddy deployment cannot be inspected from Git.
 
 Plan:
 1. Update the shared response model.
 2. Update the server route payload.
 3. Update website parsing/rendering.
 4. Add focused server tests.
-5. Run server build/test; do not deploy nginx.
+5. Run server build/test; do not deploy Caddy.
 ```
 
 ## File ownership and navigation
@@ -155,8 +155,8 @@ Plan:
 - Client sync/status/control changes: `Client App/MCPummelchenModClient/Sources/MCPummelchenModClientCore/`.
 - Client UI changes: client app `main.swift`.
 - DB changes: `Server App/Database/duckdb/migrations/`, `schema.sql`, query sites.
-- Website changes: `Server App/nginx/site/public/`.
-- Edge/process changes: `Server App/nginx/`, `Server App/systemd/`.
+- Website changes: `Server App/caddy/site/public/`.
+- Edge/process changes: `Server App/caddy/`, `Server App/systemd/`.
 - Production behavior contract changes: `Server App/Docs/contracts/`.
 
 Use `.ai/PROJECT_MAP.md` for a module-by-module map.
@@ -184,7 +184,7 @@ Use `.ai/PROJECT_MAP.md` for a module-by-module map.
 | Client UI | client build and status/UI-adjacent tests |
 | DuckDB migration | disposable migrate + health + affected tests |
 | Release/manifest | server tests plus shared contract tests; no fake artifacts |
-| nginx/site | review aliases/cache headers and API consumers; host-level config test is operator work |
+| Caddy/site | review aliases/cache headers and API consumers; host-level config test is operator work |
 | systemd | review service security and process semantics; deployment owner review |
 | AI docs only | JSON validation, link/path validation, generated-file scan, secret-pattern scan |
 
@@ -230,7 +230,7 @@ When finishing a task, report:
 - remaining risks/unknowns
 - whether onboarding docs need refresh
 
-Do not say a test passed unless it actually ran. Do not imply host-level nginx/systemd/DMG/live-server validation from static source review.
+Do not say a test passed unless it actually ran. Do not imply host-level Caddy/systemd/DMG/live-server validation from static source review.
 
 ## Commit and PR expectations
 
@@ -250,7 +250,7 @@ Refresh `AI_INDEX.md`, `AGENTS.md`, and `.ai/` after relevant merges involving:
 - API routes or shared contracts
 - release/mod/version/client-sync workflows
 - DuckDB migrations or reporting views
-- nginx/systemd/deployment
+- Caddy/systemd/deployment
 - security/identity/control behavior
 - test structure or commands
 
@@ -265,5 +265,5 @@ Trust current source over stale generated content, preserve valid human addition
 - `Server App/MCPummelchenModServer/Sources/MCPummelchenModServer/main.swift`
 - `Client App/MCPummelchenModClient/Sources/MCPummelchenModClientCore/ClientSyncEngine.swift`
 - `Server App/Database/duckdb/README.md`
-- `Server App/nginx/README.md`
+- `Server App/caddy/README.md`
 - `Server App/systemd/README.md`

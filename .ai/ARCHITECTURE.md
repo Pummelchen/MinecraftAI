@@ -1,8 +1,8 @@
 <!--
 AI onboarding file.
 Mode: refresh
-Indexed commit: 00e25e1a9584ca075e27b404305bda18157aa7f3
-Last generated: 2026-06-25T22:08:15+02:00
+Indexed commit: dc4cf76f7f0a60ffba9c8681708432a75faed1f2
+Last generated: 2026-07-18T22:16:29+07:00
 Generator: generic high-end AI coding agent
 Purpose: Help future AI sessions understand this repository quickly.
 Audience: Any high-capability AI coding agent, regardless of vendor or model family.
@@ -28,7 +28,7 @@ Operator ------> MCPummelchenModServer CLI/API <------ systemd timer
                     +--> immutable releases + public release tree
                                       |
                                       v
-                                  nginx edge
+                                  Caddy edge
                        website / API / static downloads
                                       |
                                       v
@@ -36,25 +36,26 @@ Operator ------> MCPummelchenModServer CLI/API <------ systemd timer
                        local Minecraft dir + client DuckDB
 ```
 
-The system is deliberately split between **control/metadata traffic** and **large immutable downloads**. The Swift API handles control, status, reports, and operational data. nginx serves large release files under `/downloads/`.
+The system is deliberately split between **control/metadata traffic** and **large immutable downloads**. The Swift API handles control, status, reports, and operational data. Caddy serves large release files under `/downloads/`.
 
 ## 2. Process and deployment architecture
 
 ### 2.1 Public edge
 
-`Server App/nginx/sites-available/pummelchen-swift.conf` defines:
+`Server App/caddy/Caddyfile` and `PummelchenRoutes.caddy` define:
 
 - HTTP listeners redirecting to HTTPS.
-- TLS listeners on IPv4 and IPv6.
-- HTTP/2 and HTTP/3/QUIC.
-- `/api/` proxying to `127.0.0.1:8787`.
-- `client_max_body_size 256k` for proxied API requests.
+- Caddy-managed TLS 1.2/1.3 certificates for the IPv4 and IPv6 hostnames.
+- HTTP/1.1, HTTP/2, and HTTP/3/QUIC.
+- `/api/26.1.2/`, `/api/26.2/`, and `/api/26.3/` proxying to ports 8787, 8788, and 8789, plus unversioned `/api/` compatibility routing to 8787.
+- A 256 KiB request-body limit for proxied API requests.
 - Operational JSON aliases such as `/live-stats.json`, `/update-activity.json`, `/neoforge-version.json`, `/release-health.json`, and `/server-versions.json` mapped to Swift endpoints.
-- No-store/no-cache behavior for current release pointers and operational data.
-- Static `/downloads/` alias to the runtime downloads directory.
+- No-store/no-cache behavior for current-release pointers and operational data.
+- Immutable caching for versioned release directories and short caching for mutable download aliases.
+- Sensitive database, backup, temporary, and soak-report filename denial.
 - Static website delivery from the runtime `site/public` tree.
 
-The edge is a trust boundary: browser/client traffic is public; the Swift server is expected to remain locally bound behind nginx.
+The edge is a trust boundary: browser/client traffic is public; the Swift server is expected to remain locally bound behind Caddy.
 
 ### 2.2 Swift server service
 
@@ -457,7 +458,7 @@ The release pipeline:
 
 Activation:
 
-- publishes the release public tree to nginx downloads;
+- publishes the release public tree to Caddy downloads;
 - always writes version-scoped current-release files;
 - writes versioned download aliases for the activated version and writes global current-release JSON/text only if DuckDB marks that version live;
 - updates active release rows/events;
@@ -481,7 +482,7 @@ On macOS the builder:
 7. Writes Info.plist with client/release metadata.
 8. Lints and ad-hoc signs the app/native binaries.
 9. Verifies signatures.
-10. Optionally tests the nginx/control path.
+10. Optionally tests the public-edge control path.
 11. Creates and hashes the versioned DMG.
 12. Optionally runs the headless live soak.
 
@@ -574,8 +575,8 @@ Failure handling persists a failed job and rethrows. Never simplify this to ad-h
 
 | Boundary | Primary controls | Main risks |
 |---|---|---|
-| Internet → nginx | TLS, local proxy target, body limit, cache/security headers | public exposure, stale/cache leakage, route misconfiguration |
-| nginx → Swift API | localhost binding and proxy rules | accidentally exposing local service or bypassing headers |
+| Internet → Caddy | TLS, local proxy target, body limit, cache/security headers | public exposure, stale/cache leakage, route misconfiguration |
+| Caddy → Swift API | localhost binding and proxy rules | accidentally exposing local service or bypassing headers |
 | API → DuckDB/files | validators, safe paths, payload limits, typed stores | injection/path traversal, corrupt operational state |
 | Release source → public downloads | immutable layout, SHA256, validation, live-only aliases | malicious/corrupt client files, wrong live version |
 | Client download → filesystem | manifest validation, hash/size, temp + atomic replace | arbitrary file write, partial/corrupt install |
@@ -596,7 +597,7 @@ A future fix must explicitly decide:
 - which endpoints are public, operator-only, or client-authenticated;
 - whether client ID alone has any trust meaning;
 - token enrollment/rotation/revocation model;
-- whether nginx contributes access control;
+- whether Caddy contributes access control;
 - migration/compatibility behavior for existing clients;
 - updated status mode semantics and tests/docs.
 
@@ -635,6 +636,6 @@ Treat these as operator-observed facts, not repository facts.
 - `Server App/MCPummelchenModShared/Sources/MCPummelchenModShared/APIModels.swift`
 - `Server App/Database/duckdb/README.md`
 - `Server App/Docs/contracts/PRODUCTION_CONTRACTS.md`
-- `Server App/nginx/sites-available/pummelchen-swift.conf`
+- `Server App/caddy/Caddyfile`
 - `Server App/systemd/MCPummelchenModServer_26.1.2.service`
 - `Server App/systemd/MCPummelchenModUpdateScan.service`

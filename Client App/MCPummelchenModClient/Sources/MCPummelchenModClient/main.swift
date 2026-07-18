@@ -139,7 +139,7 @@ final class ClientStatusModel: ObservableObject, @unchecked Sendable {
         Task {
             do {
                 let statusService = ClientStatusService(configuration: configuration)
-                let currentRelease = try await statusService.fetchCurrentReleaseFromNginx()
+                let currentRelease = try await statusService.fetchCurrentReleaseFromPublicEdge()
                 let result = try await ClientAppSelfUpdater.stageAndScheduleIfNeeded(
                     release: currentRelease,
                     serverURL: configuration.serverURL,

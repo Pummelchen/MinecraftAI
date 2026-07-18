@@ -1,8 +1,8 @@
 <!--
 AI onboarding file.
 Mode: refresh
-Indexed commit: 00e25e1a9584ca075e27b404305bda18157aa7f3
-Last generated: 2026-06-25T22:08:15+02:00
+Indexed commit: dc4cf76f7f0a60ffba9c8681708432a75faed1f2
+Last generated: 2026-07-18T22:16:29+07:00
 Generator: generic high-end AI coding agent
 Purpose: Help future AI sessions understand this repository quickly.
 Audience: Any high-capability AI coding agent, regardless of vendor or model family.
@@ -641,7 +641,7 @@ Each card identifies ownership, interfaces, dependencies, invariants, tests, and
 - server/client package trees
 - ZIP/MRPACK/DMG artifacts
 - DuckDB release/audit state
-- nginx public download root
+- Caddy public download root
 - optional service restart/health monitor
 
 **Invariants**
@@ -746,7 +746,7 @@ Each card identifies ownership, interfaces, dependencies, invariants, tests, and
 - Native library path/version mismatch.
 - Code/schema/view drift.
 
-## 18. nginx website and public edge
+## 18. Caddy website and public edge
 
 **Responsibility**
 
@@ -754,9 +754,9 @@ Each card identifies ownership, interfaces, dependencies, invariants, tests, and
 
 **Key files**
 
-- `Server App/nginx/sites-available/pummelchen-swift.conf`
-- `Server App/nginx/nginx.conf`
-- `Server App/nginx/site/public/`
+- `Server App/caddy/Caddyfile`
+- `Server App/caddy/PummelchenRoutes.caddy`
+- `Server App/caddy/site/public/`
 
 **Public interfaces**
 
@@ -782,7 +782,9 @@ Each card identifies ownership, interfaces, dependencies, invariants, tests, and
 
 **Tests**
 
-- Server endpoint tests; browser/manual integration; host `nginx -t` is deployment validation, not performed from source-only work.
+- `Server App/caddy/Tests/test_edge.py` imports the production route snippet and runs a real Caddy process against disposable files/upstreams.
+- Swift server endpoint tests and browser/manual integration.
+- Local Caddy validation plus production-host and external acceptance checks.
 
 **Risks**
 
@@ -885,5 +887,5 @@ Each card identifies ownership, interfaces, dependencies, invariants, tests, and
 - Package manifests
 - `Server App/Database/duckdb/README.md`
 - `Server App/Docs/contracts/PRODUCTION_CONTRACTS.md`
-- `Server App/nginx/README.md`
+- `Server App/caddy/README.md`
 - `Server App/systemd/README.md`

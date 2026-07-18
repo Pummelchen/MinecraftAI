@@ -1,8 +1,8 @@
 <!--
 AI onboarding file.
 Mode: refresh
-Indexed commit: 00e25e1a9584ca075e27b404305bda18157aa7f3
-Last generated: 2026-06-25T22:08:15+02:00
+Indexed commit: dc4cf76f7f0a60ffba9c8681708432a75faed1f2
+Last generated: 2026-07-18T22:16:29+07:00
 Generator: generic high-end AI coding agent
 Purpose: Help future AI sessions understand this repository quickly.
 Audience: Any high-capability AI coding agent, regardless of vendor or model family.
@@ -27,7 +27,7 @@ MinecraftAI/
 │   ├── MCPummelchenModShared/
 │   ├── Database/duckdb/
 │   ├── Docs/contracts/
-│   ├── nginx/
+│   ├── caddy/
 │   └── systemd/
 └── Live Backup/
 ```
@@ -39,7 +39,7 @@ MinecraftAI/
 | `Server App/MCPummelchenModShared/` | Shared package and native DuckDB bridge. | Cross-client/server contracts, validation, hashing, defaults, DB access. |
 | `Server App/Database/duckdb/` | Canonical production schema. | New numbered migrations, reporting views, DB operator docs. |
 | `Server App/Docs/contracts/` | Frozen/expected production behavior. | External behavior or operational contract updates. |
-| `Server App/nginx/` | Public web/download/API edge. | TLS/proxy/cache/download aliases and website source. |
+| `Server App/caddy/` | Public web/download/API edge. | TLS/proxy/cache/download aliases and website source. |
 | `Server App/systemd/` | Process scheduling and hardening. | Server/update-scan service behavior and drop-ins. |
 | `Live Backup/` | Production DB recovery/audit snapshots. | Normally none; only deliberate backup management. |
 
@@ -236,15 +236,16 @@ Base: `Server App/Docs/contracts/`
 | `api/*.schema.json` | Machine-readable public API contract schemas where present. |
 | `duckdb/001_initial.sql` | Historical/contract DB artifact; canonical current schema is under `Server App/Database/duckdb/`. |
 
-## nginx and website map
+## Caddy and website map
 
-Base: `Server App/nginx/`
+Base: `Server App/caddy/`
 
 | Path | Role |
 |---|---|
-| `nginx.conf` | Global nginx tuning. |
-| `sites-available/pummelchen-swift.conf` | Public virtual hosts, TLS/HTTP2/HTTP3, API proxy, JSON aliases, downloads, cache/security headers. |
+| `Caddyfile` | Production hostnames, automatic HTTPS, HTTP/2/HTTP/3, redirects, and access logging. |
+| `PummelchenRoutes.caddy` | Importable API proxy, JSON alias, download, cache, sensitive-file, and website route contract. |
 | `README.md` | Deployment/runtime layout and no-static-fallback rule. |
+| `Tests/test_edge.py` | Real-Caddy integration tests for the production route snippet. |
 | `site/public/index.html` | Main status/install/operator page, live metrics, server versions, mod/update data. |
 | `site/public/release.html` | Release detail view. |
 | `site/public/failed-mods.html` | Failed/banned mod view. |
@@ -287,12 +288,20 @@ Base: `Server App/systemd/`
 - `PUMMELCHEN_SERVER_ADDRESS`
 - `PUMMELCHEN_DUCKDB_DYLIB`
 - `MACOSX_DEPLOYMENT_TARGET`
-- `PUMMELCHEN_SKIP_NGINX_CONTROL_LIVE_TEST`
+- `PUMMELCHEN_REQUIRE_PUBLIC_EDGE_CONTROL_LIVE_TEST`
+- `PUMMELCHEN_SKIP_PUBLIC_EDGE_CONTROL_LIVE_TEST`
 - `PUMMELCHEN_REQUIRE_HEADLESS_SOAK`
 - `PUMMELCHEN_HEADLESS_SOAK_SECONDS`
 - `PUMMELCHEN_HEADLESS_COMMAND`
 - `PUMMELCHEN_HEADLESS_EXPECTED_INSTALLED_RELEASE_ID`
 - `PUMMELCHEN_RELEASE_ID` (documented for build/soak integration)
+
+### Caddy edge
+
+- `PUMMELCHEN_SITE_ROOT`
+- `PUMMELCHEN_API_26_1_2`
+- `PUMMELCHEN_API_26_2`
+- `PUMMELCHEN_API_26_3`
 
 ### Minecraft supervisor/RCON
 
@@ -337,6 +346,6 @@ Do not put values for sensitive variables into source or generated docs.
 - Source paths listed throughout this file
 - `Server App/Database/duckdb/README.md`
 - `Server App/Docs/contracts/PRODUCTION_CONTRACTS.md`
-- `Server App/nginx/README.md`
+- `Server App/caddy/README.md`
 - `Server App/systemd/README.md`
 - Swift Testing search results and package test targets

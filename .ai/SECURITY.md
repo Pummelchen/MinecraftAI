@@ -1,8 +1,8 @@
 <!--
 AI onboarding file.
 Mode: refresh
-Indexed commit: 00e25e1a9584ca075e27b404305bda18157aa7f3
-Last generated: 2026-06-25T22:08:15+02:00
+Indexed commit: dc4cf76f7f0a60ffba9c8681708432a75faed1f2
+Last generated: 2026-07-18T22:16:29+07:00
 Generator: generic high-end AI coding agent
 Purpose: Help future AI sessions understand this repository quickly.
 Audience: Any high-capability AI coding agent, regardless of vendor or model family.
@@ -21,7 +21,7 @@ This repository manages executable downloads, privileged services, a live Minecr
 | Client identity secrets | intended `client_secret` / Keychain identity model in contracts | Never log or store in public DuckDB/site/release artifacts. |
 | RCON credential | `PUMMELCHEN_MINECRAFT_RCON_PASSWORD`, `--rcon-password` | Keep out of commands shared in issues/docs/history; restrict RCON to localhost/firewall. |
 | Server environment | `/etc/pummelchen-swift/server.env` | Runtime-only; do not reconstruct, copy, or commit values. |
-| TLS key material | Let's Encrypt private key paths in nginx config | Never copy into repo or artifacts. |
+| TLS key material | Caddy-managed certificate storage on the production host | Never copy into repo or artifacts. |
 | Production DuckDB | runtime DB and backups | Contains operational/client/release/audit state; back up and use migrations. |
 | Executable artifacts | app, helper, DMG, ZIP, JAR, MRPACK | Verify source, size/SHA, bundle/native structure, and release gates. |
 | Live world | Minecraft world directory and backup | Destructive operations require explicit confirmation and recovery plan. |
@@ -54,7 +54,7 @@ A proper change requires an explicit threat-model decision covering:
 2. Whether `X-Pummelchen-Client-ID` is only an identifier or an authorization signal.
 3. Enrollment, rotation, revocation, and migration for existing clients.
 4. Protection of control-event creation versus polling/acknowledgement.
-5. Whether nginx adds access control or rate limiting.
+5. Whether Caddy adds access control or rate limiting.
 6. Backward compatibility for tokenless clients.
 7. Status-mode semantics, tests, and documentation.
 
@@ -62,19 +62,21 @@ Mark all opportunistic auth edits `needs_human_review`.
 
 ## 3. Public network boundary
 
-### nginx controls
+### Caddy controls
 
 Verified configuration includes:
 
 - TLS 1.2/1.3.
 - HTTP/2 and HTTP/3.
-- public hostnames and certificate paths.
-- `/api/` proxy to `127.0.0.1:8787`.
+- public IPv4 and IPv6 hostnames with automatic certificate management.
+- version-scoped API proxies to loopback ports 8787, 8788, and 8789.
 - 256 KiB proxied request-body limit.
-- forwarding of host and client IP headers.
+- normalized forwarded host, protocol, and client IP headers.
 - no-store headers for API/operational responses.
-- static `/downloads/` with no directory listing and security headers.
+- static `/downloads/` with no directory listing, range support, explicit cache policy, and security headers.
 - no-cache current-release pointer handling.
+- denial of database, backup, temporary, and headless-soak report filenames.
+- JSON access logs to the packaged service's standard output/journal.
 
 ### Rules for AI changes
 
@@ -82,7 +84,7 @@ Verified configuration includes:
 - Do not proxy large artifacts through API handlers.
 - Preserve no-store semantics for mutable operational data and current pointers.
 - Preserve `X-Content-Type-Options`, frame, and referrer controls on downloads/site where configured.
-- Review every new nginx alias for path traversal, caching, content type, and stale-data impact.
+- Review every new Caddy alias for path traversal, caching, content type, and stale-data impact.
 - Do not commit certificate/private-key material.
 - Do not claim deployed TLS/firewall correctness from tracked config alone.
 
@@ -125,7 +127,7 @@ provider metadata/artifact
   -> managed server/client package
   -> immutable release manifests and checksums
   -> optional DMG and acceptance proof
-  -> nginx static publication
+  -> Caddy static publication
   -> client release/manifest/hash validation
   -> atomic installation
 ```
@@ -266,7 +268,7 @@ Rules:
 
 - Never log the RCON password or include it in shared command examples.
 - Keep RCON port validation.
-- Do not expose RCON through nginx or public interfaces.
+- Do not expose RCON through Caddy or public interfaces.
 - Treat watchdog restart behavior as availability-sensitive.
 - Test command parsing with benign commands.
 - Do not add arbitrary shell interpretation around RCON command inputs.
@@ -366,7 +368,7 @@ Require explicit human security review for:
 - client identity or credential storage;
 - executable download/update changes;
 - checksum/signature bypass or fallback;
-- nginx public route/proxy/cache changes;
+- Caddy public route/proxy/cache changes;
 - systemd privilege/hardening changes;
 - new filesystem write roots;
 - production DB migration/repair;
@@ -404,5 +406,5 @@ Require explicit human security review for:
 - `Client App/MCPummelchenModClient/Sources/MCPummelchenModClientCore/ClientAppSelfUpdater.swift`
 - `Server App/MCPummelchenModShared/Sources/MCPummelchenModShared/CurrentRelease.swift`
 - `Server App/MCPummelchenModShared/Sources/MCPummelchenModShared/ClientSyncManifest.swift`
-- `Server App/nginx/sites-available/pummelchen-swift.conf`
+- `Server App/caddy/Caddyfile`
 - `Server App/systemd/MCPummelchenModServer_26.1.2.service`

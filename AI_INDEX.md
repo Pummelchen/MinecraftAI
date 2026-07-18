@@ -1,8 +1,8 @@
 <!--
 AI onboarding file.
 Mode: refresh
-Indexed commit: 00e25e1a9584ca075e27b404305bda18157aa7f3
-Last generated: 2026-06-25T22:08:15+02:00
+Indexed commit: dc4cf76f7f0a60ffba9c8681708432a75faed1f2
+Last generated: 2026-07-18T22:16:29+07:00
 Generator: generic high-end AI coding agent
 Purpose: Help future AI sessions understand this repository quickly.
 Audience: Any high-capability AI coding agent, regardless of vendor or model family.
@@ -21,12 +21,12 @@ This is the primary entrypoint for a new AI coding session. Read this file first
 | Previous indexed commit | `743356f85b0d4343cb8b1f71a92731eaf479bf47` | verified |
 | Operation mode | `refresh` | verified |
 | Primary purpose | Operate a large NeoForge Minecraft server/client mod pack: discover and validate mods, build immutable releases, publish downloads, synchronize macOS clients, monitor the live server, and retain operational state in DuckDB. | verified |
-| Primary languages | Swift, C, SQL, HTML/CSS/JavaScript, nginx configuration, systemd unit files, Markdown | verified |
+| Primary languages | Swift, C, SQL, HTML/CSS/JavaScript, Caddy configuration, systemd unit files, Markdown | verified |
 | Build/package system | Swift Package Manager | verified |
 | Server platform | Debian 13, Intel x86-64 | verified from README |
 | Client platform | macOS 26, Apple Silicon | verified from README and package manifests |
 | Production database | DuckDB | verified |
-| Public edge | nginx with HTTPS, HTTP/2, and HTTP/3 | verified |
+| Public edge | Caddy with HTTPS, HTTP/2, and HTTP/3 | verified |
 | Process manager | systemd | verified |
 | Test framework | Swift Testing (`@Suite`, `@Test`, `#expect`) | verified |
 | CI | No GitHub Actions workflow was found in the inspected repository | unknown/absent in inspected tree |
@@ -47,7 +47,7 @@ MinecraftAI is not a conventional web application with a single server and UI. I
 2. A **macOS SwiftUI client** and bundled `pummelchen-client-sync` helper that install/repair a managed Minecraft client, verify release files, manage Java and NeoForge, apply defaults, watch control events, and stage self-updates.
 3. A **shared Swift package** containing release/manifest contracts, API models, hashing, safe-path validation, file inventory, Minecraft defaults, and the DuckDB C wrapper.
 4. A **DuckDB database** that stores release, mod, scan, supported-version, client, control, world, audit, and reporting state.
-5. An **nginx public edge** that serves the website and large static release artifacts and proxies `/api/` to the local Swift server.
+5. A **Caddy public edge** that serves the website and large static release artifacts and proxies version-scoped `/api/` routes to local Swift servers.
 6. **systemd units and drop-ins** that run the Swift server, supervise the Minecraft process tree, and schedule the daily all-supported mod scan.
 
 ## High-level architecture
@@ -58,7 +58,7 @@ macOS SwiftUI app / pummelchen-client-sync
        | HTTPS release metadata, manifests, downloads, control events,
        | client status/inventory/diagnostics/default reports
        v
-nginx public edge
+Caddy public edge
        |-- static website and /downloads/ artifacts
        |-- /api/* and operational JSON aliases
        v
@@ -81,7 +81,7 @@ See `.ai/ARCHITECTURE.md` for detailed request, release, scan, client-sync, DMG,
 | `Server App/MCPummelchenModShared/` | Shared models, validators, hashing, safe paths, defaults, file inventory, and DuckDB C integration. | Contract changes affect both server and client. |
 | `Server App/Database/duckdb/` | Canonical schema entrypoint, numbered migrations, and database operator documentation. | Migrations are the schema source of truth. Runtime `CREATE TABLE IF NOT EXISTS` guards are compatibility fallbacks. |
 | `Server App/Docs/contracts/` | Production behavior and client identity contracts plus API/DB contract artifacts. | Some authentication statements conflict with current code; see `.ai/KNOWN_UNKNOWNS.md`. |
-| `Server App/nginx/` | nginx configuration and tracked public website source. | Runtime `/downloads/` contents are generated and intentionally not tracked. |
+| `Server App/caddy/` | Caddy configuration and tracked public website source. | Runtime `/downloads/` contents are generated and intentionally not tracked. |
 | `Server App/systemd/` | Server/update-scan units, timer, and service drop-ins. | Root-owned live service; preserve hardening and write-path restrictions. |
 | `Live Backup/` | In-repository production DuckDB backup/checksum snapshots described by README. | Treat as recovery/audit material, not ordinary source. Do not rewrite casually. |
 | `.ai/` | Vendor-neutral AI onboarding system. | Refresh after architectural, command, deployment, schema, security, testing, or project-management workflow changes. |
@@ -139,8 +139,8 @@ Manifest: `Server App/MCPummelchenModShared/Package.swift`
 | Client sync/watch CLI | `Client App/MCPummelchenModClient/Sources/MCPummelchenModClientSync/main.swift` | changing CLI flags or non-GUI sync/control behavior. |
 | DuckDB helper | `Server App/MCPummelchenModServer/Sources/PummelchenDuckDB/main.swift` | migrations, DB health, Parquet exports, or reporting verification. |
 | Headless acceptance runner | `Server App/MCPummelchenModServer/Sources/PummelchenHeadlessSoak/main.swift` | DMG release-gate behavior. |
-| Public website | `Server App/nginx/site/public/index.html` and companion pages | changing live site UI or API consumption. |
-| Public edge | `Server App/nginx/sites-available/pummelchen-swift.conf` | changing TLS/listeners, API proxying, aliases, caching, or downloads. |
+| Public website | `Server App/caddy/site/public/index.html` and companion pages | changing live site UI or API consumption. |
+| Public edge | `Server App/caddy/Caddyfile` | changing TLS/listeners, API proxying, aliases, caching, or downloads. |
 | Live service | `Server App/systemd/MCPummelchenModServer_26.1.2.service` | changing process ownership, runtime paths, restart policy, or hardening. |
 | GitHub PM control plane | `.ai/PROJECT_MANAGEMENT.md` | creating/triaging issues, labels, milestones, project fields/views, Codex queues, human-review queues, or release evidence. |
 
@@ -217,7 +217,7 @@ The route switch is in `MCPummelchenModServerCore.swift`.
 
 ### Build and gate a client DMG
 
-`ClientDMGBuilder` builds the GUI and sync helper, constructs and signs an app bundle, embeds the DuckDB dylib, optionally embeds a private bootstrap resource with owner-only permissions, creates the versioned DMG, and can run nginx/control and headless soak validation. Production contracts require a matching `MCPummelchenModClient_<minecraft_version>.dmg.headless-live-soak.json` proof for a DMG-backed release.
+`ClientDMGBuilder` builds the GUI and sync helper, constructs and signs an app bundle, embeds the DuckDB dylib, optionally embeds a private bootstrap resource with owner-only permissions, creates the versioned DMG, and can run public-edge control and headless soak validation. Production contracts require a matching `MCPummelchenModClient_<minecraft_version>.dmg.headless-live-soak.json` proof for a DMG-backed release.
 
 ### Reset a world
 
@@ -269,7 +269,7 @@ See `.ai/COMMANDS.md` for the full command catalogue and safety classification.
 ## Important invariants and conventions
 
 - Current source/config outranks older docs when facts conflict.
-- Runtime duties are Swift + embedded DuckDB + nginx; shell/Python should remain build/test/operator tooling, not always-on production logic.
+- Runtime duties are Swift + embedded DuckDB + Caddy; shell/Python should remain build/test/operator tooling, not always-on production logic.
 - Public operational website data must come from Swift API/DuckDB, not stale committed JSON fallbacks.
 - Release directories are immutable and named with validated release identifiers.
 - Global current-release aliases belong only to the DuckDB `is_live` Minecraft version.
@@ -290,7 +290,7 @@ See `.ai/COMMANDS.md` for the full command catalogue and safety classification.
 | `/etc/pummelchen-swift/server.env` | Runtime environment file referenced by the root service. |
 | RCON and Minecraft supervisor | Direct live-server control and watchdog restart capability. |
 | systemd service/drop-ins | Root privilege, firewall manipulation, process-tree semantics, hardening. |
-| nginx configuration | Public TLS/API/download boundary and cache behavior. |
+| Caddy configuration | Public TLS/API/download boundary and cache behavior. |
 | DuckDB production file and `Live Backup/` | Operational/client/release/audit history and recovery state. |
 | Release/DMG pipeline | Publishes executable artifacts and stable client aliases. |
 | World reset | Deliberately destructive filesystem/service/RCON workflow. |
@@ -299,7 +299,7 @@ See `.ai/COMMANDS.md` for the full command catalogue and safety classification.
 
 Unless the task explicitly targets generated artifacts, avoid editing or committing:
 
-- `Server App/nginx/site/public/downloads/`
+- `Server App/caddy/site/public/downloads/`
 - runtime release directories and current-release pointers
 - generated DMG, ZIP, MRPACK, JAR, checksum, and headless-soak outputs
 - Swift `.build/` directories
@@ -313,7 +313,7 @@ Unless the task explicitly targets generated artifacts, avoid editing or committ
 
 | Task | First files to read | Minimum validation |
 |---|---|---|
-| Add/change an API endpoint | API core, `APIModels.swift`, nginx alias if relevant, server tests | server build + focused/API tests |
+| Add/change an API endpoint | API core, `APIModels.swift`, Caddy alias if relevant, server tests | server build + focused/API tests |
 | Change client sync | `ClientSyncEngine.swift`, manifest/current-release contracts, client tests | client build + sync tests; first and repeat install cases |
 | Change control events | `APIModels.swift`, `ControlEventStore.swift`, `ClientControlChannel.swift`, `ClientControlWatcher.swift` | server + client tests; auth/conflict review |
 | Add DB field/table/view | DuckDB README, latest migration, all query sites | new migration + disposable migrate/health + tests |
@@ -323,8 +323,8 @@ Unless the task explicitly targets generated artifacts, avoid editing or committ
 | Add supported Minecraft version | DuckDB version row/migration, bootstrap pipeline, client resolver/installer | bootstrap dry-run + version/client tests |
 | Change client app UI | client `main.swift`, status service/model | client build + status tests |
 | Change Java/NeoForge setup | `JavaRuntimeManager.swift`, `NeoForgeClientInstaller.swift`, server-version API | pinned-hash tests/validation and client tests |
-| Change website | `Server App/nginx/site/public/` and API payloads it consumes | static review plus endpoint tests |
-| Change nginx/systemd | corresponding config/docs and `.ai/SECURITY.md` | config review; deployment-owner approval |
+| Change website | `Server App/caddy/site/public/` and API payloads it consumes | static review plus endpoint tests |
+| Change Caddy/systemd | corresponding config/docs and `.ai/SECURITY.md` | config review; deployment-owner approval |
 | Change world reset/RCON | world pipeline, RCON client, supervisor, contracts | dry-run only unless explicitly authorized |
 | Triage GitHub PM/Codex work | `.ai/PROJECT_MANAGEMENT.md`, issue body, project fields, safety labels | metadata review; do not mark production-sensitive work Codex-ready |
 
@@ -384,8 +384,8 @@ The previous index referenced `743356f85b0d4343cb8b1f71a92731eaf479bf47`. Curren
 - `Server App/Database/duckdb/README.md`
 - `Server App/Docs/contracts/PRODUCTION_CONTRACTS.md`
 - `Server App/Docs/contracts/CLIENT_IDENTITY.md`
-- `Server App/nginx/README.md`
-- `Server App/nginx/sites-available/pummelchen-swift.conf`
+- `Server App/caddy/README.md`
+- `Server App/caddy/Caddyfile`
 - `Server App/systemd/README.md`
 - `Server App/systemd/MCPummelchenModServer_26.1.2.service`
 - `Server App/systemd/MCPummelchenModUpdateScan.service`

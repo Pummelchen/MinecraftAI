@@ -1,8 +1,8 @@
 <!--
 AI onboarding file.
 Mode: refresh
-Indexed commit: 00e25e1a9584ca075e27b404305bda18157aa7f3
-Last generated: 2026-06-25T22:08:15+02:00
+Indexed commit: dc4cf76f7f0a60ffba9c8681708432a75faed1f2
+Last generated: 2026-07-18T22:16:29+07:00
 Generator: generic high-end AI coding agent
 Purpose: Help future AI sessions understand this repository quickly.
 Audience: Any high-capability AI coding agent, regardless of vendor or model family.
@@ -38,7 +38,7 @@ Current behavior creates an asymmetric state: control polling/acknowledgement an
 
 **Required human decision**
 
-Define endpoint-by-endpoint authorization, enrollment/rotation/revocation, legacy-client compatibility, nginx responsibilities, and status-mode semantics. Then update code, tests, contracts, README, and this onboarding system together.
+Define endpoint-by-endpoint authorization, enrollment/rotation/revocation, legacy-client compatibility, Caddy responsibilities, and status-mode semantics. Then update code, tests, contracts, README, and this onboarding system together.
 
 ### 2. Server status `mode` field
 
@@ -63,7 +63,7 @@ A newer compiler can satisfy a lower tools-version manifest, but the deployment 
 
 Unknown:
 
-- whether tracked nginx/systemd files exactly match deployed files;
+- whether tracked Caddy/systemd files exactly match deployed files;
 - active service/timer status;
 - current environment-file values;
 - certificate expiration/status;
@@ -115,7 +115,7 @@ These require current network validation and should not be hard-coded from stale
 
 ## Repository areas not exhaustively inspected
 
-The onboarding refresh performed a deep targeted scan of package manifests, entrypoints, central pipelines, shared contracts, DB docs/migrations, nginx/systemd, website pages, and test inventory. The following were not exhaustively interpreted line by line:
+The onboarding refresh performed a deep targeted scan of package manifests, entrypoints, central pipelines, shared contracts, DB docs/migrations, Caddy/systemd, website pages, and test inventory. The following were not exhaustively interpreted line by line:
 
 - every helper/private method in very large server core and pipeline files;
 - all HTML/CSS/JavaScript implementation details on every page;
@@ -137,7 +137,7 @@ No GitHub Actions workflow, dedicated lint command, or formatter configuration w
 - The commands in onboarding docs were derived from source/manifests/docs; they were not run while producing the ZIP.
 - Native DuckDB availability was not verified in the artifact-generation environment.
 - macOS DMG/codesign builds were not run.
-- live nginx/systemd/Minecraft/RCON checks were not run.
+- live Caddy/systemd/Minecraft/RCON checks were not run.
 - live headless soak was not run.
 - external provider scans were not run.
 
@@ -205,7 +205,7 @@ Always obtain explicit direction for:
 - activating a release or changing stable aliases;
 - changing DMG credential packaging;
 - weakening checksum/signature/soak validation;
-- nginx TLS/public routing/cache changes;
+- Caddy TLS/public routing/cache changes;
 - systemd privilege/hardening/write-path/kill-mode changes;
 - RCON/firewall/watchdog behavior;
 - real world reset or backup deletion;
@@ -239,5 +239,5 @@ Update this file immediately when:
 - `Server App/Docs/contracts/CLIENT_IDENTITY.md`
 - `README.md`
 - package manifests and DuckDB README
-- nginx/systemd tracked configuration
+- Caddy/systemd tracked configuration
 - current onboarding diff and manifest

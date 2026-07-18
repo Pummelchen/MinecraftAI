@@ -1,8 +1,8 @@
 <!--
 AI onboarding file.
 Mode: refresh
-Indexed commit: 00e25e1a9584ca075e27b404305bda18157aa7f3
-Last generated: 2026-06-25T22:08:15+02:00
+Indexed commit: dc4cf76f7f0a60ffba9c8681708432a75faed1f2
+Last generated: 2026-07-18T22:16:29+07:00
 Generator: generic high-end AI coding agent
 Purpose: Help future AI sessions understand this repository quickly.
 Audience: Any high-capability AI coding agent, regardless of vendor or model family.
@@ -77,7 +77,10 @@ swift build -c release \
 ### All package tests
 
 ```sh
-# SAFE; requires native DuckDB for DB-backed tests.
+# SAFE; requires native DuckDB and Caddy.
+CADDY_BIN="$(command -v caddy)" ./Scripts/test-all.sh
+
+# Individual Swift packages:
 swift test --package-path "Server App/MCPummelchenModShared"
 
 swift test --package-path "Client App/MCPummelchenModClient"
@@ -158,7 +161,7 @@ swift run \
   --project-root "<project-root>" \
   --server-dir "<version-server-dir>" \
   --release-root "<private-release-root>" \
-  --public-downloads "<nginx-download-root>" \
+  --public-downloads "<public-download-root>" \
   --duckdb "<duckdb-file>" \
   --release-id "<release-id>" \
   --activate false \
@@ -177,7 +180,7 @@ swift run \
   --project-root "<project-root>" \
   --server-dir "<version-server-dir>" \
   --release-root "<private-release-root>" \
-  --public-downloads "<nginx-download-root>" \
+  --public-downloads "<public-download-root>" \
   --duckdb "<duckdb-file>" \
   --release-id "<release-id>"
 ```
@@ -192,7 +195,7 @@ swift run \
   --project-root "<project-root>" \
   --server-dir "<version-server-dir>" \
   --release-root "<private-release-root>" \
-  --public-downloads "<nginx-download-root>" \
+  --public-downloads "<public-download-root>" \
   --duckdb "<duckdb-file>" \
   --url "<curseforge-or-modrinth-url>" \
   --release-id "<release-id>" \
@@ -278,7 +281,7 @@ swift run \
   MCPummelchenModServer mod-update-apply \
   --project-root "<project-root>" \
   --release-root "<private-release-root>" \
-  --public-downloads "<nginx-download-root>" \
+  --public-downloads "<public-download-root>" \
   --duckdb "<duckdb-file>" \
   --release-id-prefix "<release-prefix>" \
   --all-supported true \
@@ -355,7 +358,7 @@ swift run \
   --server-address "<minecraft-host:port>" \
   --duckdb-dylib "<libduckdb.dylib-path>" \
   --macos-deployment-target "26.0" \
-  --skip-nginx-control-live-test true \
+  --skip-public-edge-control-live-test true \
   --skip-headless-soak true \
   --require-headless-soak false \
   --headless-soak-seconds 60 \
@@ -364,6 +367,7 @@ swift run \
 
 Optional:
 
+- `--require-public-edge-control-live-test true|false`
 - `--headless-command <command>`
 - `--expected-installed-release-id <id>`
 
@@ -528,9 +532,22 @@ systemctl daemon-reload
 
 Unit start/stop/enable commands are intentionally not prescribed here because the target and deployment procedure must be operator-confirmed.
 
-## nginx validation/deployment
+## Caddy validation/deployment
 
-The repository documents the files and runtime layout but does not define a repository-local nginx lint script. Host-level `nginx -t` is a normal deployment check, but it was not found as a tracked project command; treat it as operator/environment validation rather than a repository guarantee.
+The repository tracks the production configuration and an isolated integration suite:
+
+```sh
+# SAFE
+caddy fmt --diff "Server App/caddy/Caddyfile"
+caddy fmt --diff "Server App/caddy/PummelchenRoutes.caddy"
+caddy adapt --config "Server App/caddy/Caddyfile" --validate >/dev/null
+caddy validate --config "Server App/caddy/Caddyfile"
+
+# SAFE: starts Caddy and disposable loopback upstreams on random high ports.
+CADDY_BIN="$(command -v caddy)" python3 "Server App/caddy/Tests/test_edge.py"
+```
+
+On the production host, validate the installed path with `sudo caddy validate --config /etc/caddy/Caddyfile`. Service installation, reload, and cutover are operator actions requiring rollback preparation and external verification.
 
 ## Format, lint, Docker, and CI
 

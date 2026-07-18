@@ -26,7 +26,7 @@ enum ServerCommandError: Error, CustomStringConvertible {
               MCPummelchenModServer release-create --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id> [--activate true] [--service <systemd-unit>]
               MCPummelchenModServer release-validate --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --release-id <id>
               MCPummelchenModServer add-mod --project-root <repo> --server-dir <dir> --release-root <dir> --public-downloads <dir> --duckdb <file> --url <curseforge-or-modrinth-url> --release-id <id> [--server-package <dir>] [--service <systemd-unit>] [--local-artifact <jar>] [--install-scope auto|server|client|both] [--activate true] [--dry-run false] [--require-client-token true|false]
-              MCPummelchenModServer build-client-dmg --project-root <repo> [--client-package <dir>] [--server-package <dir>] [--release-id <id>] [--minecraft-version <version>] [--client-version <version>] [--server-url <url>] [--server-address <host:port>] [--duckdb-dylib <path>] [--macos-deployment-target <target>] [--skip-nginx-control-live-test true] [--skip-headless-soak true] [--require-headless-soak true] [--headless-soak-seconds 60] [--headless-command <command>] [--expected-installed-release-id <id>] [--require-client-token true|false]
+              MCPummelchenModServer build-client-dmg --project-root <repo> [--client-package <dir>] [--server-package <dir>] [--release-id <id>] [--minecraft-version <version>] [--client-version <version>] [--server-url <url>] [--server-address <host:port>] [--duckdb-dylib <path>] [--macos-deployment-target <target>] [--require-public-edge-control-live-test true|false] [--skip-public-edge-control-live-test true] [--skip-headless-soak true] [--require-headless-soak true] [--headless-soak-seconds 60] [--headless-command <command>] [--expected-installed-release-id <id>] [--require-client-token true|false]
               MCPummelchenModServer ban-mod --project-root <repo> --duckdb <file> --name <display-name> --file-pattern <jar-name-or-pattern> [--source-url <url>] [--reason "Banned by Admin"] [--dry-run true]
               MCPummelchenModServer patch-mod --jar <path> [--target-version 26.1.2]
               MCPummelchenModServer mod-update-scan --project-root <repo> --duckdb <file> [--minecraft-version 26.1.2] [--loader neoforge] [--seed-from-project-data true] [--discover-source-links true] [--discovery-limit <n>] [--discovery-searches-per-second 2] [--limit <n>] [--max-urls-per-window 5] [--window-seconds 10] [--dry-run true]
@@ -213,7 +213,7 @@ final class LocalHTTPServer: @unchecked Sendable {
             "Content-Type: \(response.contentType)",
             "Content-Length: \(response.body.count)",
             "Connection: close",
-            "X-Pummelchen-Transport-Target: nginx_https_api",
+            "X-Pummelchen-Transport-Target: public_edge_https_api",
             "X-Pummelchen-Mode: swift_api",
             "X-Content-Type-Options: nosniff",
             "X-Frame-Options: DENY",
@@ -581,8 +581,8 @@ private func buildClientDMGCommand(args: Arguments, projectRoot: URL) throws -> 
     let env = ProcessInfo.processInfo.environment
     let minecraftVersion = args.options["--minecraft-version"] ?? dedicatedMinecraftVersion()
     try requireDedicatedMinecraftVersion(minecraftVersion, option: "--minecraft-version")
-    let runNginxControlLiveTest = optionBool(args.options["--require-nginx-control-live-test"], defaultValue: optionBool(env["PUMMELCHEN_REQUIRE_NGINX_CONTROL_LIVE_TEST"], defaultValue: true))
-    let skipNginxControlLiveTest = optionBool(args.options["--skip-nginx-control-live-test"], defaultValue: optionBool(env["PUMMELCHEN_SKIP_NGINX_CONTROL_LIVE_TEST"]))
+    let runPublicEdgeControlLiveTest = optionBool(args.options["--require-public-edge-control-live-test"], defaultValue: optionBool(env["PUMMELCHEN_REQUIRE_PUBLIC_EDGE_CONTROL_LIVE_TEST"], defaultValue: true))
+    let skipPublicEdgeControlLiveTest = optionBool(args.options["--skip-public-edge-control-live-test"], defaultValue: optionBool(env["PUMMELCHEN_SKIP_PUBLIC_EDGE_CONTROL_LIVE_TEST"]))
     let runHeadlessSoak = optionBool(args.options["--require-headless-soak"], defaultValue: optionBool(env["PUMMELCHEN_REQUIRE_HEADLESS_SOAK"], defaultValue: false))
     let skipHeadlessSoak = optionBool(args.options["--skip-headless-soak"], defaultValue: optionBool(env["PUMMELCHEN_SKIP_HEADLESS_SOAK"]))
     return ClientDMGBuilderConfig(
@@ -596,7 +596,7 @@ private func buildClientDMGCommand(args: Arguments, projectRoot: URL) throws -> 
         serverAddress: args.options["--server-address"] ?? env["PUMMELCHEN_SERVER_ADDRESS"] ?? env["PUMMELCHEN_MANAGED_MINECRAFT_SERVER_ADDRESS"] ?? "91.99.176.243:25565",
         duckdbDylibPath: args.options["--duckdb-dylib"] ?? env["PUMMELCHEN_DUCKDB_DYLIB"] ?? "/opt/homebrew/lib/libduckdb.dylib",
         macOSDeploymentTarget: args.options["--macos-deployment-target"] ?? env["MACOSX_DEPLOYMENT_TARGET"] ?? "26.0",
-        runNginxControlLiveTest: runNginxControlLiveTest && !skipNginxControlLiveTest,
+        runPublicEdgeControlLiveTest: runPublicEdgeControlLiveTest && !skipPublicEdgeControlLiveTest,
         runHeadlessSoak: runHeadlessSoak && !skipHeadlessSoak,
         headlessSoakSeconds: Int(args.options["--headless-soak-seconds"] ?? env["PUMMELCHEN_HEADLESS_SOAK_SECONDS"] ?? "60") ?? 60,
         headlessCommand: args.options["--headless-command"],

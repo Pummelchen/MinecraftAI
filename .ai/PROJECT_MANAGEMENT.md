@@ -36,7 +36,7 @@ Use these milestones unless a future human-approved roadmap replaces them:
 | `M5 - Multi-Version Live/Staging Management` | Live/staging version rows, version-scoped aliases, promotion safety, auditability. |
 | `M6 - macOS Client Sync and Self-Update` | Client status, sync, repair, defaults, Java/NeoForge, DMG self-update. |
 | `M7 - DuckDB Schema, Audit, and Reporting` | Migrations, health checks, reporting views, audit rows, disposable validation. |
-| `M8 - Public Website, nginx, and Downloads` | Website consumers, public edge, cache/download behavior, status visibility. |
+| `M8 - Public Website, Caddy, and Downloads` | Website consumers, public edge, cache/download behavior, status visibility. |
 | `M9 - systemd, Server Supervision, and Operations` | Service units, timers, supervisor, RCON boundary, operational docs. |
 | `M10 - CI, Test Automation, and Release Evidence` | GitHub Actions, test automation, evidence inventories, acceptance artifacts. |
 | `M11 - Production Readiness and Human Approval Gates` | Security, release approvals, destructive-operation gates, policy decisions. |
@@ -100,7 +100,7 @@ Use these milestones unless a future human-approved roadmap replaces them:
 - `area:headless-soak`
 - `area:multi-version`
 - `area:website`
-- `area:nginx`
+- `area:caddy`
 - `area:systemd`
 - `area:rcon`
 - `area:world-management`
@@ -127,11 +127,11 @@ Recommended project name: `MinecraftAI Project`.
 | Field | Values |
 |---|---|
 | Status | Backlog; Ready for AI; In Progress; PR Open; Review; Blocked; Human Decision Needed; Done |
-| Phase | M0 Project Control Plane; M1 AI Onboarding and Repo Navigation; M2 Mod Discovery and Dependency Resolution; M3 Compatibility Checks and Smoke Testing; M4 Release Build and Immutable Artifacts; M5 Multi-Version Live/Staging Management; M6 macOS Client Sync and Self-Update; M7 DuckDB Schema, Audit, and Reporting; M8 Public Website, nginx, and Downloads; M9 systemd, Server Supervision, and Operations; M10 CI, Test Automation, and Release Evidence; M11 Production Readiness and Human Approval Gates |
+| Phase | M0 Project Control Plane; M1 AI Onboarding and Repo Navigation; M2 Mod Discovery and Dependency Resolution; M3 Compatibility Checks and Smoke Testing; M4 Release Build and Immutable Artifacts; M5 Multi-Version Live/Staging Management; M6 macOS Client Sync and Self-Update; M7 DuckDB Schema, Audit, and Reporting; M8 Public Website, Caddy, and Downloads; M9 systemd, Server Supervision, and Operations; M10 CI, Test Automation, and Release Evidence; M11 Production Readiness and Human Approval Gates |
 | Priority | P0; P1; P2; P3 |
 | Owner | Codex; Human; Mixed; External |
 | Risk | Low; Medium; High; Critical |
-| Area | AI Onboarding; Server; Client; Shared Contracts; DuckDB; Mod Discovery; Mod Compatibility; Release Build; Headless Soak; Multi-Version; Website; nginx; systemd; RCON; World Management; Security; CI; Docs |
+| Area | AI Onboarding; Server; Client; Shared Contracts; DuckDB; Mod Discovery; Mod Compatibility; Release Build; Headless Soak; Multi-Version; Website; Caddy; systemd; RCON; World Management; Security; CI; Docs |
 | Human Review Required | Yes; No |
 | Evidence Required | Yes; No |
 | Codex Suitability | Safe for Codex; Needs Human Context; Do Not Autocode |
@@ -168,7 +168,7 @@ Mark `Safe for Codex` only when all are true:
 - No production secrets, production access, destructive operations, release activation, live-version promotion, or deployed migration rewrite is required.
 - The work can be completed as a focused PR.
 
-Mark `Needs Human Context` when behavior depends on operator preference, docs/code conflict resolution, deployment ownership, nginx/systemd/auth policy, control APIs, live/staging policy, or migration intent.
+Mark `Needs Human Context` when behavior depends on operator preference, docs/code conflict resolution, deployment ownership, Caddy/systemd/auth policy, control APIs, live/staging policy, or migration intent.
 
 Mark `Do Not Autocode` when the issue touches production credentials, destructive operations, world reset execution, release activation, live promotion, RCON operations, production DB mutation, or any operation that can alter live service state.
 
@@ -190,7 +190,7 @@ Apply `ai:human-review` and route to `Human Decision Needed` when an issue touch
 - release activation, live-version promotion, stable aliases, or production release approval;
 - production DuckDB migration, repair, backup, restore, or live data mutation;
 - world reset execution, backup deletion, or destructive filesystem operations;
-- RCON, firewall, watchdog, Minecraft process supervision, systemd service behavior, or nginx public routing/cache/security changes;
+- RCON, firewall, watchdog, Minecraft process supervision, systemd service behavior, or Caddy public routing/cache/security changes;
 - executable download/update validation, checksum/signature/DMG/headless-soak gates;
 - secrets, private runtime files, certificates, production environment files, or live client/user data.
 
@@ -226,7 +226,7 @@ Local evidence may include:
 
 Operator evidence may include:
 
-- production host `nginx -t` and deployed config comparison;
+- production host `sudo caddy validate --config /etc/caddy/Caddyfile` and deployed config comparison;
 - systemd service/timer status and hardening checks;
 - production DuckDB migration/backup/restore evidence;
 - exact DMG hash, checksum, and headless live soak report;
@@ -238,8 +238,8 @@ Never fabricate or imply evidence. If a command was not run, state that it was s
 ## Safety reminders for PM triage
 
 - Prefer dry-run mode for mod add, mod scan, apply, version bootstrap, world reset, migration, and release operations.
-- Never use production paths, `Live Backup/`, a real player Minecraft directory, `/etc/systemd`, or live nginx paths for routine development validation.
+- Never use production paths, `Live Backup/`, a real player Minecraft directory, `/etc/systemd`, or live Caddy paths for routine development validation.
 - Do not rewrite deployed DuckDB migrations without explicit human approval.
 - Do not bypass release validation, checksum validation, DMG validation, smoke tests, or headless soak validation.
 - Do not commit secrets, tokens, RCON passwords, private keys, certificates, production environment files, or live client/user data.
-- Production duties remain in Swift, DuckDB, nginx, and systemd unless a human-approved architecture decision changes that boundary.
+- Production duties remain in Swift, DuckDB, Caddy, and systemd unless a human-approved architecture decision changes that boundary.
