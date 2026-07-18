@@ -1,8 +1,8 @@
 <!--
 AI onboarding file.
 Mode: refresh
-Indexed commit: 00e25e1a9584ca075e27b404305bda18157aa7f3
-Last generated: 2026-06-25T22:08:15+02:00
+Indexed commit: dc4cf76f7f0a60ffba9c8681708432a75faed1f2
+Last generated: 2026-07-18T22:16:29+07:00
 Generator: generic high-end AI coding agent
 Purpose: Help future AI sessions understand this repository quickly.
 Audience: Any high-capability AI coding agent, regardless of vendor or model family.
@@ -58,7 +58,7 @@ Repository-specific safety rules:
 - Do not run production migrations, release activation, world reset, RCON,
   systemd deployment, or live-server commands merely to validate a change.
 - Preserve checksum verification, atomic file replacement, release immutability,
-  live/staging separation, migration numbering, and systemd/nginx hardening.
+  live/staging separation, migration numbering, and systemd/Caddy hardening.
 - Current source outranks older docs when they conflict. Explicitly flag conflicts.
 - Do not create model-specific AI instruction files.
 ```
@@ -113,7 +113,7 @@ Production-only checks not run:
 3. `.ai/COMPONENTS.md` → API core, shared contracts, web edge.
 4. `Server App/MCPummelchenModServer/Sources/MCPummelchenModServerCore/MCPummelchenModServerCore.swift`.
 5. `Server App/MCPummelchenModShared/Sources/MCPummelchenModShared/APIModels.swift`.
-6. Relevant files in `Server App/nginx/site/public/`.
+6. Relevant files in `Server App/caddy/site/public/`.
 7. Server tests.
 
 ### Client sync, defaults, control, or self-update
@@ -155,10 +155,10 @@ Production-only checks not run:
 5. Reporting API consumers and tests.
 6. `.ai/COMMANDS.md` for disposable migrate/health commands.
 
-### nginx, website, or systemd
+### Caddy, website, or systemd
 
 1. `.ai/SECURITY.md`.
-2. `Server App/nginx/README.md` or `Server App/systemd/README.md`.
+2. `Server App/caddy/README.md` or `Server App/systemd/README.md`.
 3. Exact config/unit/drop-in files.
 4. Public site source and API aliases if relevant.
 5. Production contracts.

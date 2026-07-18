@@ -218,8 +218,8 @@ public struct ModAddPipeline: Sendable {
         let serverPackageRoot = config.serverPackageDirectory
             ?? URL(fileURLWithPath: env["PUMMELCHEN_SERVER_PACKAGE_DIR"] ?? config.projectRoot.appendingPathComponent("Server App/MCPummelchenModServer").path)
         let clientToken = config.clientAPIToken ?? env["PUMMELCHEN_CLIENT_API_TOKEN"]
-        let skipNginxTest = BoolValue.parse(env["PUMMELCHEN_SKIP_NGINX_CONTROL_LIVE_TEST"])
-        let runNginxControlLiveTest = !skipNginxTest && !(clientToken?.isEmpty ?? true)
+        let skipPublicEdgeTest = BoolValue.parse(env["PUMMELCHEN_SKIP_PUBLIC_EDGE_CONTROL_LIVE_TEST"])
+        let runPublicEdgeControlLiveTest = !skipPublicEdgeTest && !(clientToken?.isEmpty ?? true)
         let builderConfig = ClientDMGBuilderConfig(
             projectRoot: config.projectRoot,
             clientPackageRoot: clientPackageRoot,
@@ -231,7 +231,7 @@ public struct ModAddPipeline: Sendable {
             serverAddress: env["PUMMELCHEN_SERVER_ADDRESS"] ?? env["PUMMELCHEN_MANAGED_MINECRAFT_SERVER_ADDRESS"] ?? "91.99.176.243:25565",
             duckdbDylibPath: env["PUMMELCHEN_DUCKDB_DYLIB"] ?? "/opt/homebrew/lib/libduckdb.dylib",
             macOSDeploymentTarget: env["MACOSX_DEPLOYMENT_TARGET"] ?? "26.0",
-            runNginxControlLiveTest: runNginxControlLiveTest,
+            runPublicEdgeControlLiveTest: runPublicEdgeControlLiveTest,
             runHeadlessSoak: BoolValue.parse(env["PUMMELCHEN_REQUIRE_HEADLESS_SOAK"]),
             headlessSoakSeconds: Int(env["PUMMELCHEN_HEADLESS_SOAK_SECONDS"] ?? "60") ?? 60,
             headlessCommand: env["PUMMELCHEN_HEADLESS_COMMAND"],

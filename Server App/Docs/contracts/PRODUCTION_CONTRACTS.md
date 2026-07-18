@@ -4,11 +4,11 @@ This document freezes the production behavior for the Swift/DuckDB production sy
 
 ## Project Location
 
-The Swift production project lives in the repository folders `Server App`, `Client App`, `Server App/Database`, `Server App/nginx`, and `Live Backup`.
+The Swift production project lives in the repository folders `Server App`, `Client App`, `Server App/Database`, `Server App/caddy`, and `Live Backup`.
 
 Reason:
 
-- `Server App` owns the Debian service, release orchestration, safe world reset, DuckDB writes, and nginx-facing API data.
+- `Server App` owns the Debian service, release orchestration, safe world reset, DuckDB writes, and Caddy-facing API data.
 - `Client App` owns the macOS app, background sync, local status database, and player-facing sync UI.
 - `Server App/MCPummelchenModShared` owns the shared contracts used by both sides.
 
@@ -30,7 +30,7 @@ Manual repair is handled by the Swift client app and its bundled sync helper. Th
 
 ## Runtime And Build Tool Boundary
 
-The production runtime boundary is Swift + embedded DuckDB + nginx. Live server duties, client sync control, release metadata, safe world reset, mod inventory, failed-mod status, client reports, and website API data must be owned by the Swift server/client apps and DuckDB.
+The production runtime boundary is Swift + embedded DuckDB + Caddy. Live server duties, client sync control, release metadata, safe world reset, mod inventory, failed-mod status, client reports, and website API data must be owned by the Swift server/client apps and DuckDB.
 
 Shell scripts and small Python snippets are allowed only in developer/build/test tooling, such as local DMG packaging wrappers, temporary HTTP servers in tests, or command hooks explicitly passed by an operator. They must not become always-on VPS services, cron jobs, website data generators, or client runtime repair logic.
 
@@ -105,11 +105,11 @@ Each release contains:
 - `public/client-sync-manifest.tsv`
 - `public/client-files`
 
-Activation always publishes static release files through nginx and writes version-scoped current release files such as `/downloads/current-release-26.2.json` and `/downloads/current-release-minecraft_26_2.json`.
+Activation always publishes static release files through Caddy and writes version-scoped current release files such as `/downloads/current-release-26.2.json` and `/downloads/current-release-minecraft_26_2.json`.
 
 Every activated release may update its own versioned top-level DMG/download aliases, such as `/downloads/MCPummelchenModClient_26.2.dmg`. Only the Minecraft version marked `is_live = true` in DuckDB may also update `/downloads/current-release.json` and `/downloads/current-release.txt`. Staging versions must not overwrite the global current release pointer.
 
-After activation, the Swift release pipeline enforces storage retention. It keeps the active release plus the newest retained releases per `server_key` in DuckDB and prunes older release directories from both the private release root and nginx public download release root. If the activated release includes a versioned `MCPummelchenModClient_<minecraft_version>.dmg`, the pipeline must also start automatic post-DMG cleanup for known Pummelchen build, headless-test, temporary DMG, spark profiler, and old binary-backup artifacts, then record a `cleanup` event in DuckDB. Manual VPS cleanup must not be the only disk-space control.
+After activation, the Swift release pipeline enforces storage retention. It keeps the active release plus the newest retained releases per `server_key` in DuckDB and prunes older release directories from both the private release root and Caddy public download release root. If the activated release includes a versioned `MCPummelchenModClient_<minecraft_version>.dmg`, the pipeline must also start automatic post-DMG cleanup for known Pummelchen build, headless-test, temporary DMG, spark profiler, and old binary-backup artifacts, then record a `cleanup` event in DuckDB. Manual VPS cleanup must not be the only disk-space control.
 
 `current-release.json` is also the client-app self-update contract. When a release includes a macOS DMG, the payload must include both:
 
@@ -154,7 +154,7 @@ Release health must verify:
 - the version-scoped current-release JSON exists and points to the active release
 - global current-release JSON is updated only when the release Minecraft version is marked live in DuckDB
 - client manifest exists and parses
-- every manifest entry resolves through nginx
+- every manifest entry resolves through Caddy
 - every downloaded file matches size and SHA256
 - ZIP/MRPack/DMG checksum files match artifacts
 - active DB release row matches published release

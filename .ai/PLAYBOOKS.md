@@ -1,8 +1,8 @@
 <!--
 AI onboarding file.
 Mode: refresh
-Indexed commit: 00e25e1a9584ca075e27b404305bda18157aa7f3
-Last generated: 2026-06-25T22:08:15+02:00
+Indexed commit: dc4cf76f7f0a60ffba9c8681708432a75faed1f2
+Last generated: 2026-07-18T22:16:29+07:00
 Generator: generic high-end AI coding agent
 Purpose: Help future AI sessions understand this repository quickly.
 Audience: Any high-capability AI coding agent, regardless of vendor or model family.
@@ -38,7 +38,7 @@ These playbooks describe project-specific procedures. They are not permission to
 8. Decide authorization explicitly; do not copy current ambiguous behavior without analysis.
 9. Add success and error tests.
 10. Update website/client consumer.
-11. Add nginx alias only if a compatibility JSON path is required.
+11. Add Caddy alias only if a compatibility JSON path is required.
 12. Update contracts/onboarding if public behavior changes.
 
 ### Validation
@@ -356,7 +356,7 @@ Then run affected package tests.
 - `SwiftReleasePipeline.swift`
 - shared current-release/manifest validators
 - production contracts
-- nginx downloads behavior
+- Caddy downloads behavior
 - DB release migrations/views
 
 ### Procedure
@@ -442,9 +442,9 @@ Then run affected package tests.
 
 ### Read first
 
-- `Server App/nginx/site/public/index.html` and relevant page
+- `Server App/caddy/site/public/index.html` and relevant page
 - API endpoint and response model
-- nginx README/site config
+- Caddy README/site config
 - site theme assets
 
 ### Procedure
@@ -466,25 +466,27 @@ Then run affected package tests.
 - broken CDN/grid dependency;
 - wrong release/download link.
 
-## Playbook 15: Change nginx configuration
+## Playbook 15: Change Caddy configuration
 
 ### Read first
 
-- `Server App/nginx/README.md`
-- `sites-available/pummelchen-swift.conf`
-- `nginx.conf`
+- `Server App/caddy/README.md`
+- `Server App/caddy/Caddyfile`
+- `Server App/caddy/PummelchenRoutes.caddy`
+- `Server App/caddy/Tests/test_edge.py`
 - `.ai/SECURITY.md`
 
 ### Procedure
 
 1. Classify change: listener/TLS, proxy, alias, caching, upload limit, or security header.
-2. Preserve ACME challenge and HTTPS redirect behavior.
+2. Preserve Caddy automatic HTTPS and redirect behavior.
 3. Preserve local API upstream unless architecture changes.
-4. Check path matching precedence (`=`, `^~`, regex, prefix).
+4. Check `route`, matcher, and `handle` ordering.
 5. Keep current-release no-cache handling.
 6. Keep large downloads static and preserve runtime downloads on deployment.
-7. Update README/contracts.
-8. Have operator run host config validation and staged reload.
+7. Run `caddy fmt`, `caddy validate`, and the edge integration suite.
+8. Update README/contracts.
+9. Have the operator perform a rollback-ready staged cutover and external validation.
 
 ### Risks
 

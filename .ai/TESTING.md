@@ -1,8 +1,8 @@
 <!--
 AI onboarding file.
 Mode: refresh
-Indexed commit: 00e25e1a9584ca075e27b404305bda18157aa7f3
-Last generated: 2026-06-25T22:08:15+02:00
+Indexed commit: dc4cf76f7f0a60ffba9c8681708432a75faed1f2
+Last generated: 2026-07-18T22:16:29+07:00
 Generator: generic high-end AI coding agent
 Purpose: Help future AI sessions understand this repository quickly.
 Audience: Any high-capability AI coding agent, regardless of vendor or model family.
@@ -54,8 +54,9 @@ The package manifests define one test target per package. Server and shared test
 
 | File | Coverage discovered |
 |---|---|
-| `MCPummelchenModServerCoreTests.swift` | API current release/manifest/status; environment-driven Minecraft config; live stats; nginx-published stats; DuckDB site feeds; failed mods; scanner seeding; version, release, pipeline, and other server-core behavior in the remainder of the suite. |
+| `MCPummelchenModServerCoreTests.swift` | API current release/manifest/status; environment-driven Minecraft config; live stats; public-edge stats; DuckDB site feeds; failed mods; scanner seeding; version, release, pipeline, and other server-core behavior in the remainder of the suite. |
 | `Fixtures/` | Project/release/manifest fixtures copied by SwiftPM. |
+| `Server App/caddy/Tests/test_edge.py` | Real Caddy process with disposable files/upstreams; route rewrites, aliases, proxy headers, body limits, cache/range behavior, sensitive-file denial, SPA fallback, compression, and security headers. |
 
 The large server test file covers several domains. Use focused filters and search within it before adding duplicate tests.
 
@@ -82,12 +83,16 @@ Some pipeline code invokes external tools such as:
 - `shasum` or `sha256sum`
 - macOS `sips`, `iconutil`, `otool`, `install_name_tool`, `plutil`, `codesign`, and DMG tooling
 - systemctl/iptables/RCON-related runtime commands
+- Caddy v2.10 or newer for the `request_body` directive; production validation uses v2.11.3
 
 Ordinary unit tests should not require production service or live external-provider access. If a test begins depending on those, isolate it behind fixtures/injection or document it as acceptance testing.
 
 ## Running tests
 
 ```sh
+CADDY_BIN="$(command -v caddy)" ./Scripts/test-all.sh
+
+# Individual Swift packages:
 swift test --package-path "Server App/MCPummelchenModShared"
 swift test --package-path "Client App/MCPummelchenModClient"
 swift test --package-path "Server App/MCPummelchenModServer"
@@ -143,7 +148,7 @@ Follow these patterns. Avoid tests that point to:
 - `/opt/pummelchen-swift/runtime`;
 - a real player's Minecraft directory;
 - `Live Backup/`;
-- real `/etc/systemd` or nginx paths;
+- real `/etc/systemd`, `/etc/caddy`, or production site paths;
 - a production DuckDB file.
 
 ## Validation by component
@@ -321,9 +326,15 @@ Use a new temporary DB:
 
 Also test migration idempotency (second migrate applies nothing) and upgrade from a representative prior schema when practical.
 
-### nginx/website
+### Caddy/website
 
-Static source validation should include:
+Run the tracked production-route integration suite:
+
+```sh
+CADDY_BIN="$(command -v caddy)" python3 "Server App/caddy/Tests/test_edge.py"
+```
+
+It imports `PummelchenRoutes.caddy` directly. Do not replace it with a mocked edge. Static source validation should additionally include:
 
 - API endpoint/field references;
 - unavailable/error rendering;
@@ -332,7 +343,7 @@ Static source validation should include:
 - safe rendering/escaping of API data;
 - responsive/manual browser behavior.
 
-Host-level nginx config validation is an operator acceptance step. It was not run as part of generating these docs.
+`caddy validate --config "Server App/caddy/Caddyfile"` is safe local validation. Host-level service state, certificate issuance, port ownership, and external HTTP/2/HTTP/3 checks remain operator acceptance steps.
 
 ### systemd/supervisor
 
@@ -371,7 +382,7 @@ Known or likely slow/environment-dependent areas:
 - DMG assembly and codesign;
 - headless live soak;
 - external provider discovery;
-- live nginx/systemd/Minecraft/RCON checks.
+- live Caddy/systemd/Minecraft/RCON checks.
 
 Do not mark these flaky without evidence. Record exact environment failure separately from logic failure.
 

@@ -507,13 +507,13 @@ public struct ClientStatusService: Sendable {
     }
 
     private func fetchCurrentRelease() async throws -> CurrentRelease {
-        return try await fetchCurrentReleaseFromNginx()
+        return try await fetchCurrentReleaseFromPublicEdge()
     }
 
     private func downloadServerStatus(checkedAt: String) async -> EndpointConnectionStatus {
         do {
             let probe = try await measure {
-                _ = try await fetchCurrentReleaseFromNginx()
+                _ = try await fetchCurrentReleaseFromPublicEdge()
             }
             return endpointStatus(label: "Mod Download Server", latencyMS: probe.latencyMS, checkedAt: checkedAt)
         } catch {
@@ -527,7 +527,7 @@ public struct ClientStatusService: Sendable {
         }
     }
 
-    public func fetchCurrentReleaseFromNginx() async throws -> CurrentRelease {
+    public func fetchCurrentReleaseFromPublicEdge() async throws -> CurrentRelease {
         let url = configuration.serverURL.appendingPathComponent(configuration.currentReleasePath)
         let data: Data
         do {

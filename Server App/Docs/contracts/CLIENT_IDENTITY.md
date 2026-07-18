@@ -28,14 +28,14 @@ Private build bootstrap:
 
 ## Transport And Request Authentication
 
-Client/server API and near-realtime control traffic use nginx-served HTTPS endpoints. Write/report requests and live update polling must authenticate with:
+Client/server API and near-realtime control traffic use Caddy-served HTTPS endpoints. Write/report requests and live update polling must authenticate with:
 
 ```http
 Authorization: Bearer <client_secret>
 X-Pummelchen-Client-ID: <client_id>
 ```
 
-Client read-only release downloads remain public static files served by nginx. The same nginx HTTPS edge also proxies authenticated `/api/v1/control/*` and `/api/v1/clients/*` requests to the Swift server app.
+Client read-only release downloads remain public static files served by Caddy. The same Caddy HTTPS edge also proxies authenticated `/api/v1/control/*` and `/api/v1/clients/*` requests to the Swift server app.
 
 ## Control Events
 

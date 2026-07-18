@@ -38,7 +38,7 @@ body:
     id: safety-boundaries
     attributes:
       label: Safety boundaries
-      description: Destructive operations, live services, credentials, production DB, RCON, nginx/systemd, release activation, or client-update risks.
+      description: Destructive operations, live services, credentials, production DB, RCON, Caddy/systemd, release activation, or client-update risks.
     validations:
       required: true
   - type: textarea
@@ -123,7 +123,7 @@ body:
       placeholder: |
         Phase: M11
         Priority: P...
-        Area: Security / Release Build / DuckDB / nginx / systemd / RCON / World Management
+        Area: Security / Release Build / DuckDB / Caddy / systemd / RCON / World Management
         Risk: High/Critical
         Codex suitability: Do Not Autocode or Needs Human Context
         Evidence required: Yes

@@ -42,7 +42,7 @@ public struct ClientDMGBuilderConfig: Sendable {
     public let serverAddress: String
     public let duckdbDylibPath: String
     public let macOSDeploymentTarget: String
-    public let runNginxControlLiveTest: Bool
+    public let runPublicEdgeControlLiveTest: Bool
     public let runHeadlessSoak: Bool
     public let headlessSoakSeconds: Int
     public let headlessCommand: String?
@@ -61,7 +61,7 @@ public struct ClientDMGBuilderConfig: Sendable {
         serverAddress: String = "91.99.176.243:25565",
         duckdbDylibPath: String = "/opt/homebrew/lib/libduckdb.dylib",
         macOSDeploymentTarget: String = "26.0",
-        runNginxControlLiveTest: Bool = true,
+        runPublicEdgeControlLiveTest: Bool = true,
         runHeadlessSoak: Bool = false,
         headlessSoakSeconds: Int = 60,
         headlessCommand: String? = nil,
@@ -79,7 +79,7 @@ public struct ClientDMGBuilderConfig: Sendable {
         self.serverAddress = serverAddress
         self.duckdbDylibPath = duckdbDylibPath
         self.macOSDeploymentTarget = macOSDeploymentTarget
-        self.runNginxControlLiveTest = runNginxControlLiveTest
+        self.runPublicEdgeControlLiveTest = runPublicEdgeControlLiveTest
         self.runHeadlessSoak = runHeadlessSoak
         self.headlessSoakSeconds = headlessSoakSeconds
         self.headlessCommand = headlessCommand
@@ -278,8 +278,8 @@ public struct ClientDMGBuilder: Sendable {
         _ = try runCommand(executable: "/usr/bin/codesign", arguments: ["--force", "--deep", "--sign", "-", appDir.path])
         _ = try runCommand(executable: "/usr/bin/codesign", arguments: ["--verify", "--deep", "--strict", "--verbose=2", appDir.path])
 
-        if config.runNginxControlLiveTest {
-            try runNginxControlLiveTest(syncBinaryPath: macOSDir.appendingPathComponent("pummelchen-client-sync"))
+        if config.runPublicEdgeControlLiveTest {
+            try runPublicEdgeControlLiveTest(syncBinaryPath: macOSDir.appendingPathComponent("pummelchen-client-sync"))
         }
 
         _ = try runCommand(
@@ -313,14 +313,14 @@ public struct ClientDMGBuilder: Sendable {
         #endif
     }
 
-    private func runNginxControlLiveTest(syncBinaryPath: URL) throws {
+    private func runPublicEdgeControlLiveTest(syncBinaryPath: URL) throws {
         guard let token = config.clientAPIToken, !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw ClientDMGBuilderError.processFailed("DMG validation requires PUMMELCHEN_CLIENT_API_TOKEN for nginx control check")
+            throw ClientDMGBuilderError.processFailed("DMG validation requires PUMMELCHEN_CLIENT_API_TOKEN for public-edge control check")
         }
 
         let tokenTrimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         let eventsBase = try requestBaseURL(path: "/api/\(Self.artifactVersion(config.minecraftVersion))/v1/control/events")
-        let clientID = "dmg-nginx-control-\(Int(Date().timeIntervalSince1970))"
+        let clientID = "dmg-public-edge-control-\(Int(Date().timeIntervalSince1970))"
 
         let queryBefore: [String: String] = ["client_id": clientID, "limit": "200"]
         let beforeURL = try makeURL(base: eventsBase, query: queryBefore)
@@ -335,9 +335,9 @@ public struct ClientDMGBuilder: Sendable {
                 "event_type": "server_message",
                 "target_client_id": clientID,
                 "priority": "normal",
-                "title": "DMG nginx control validation",
+                "title": "DMG public-edge control validation",
                 "message": "Temporary DMG validation event.",
-                "payload": ["probe": "dmg_nginx_control_validation"]
+                "payload": ["probe": "dmg_public_edge_control_validation"]
             ]
             if !config.releaseID.isEmpty {
                 payload["release_id"] = config.releaseID
@@ -346,13 +346,13 @@ public struct ClientDMGBuilder: Sendable {
         }()
         let createResult = try requestJSON(eventsBase, method: "POST", headers: defaultHeaders(token: tokenTrimmed), body: eventBody)
         guard createResult.statusCode == 201 else {
-            throw ClientDMGBuilderError.processFailed("DMG validation failed: could not create nginx control probe event")
+            throw ClientDMGBuilderError.processFailed("DMG validation failed: could not create public-edge control probe event")
         }
 
         let workRoot = config.projectRoot
             .appendingPathComponent(".build")
             .appendingPathComponent("pummelchen-dmg")
-            .appendingPathComponent("nginx-control-live-test", isDirectory: true)
+            .appendingPathComponent("public-edge-control-live-test", isDirectory: true)
         if FileManager.default.fileExists(atPath: workRoot.path) {
             try FileManager.default.removeItem(at: workRoot)
         }
@@ -406,14 +406,14 @@ public struct ClientDMGBuilder: Sendable {
         let pendingURL = try makeURL(base: eventsBase, query: pendingQuery)
         let pending = try requestJSON(pendingURL, method: "GET", headers: defaultHeaders(token: tokenTrimmed, clientID: clientID))
         guard pending.statusCode == 200 else {
-            throw ClientDMGBuilderError.processFailed("DMG validation failed: could not fetch pending nginx control events")
+            throw ClientDMGBuilderError.processFailed("DMG validation failed: could not fetch pending public-edge control events")
         }
         let eventCount = (pending.json["events"] as? [Any])?.count ?? Int.max
         guard eventCount == 0 else {
-            throw ClientDMGBuilderError.processFailed("DMG validation failed: nginx control probe ack did not clear pending events")
+            throw ClientDMGBuilderError.processFailed("DMG validation failed: public-edge control probe ack did not clear pending events")
         }
 
-        print("DMG nginx control live test passed: event fetched, event acknowledged, pending_events=0")
+        print("DMG public-edge control live test passed: event fetched, event acknowledged, pending_events=0")
     }
 
     private func runHeadlessSoak(dmgPath: URL) throws {

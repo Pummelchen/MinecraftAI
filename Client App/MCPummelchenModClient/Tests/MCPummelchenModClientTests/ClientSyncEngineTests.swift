@@ -114,7 +114,7 @@ struct ClientSyncEngineTests {
         #endif
     }
 
-    @Test("sync falls back to Swift current release API when nginx pointer is missing")
+    @Test("sync falls back to Swift current release API when public-edge pointer is missing")
     func syncFallsBackToSwiftCurrentReleaseAPI() async throws {
         #if os(Linux)
         return
