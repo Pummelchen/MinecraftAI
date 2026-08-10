@@ -6,7 +6,7 @@ body:
     id: objective
     attributes:
       label: Objective
-      description: What bug should be fixed?
+      description: What should be fixed?
     validations:
       required: true
   - type: textarea
@@ -24,24 +24,17 @@ body:
     validations:
       required: true
   - type: textarea
-    id: scope
-    attributes:
-      label: Scope
-      description: Specific files, directories, commands, APIs, docs, or behavior in scope.
-    validations:
-      required: true
-  - type: textarea
-    id: non-goals
-    attributes:
-      label: Non-goals
-      description: What must not be changed.
-    validations:
-      required: true
-  - type: textarea
     id: reproduction
     attributes:
-      label: Reproduction or evidence
-      description: Safe reproduction steps, logs, screenshots, or artifact references. Do not include secrets.
+      label: Reproduction and evidence
+      description: Provide the smallest safe reproduction, logs, screenshots, or artifact references. Do not include secrets or private client data.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and non-goals
+      description: List the affected files, commands, APIs, versions, and behavior that must remain unchanged.
     validations:
       required: true
   - type: textarea
@@ -49,85 +42,36 @@ body:
     attributes:
       label: Acceptance criteria
       placeholder: |
-        - [ ] ...
-        - [ ] ...
-    validations:
-      required: true
-  - type: textarea
-    id: files
-    attributes:
-      label: Relevant files/directories
+        - [ ] The issue is reproduced by a focused test or fixture.
+        - [ ] The expected behavior is restored.
+        - [ ] Relevant regression tests pass.
     validations:
       required: true
   - type: textarea
     id: validation
     attributes:
       label: Validation
-      description: Smallest safe commands first. Prefer commands from `.ai/COMMANDS.md`.
+      description: List the smallest safe commands from the wiki Command Reference first.
     validations:
       required: true
   - type: dropdown
     id: risk
     attributes:
       label: Risk
-      options:
-        - Low
-        - Medium
-        - High
-        - Critical
+      options: [Low, Medium, High, Critical]
     validations:
       required: true
   - type: dropdown
     id: human-review
     attributes:
       label: Human review required
-      options:
-        - "No"
-        - "Yes"
+      options: ["No", "Yes"]
     validations:
       required: true
   - type: textarea
     id: human-review-reason
     attributes:
       label: Human review reason
-    validations:
-      required: true
-  - type: dropdown
-    id: codex-suitability
-    attributes:
-      label: Codex suitability
-      options:
-        - Safe for Codex
-        - Needs Human Context
-        - Do Not Autocode
-    validations:
-      required: true
-  - type: textarea
-    id: codex-instructions
-    attributes:
-      label: Codex instructions
-    validations:
-      required: true
-  - type: dropdown
-    id: expected-pr-size
-    attributes:
-      label: Expected PR size
-      options:
-        - Small
-        - Medium
-        - Large
-    validations:
-      required: true
-  - type: textarea
-    id: project-fields
-    attributes:
-      label: Project fields
-      placeholder: |
-        Phase: M...
-        Priority: P...
-        Area: ...
-        Risk: ...
-        Codex suitability: ...
-        Evidence required: Yes/No
+      description: Explain any production, security, database, release, world, RCON, service, or client-update impact.
     validations:
       required: true

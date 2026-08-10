@@ -1,44 +1,36 @@
 name: Production / Human Review Task
-description: Decisions or work requiring explicit human approval
+description: Track a production-sensitive decision or guarded operation
 title: "[Human Review] "
 body:
   - type: markdown
     attributes:
       value: |
-        Use this for production-sensitive, destructive, security-sensitive, or policy-dependent work. These issues should normally be labeled `ai:human-review` and `ai:do-not-autocode` until a human decision narrows safe implementation scope.
+        Use this for production services, credentials, security policy, database mutation, release activation, live promotion, RCON, world reset, or client-update control. Creating the issue does not authorize the operation.
   - type: textarea
     id: objective
     attributes:
       label: Objective
-      description: What decision or guarded task is needed?
     validations:
       required: true
   - type: textarea
     id: scope
     attributes:
-      label: Scope
-      description: Production behavior, files, commands, systems, APIs, or policies in scope.
-    validations:
-      required: true
-  - type: textarea
-    id: non-goals
-    attributes:
-      label: Non-goals
-      description: What must not be changed, run, deployed, or approved by default.
+      label: Scope and non-goals
+      description: Identify exact services, versions, files, databases, commands, and actions that remain prohibited.
     validations:
       required: true
   - type: textarea
     id: decision-needed
     attributes:
       label: Human decision needed
-      description: The exact approval, policy choice, or operator evidence required.
+      description: State the exact approval or policy choice required.
     validations:
       required: true
   - type: textarea
-    id: safety-boundaries
+    id: rollback
     attributes:
-      label: Safety boundaries
-      description: Destructive operations, live services, credentials, production DB, RCON, Caddy/systemd, release activation, or client-update risks.
+      label: Backup and rollback plan
+      description: Explain how current state is preserved and restored.
     validations:
       required: true
   - type: textarea
@@ -46,86 +38,30 @@ body:
     attributes:
       label: Acceptance criteria
       placeholder: |
-        - [ ] Human decision is recorded.
-        - [ ] Safe implementation follow-up issues are created if needed.
-        - [ ] No production mutation is performed by this issue unless explicitly approved.
-    validations:
-      required: true
-  - type: textarea
-    id: files
-    attributes:
-      label: Relevant files/directories
+        - [ ] The owner decision is recorded.
+        - [ ] Dry-run or disposable validation is complete where available.
+        - [ ] Production evidence and rollback state are identified.
+        - [ ] No mutation occurs before explicit approval.
     validations:
       required: true
   - type: textarea
     id: validation
     attributes:
-      label: Validation
-      description: Safe validation only. Production commands require explicit operator approval.
+      label: Validation and evidence
+      description: Separate local/disposable evidence from live operator evidence.
     validations:
       required: true
   - type: dropdown
     id: risk
     attributes:
       label: Risk
-      options:
-        - High
-        - Critical
-        - Medium
-        - Low
+      options: [High, Critical, Medium, Low]
     validations:
       required: true
   - type: dropdown
-    id: human-review
+    id: approval
     attributes:
-      label: Human review required
-      options:
-        - "Yes"
-    validations:
-      required: true
-  - type: textarea
-    id: human-review-reason
-    attributes:
-      label: Human review reason
-    validations:
-      required: true
-  - type: dropdown
-    id: codex-suitability
-    attributes:
-      label: Codex suitability
-      options:
-        - Do Not Autocode
-        - Needs Human Context
-        - Safe for Codex
-    validations:
-      required: true
-  - type: textarea
-    id: codex-instructions
-    attributes:
-      label: Codex instructions
-      description: Limit Codex to research, docs, tests, or implementation only after human approval.
-    validations:
-      required: true
-  - type: dropdown
-    id: expected-pr-size
-    attributes:
-      label: Expected PR size
-      options:
-        - Small
-        - Medium
-        - Large
-    validations:
-      required: true
-  - type: textarea
-    id: project-fields
-    attributes:
-      label: Project fields
-      placeholder: |
-        Phase: M11
-        Priority: P...
-        Area: Security / Release Build / DuckDB / Caddy / systemd / RCON / World Management
-        Risk: High/Critical
-        Codex suitability: Do Not Autocode or Needs Human Context
-        Evidence required: Yes
+      label: Human approval recorded
+      options: ["No", "Yes"]
     validations:
       required: true

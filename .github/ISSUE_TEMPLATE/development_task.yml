@@ -1,0 +1,90 @@
+name: Development Task
+description: Propose a focused implementation, refactor, test, CI, or operational improvement
+title: "[Task] "
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What outcome should this issue accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Name the files, directories, commands, APIs, contracts, or behavior in scope.
+    validations:
+      required: true
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Non-goals
+      description: What must not be changed?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Relevant files and directories
+      placeholder: |
+        - `path/to/source.swift`
+        - `path/to/tests/`
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: List focused tests and safe commands from the wiki Command Reference.
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options: [Low, Medium, High, Critical]
+    validations:
+      required: true
+  - type: dropdown
+    id: human-review
+    attributes:
+      label: Human review required
+      options: ["No", "Yes"]
+    validations:
+      required: true
+  - type: textarea
+    id: human-review-reason
+    attributes:
+      label: Human review reason
+      description: Explain the decision or approval required, or why no production-sensitive boundary is involved.
+    validations:
+      required: true
+  - type: dropdown
+    id: expected-change-size
+    attributes:
+      label: Expected change size
+      options: [Small, Medium, Large]
+    validations:
+      required: true
+  - type: textarea
+    id: project-fields
+    attributes:
+      label: Project fields
+      placeholder: |
+        Phase: M...
+        Priority: P...
+        Area: ...
+        Risk: ...
+        Evidence required: Yes/No
+    validations:
+      required: true
