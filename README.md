@@ -2,7 +2,7 @@
 
 A mod release and conflict-validation system for three NeoForge Minecraft servers — one Swift engine, behind Caddy.
 
-> **Status: design stage.** Nothing in this concept is implemented. The repository is intentionally near-empty while the architecture is settled. The previous implementation was retired — see [Archive](#the-retired-v1-system).
+> **Status: design stage**, with one exception — the [master Caddy edge](caddy/) is built and tested. The engine itself is not implemented. The previous implementation was retired — see [Archive](#the-retired-v1-system).
 
 ## The problem
 
@@ -38,9 +38,23 @@ All three servers run continuously on 25565–25567. Conflict tests are addition
 
 v1 ran three Swift services on three loopback ports, one per Minecraft version — three systemd units, three Caddy route blocks, three copies of every fix, and nowhere to put logic spanning versions. The engine instead holds every version in one process, so **adding a Minecraft version creates no service and changes no Caddy configuration.** See [Adding a Version](https://github.com/Pummelchen/MinecraftAI/wiki/Adding-a-Version).
 
-## Known blocker
+## The edge
 
-Caddy on 8877 **cannot obtain a Let's Encrypt certificate** for `pummelchen.91.99.176.243.nip.io`. Let's Encrypt validates only on port 80 or 443 — both held by other services on this host — and DNS-01 is impossible because `nip.io` is not a zone we control. The certificate has to come from elsewhere; the options are ranked in [Edge and TLS](https://github.com/Pummelchen/MinecraftAI/wiki/Edge-and-TLS).
+A **master Caddy** owns ports 80 and 443 for the whole VPS, terminates TLS and HTTP/3, and routes by hostname to each project. Config in [`caddy/`](caddy/).
+
+| Hostname | Project |
+|---|---|
+| `minecraft.91.99.176.243.nip.io` | this one — `/var/minecraftai` |
+| `roomcad.91.99.176.243.nip.io` | `/var/roomcad` |
+| `xaios.91.99.176.243.nip.io` | `/var/xaios_updater` |
+
+This exists because ports 80 and 443 can only be held once, and Let's Encrypt validates on nothing else, so whichever process owns them is the only one that can obtain certificates. Centralising that gives every project automatic HTTPS on a clean URL with no port number, instead of each fighting for a certificate it cannot get.
+
+Adding a project is one file in `caddy/projects/` and a reload. Cutting the master over from whatever currently holds 80 and 443 is the one risky step, and has its own runbook: [`caddy/MIGRATION.md`](caddy/MIGRATION.md).
+
+```bash
+caddy/scripts/test-edge.sh
+```
 
 ## Documentation
 

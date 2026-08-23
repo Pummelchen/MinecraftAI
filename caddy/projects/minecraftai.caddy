@@ -1,0 +1,57 @@
+# MinecraftAI — mod control plane
+#
+# Served directly by the master. This site is static files plus a single
+# reverse-proxy route, which does not justify a dedicated Caddy instance.
+# To move it behind its own Caddy later, replace the two handle blocks with:
+#     reverse_proxy 127.0.0.1:8801
+# and give that instance `auto_https off`.
+#
+# Every environment-dependent value is overridable so the config can be
+# validated and exercised without root. Defaults are the production values.
+
+{$MINECRAFTAI_SITE_ADDRESS:minecraft.91.99.176.243.nip.io} {
+	encode zstd gzip
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+	}
+
+	# NOTE: this must stay inside `route`. Caddy sorts directives by its own
+	# standard order, not by the order written, and outside a route block
+	# file_server runs before this matcher — serving the very files it exists
+	# to block. Verified by scripts/test-edge.sh.
+	route {
+		# Never serve state, backups or WAL sidecars, whatever the site root holds.
+		@sensitive path_regexp (?i)(?:^|/)(?:.*\.db|.*\.db-wal|.*\.db-shm|.*\.sqlite3?|.*\.duckdb|.*\.bak|.*\.old|.*\.tmp)$
+		respond @sensitive 404
+
+		handle /api/* {
+			header Cache-Control "no-store, max-age=0"
+			reverse_proxy {$MINECRAFTAI_API:127.0.0.1:8787} {
+				header_up X-Real-IP {remote_host}
+				transport http {
+					dial_timeout 5s
+					response_header_timeout 30s
+				}
+			}
+		}
+
+		handle {
+			root * {$MINECRAFTAI_SITE_ROOT:/var/minecraftai/web/site/public}
+			try_files {path} {path}/ /index.html
+			file_server
+		}
+	}
+
+	log {
+		output file {$CADDY_LOG_DIR:/var/log/caddy}/minecraftai.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format json
+	}
+}

@@ -1,0 +1,23 @@
+# Master edge for this VPS.
+#
+# Owns :80 and :443 for every nip.io project on the host, terminates TLS and
+# HTTP/3, and routes by Host header. Individual projects contribute one file
+# each to projects/ — nobody edits this file to add a project.
+#
+# Deployed to /var/caddy/Caddyfile. Import paths below are relative to this
+# file, so the same config validates from the repository and runs on the VPS.
+{
+	# Uncomment and set a contact address for expiry warnings from Let's Encrypt.
+	# email ops@example.com
+
+	servers {
+		# HTTP/3 is on by default in Caddy 2.6+. Explicit so it survives review.
+		protocols h1 h2 h3
+
+		# Without this, every project behind the master logs 127.0.0.1 as the
+		# client and {remote_host} is useless.
+		trusted_proxies static private_ranges
+	}
+}
+
+import projects/*.caddy

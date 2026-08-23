@@ -1,0 +1,41 @@
+# RoomCAD — /var/roomcad
+#
+# https://roomcad.91.99.176.243.nip.io
+#
+# ASSUMPTION: serves static files from /var/roomcad/public. If RoomCAD is an
+# app server instead, delete the handle block and uncomment the proxy.
+
+{$ROOMCAD_SITE_ADDRESS:roomcad.91.99.176.243.nip.io} {
+	encode zstd gzip
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+	}
+
+	route {
+		@sensitive path_regexp (?i)(?:^|/)(?:.*\.db|.*\.db-wal|.*\.db-shm|.*\.sqlite3?|.*\.bak|.*\.old|.*\.tmp|\.env)$
+		respond @sensitive 404
+
+		# App server instead of static files:
+		# reverse_proxy {$ROOMCAD_UPSTREAM:127.0.0.1:8802} {
+		# 	header_up X-Real-IP {remote_host}
+		# }
+
+		handle {
+			root * {$ROOMCAD_SITE_ROOT:/var/roomcad/public}
+			try_files {path} {path}/ /index.html
+			file_server
+		}
+	}
+
+	log {
+		output file {$CADDY_LOG_DIR:/var/log/caddy}/roomcad.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format json
+	}
+}

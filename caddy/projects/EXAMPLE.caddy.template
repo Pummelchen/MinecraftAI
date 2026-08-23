@@ -1,0 +1,40 @@
+# Template for a new project behind the master edge.
+#
+#   cp EXAMPLE.caddy.template <project>.caddy
+#   edit the hostname and the upstream
+#   scripts/validate.sh
+#   scripts/reload.sh
+#
+# The hostname prefix is free-form: <anything>.91.99.176.243.nip.io resolves to
+# this host. Pick something stable — it ends up in the certificate.
+#
+# Keep the {$VAR:default} form on paths and upstreams so the config stays
+# validatable without root.
+
+{$MYPROJECT_SITE_ADDRESS:myproject.91.99.176.243.nip.io} {
+	encode zstd gzip
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+	}
+
+	# Option A — the project runs its own Caddy or app server on a loopback port.
+	reverse_proxy {$MYPROJECT_UPSTREAM:127.0.0.1:8802} {
+		header_up X-Real-IP {remote_host}
+	}
+
+	# Option B — static site served straight from here. Delete Option A if used.
+	# root * {$MYPROJECT_SITE_ROOT:/var/myproject/public}
+	# file_server
+
+	log {
+		output file {$CADDY_LOG_DIR:/var/log/caddy}/myproject.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format json
+	}
+}
