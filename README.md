@@ -27,7 +27,7 @@ So no mod set reaches a live server until a throwaway session has proven it boot
 | Layer | Choice |
 |---|---|
 | Engine | Swift 6.3.3 — a single process handling all versions and the website API |
-| State | SQLite via GRDB |
+| State | Local SQLite in WAL mode, via GRDB |
 | Web server | Latest Caddy on port 8877, HTTP/3 and QUIC |
 | Servers | One systemd-managed NeoForge JVM per version, unit generated from a template |
 | Input | Google Sheets, one tab per version, read and written by the engine |
@@ -50,6 +50,7 @@ The full design lives in the [wiki](https://github.com/Pummelchen/MinecraftAI/wi
 - [Engine](https://github.com/Pummelchen/MinecraftAI/wiki/Engine) — the Swift process, dependencies, command surface, API
 - [Adding a Version](https://github.com/Pummelchen/MinecraftAI/wiki/Adding-a-Version) — how a new Minecraft version arrives
 - [Modset Model](https://github.com/Pummelchen/MinecraftAI/wiki/Modset-Model) — digests, the content store, the conflict graph
+- [State Database](https://github.com/Pummelchen/MinecraftAI/wiki/State-Database) — SQLite in WAL mode: configuration, contents, backup
 - [Conflict Testing](https://github.com/Pummelchen/MinecraftAI/wiki/Conflict-Testing) — detection tiers and the session lifecycle
 - [Bisection](https://github.com/Pummelchen/MinecraftAI/wiki/Bisection) — fault localization and its cost model
 - [Sheet Contract](https://github.com/Pummelchen/MinecraftAI/wiki/Sheet-Contract) — column ownership rules
