@@ -22,6 +22,10 @@ So no mod set reaches a live server until a throwaway session has proven it boot
 
 **A Minecraft version is data, never code.** No version string appears in source, configuration, a systemd unit, a Caddy route, or the website. Adding 26.4 when Mojang ships it is one command and a row.
 
+**Adding a mod is safe; removing one can destroy a world.** Once a mod's blocks exist in a world, taking the mod away can turn them into air and delete the items from every chest. Changes are classified by risk and every one goes through a plan before it is applied — dry run for free, an audit trail that writes itself, and the most safety-critical logic testable without a Minecraft server anywhere near it.
+
+**Players get a modpack, not a client app.** An `.mrpack` per version, generated from the same modset and filtered by each mod's declared side, imports into every launcher on every platform. v1's bespoke macOS client was its largest maintenance burden; none of it needs to exist.
+
 ## Stack
 
 | Layer | Choice |
@@ -63,7 +67,10 @@ The full design lives in the [wiki](https://github.com/Pummelchen/MinecraftAI/wi
 - [Architecture](https://github.com/Pummelchen/MinecraftAI/wiki/Architecture) — shape, components, filesystem layout
 - [Engine](https://github.com/Pummelchen/MinecraftAI/wiki/Engine) — the Swift process, dependencies, command surface, API
 - [Adding a Version](https://github.com/Pummelchen/MinecraftAI/wiki/Adding-a-Version) — how a new Minecraft version arrives
-- [Modset Model](https://github.com/Pummelchen/MinecraftAI/wiki/Modset-Model) — digests, the content store, the conflict graph
+- [Modset Model](https://github.com/Pummelchen/MinecraftAI/wiki/Modset-Model) — digests, the content store, the conflict graph, configs
+- [Change Safety](https://github.com/Pummelchen/MinecraftAI/wiki/Change-Safety) — plan and apply, destructive removals, world protection
+- [Supply Chain](https://github.com/Pummelchen/MinecraftAI/wiki/Supply-Chain) — pinning, re-verification, archival, and where trust rests
+- [Client Parity](https://github.com/Pummelchen/MinecraftAI/wiki/Client-Parity) — generating modpacks instead of maintaining a client
 - [State Database](https://github.com/Pummelchen/MinecraftAI/wiki/State-Database) — SQLite in WAL mode: configuration, contents, backup
 - [Conflict Testing](https://github.com/Pummelchen/MinecraftAI/wiki/Conflict-Testing) — detection tiers and the session lifecycle
 - [Bisection](https://github.com/Pummelchen/MinecraftAI/wiki/Bisection) — fault localization and its cost model
@@ -71,6 +78,7 @@ The full design lives in the [wiki](https://github.com/Pummelchen/MinecraftAI/wi
 - [Edge and TLS](https://github.com/Pummelchen/MinecraftAI/wiki/Edge-and-TLS) — Caddy, HTTP/3, and the certificate problem
 - [Website](https://github.com/Pummelchen/MinecraftAI/wiki/Website) — pages, API, and what latency can honestly be measured
 - [Deployment and Rollback](https://github.com/Pummelchen/MinecraftAI/wiki/Deployment-and-Rollback) — the live gate
+- [Build Order](https://github.com/Pummelchen/MinecraftAI/wiki/Build-Order) — what to build first, and what never to build
 - [Open Decisions](https://github.com/Pummelchen/MinecraftAI/wiki/Open-Decisions) — what is still undecided
 
 ## The retired v1 system
