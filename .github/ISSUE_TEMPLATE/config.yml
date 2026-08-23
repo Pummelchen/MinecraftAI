@@ -1,5 +1,0 @@
-blank_issues_enabled: true
-contact_links:
-  - name: Project documentation
-    url: https://github.com/Pummelchen/MinecraftAI/wiki
-    about: Read the architecture, commands, safety rules, and operator guides before opening an issue.

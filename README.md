@@ -1,94 +1,51 @@
 # MinecraftAI
 
-MinecraftAI is an AI-assisted release and operations platform for managing a large modded Minecraft environment across Debian servers and macOS clients. It combines mod discovery, dependency resolution, compatibility checks, Minecraft smoke tests, immutable release builds, client synchronization, operational reporting, and guarded server administration.
+This project is being redesigned. The previous implementation has been retired and is no longer developed on `main`.
 
-The system is designed for mod packs with hundreds of managed files. Natural-language development tools can initiate work, but production changes remain controlled by explicit validation and operator approval.
+## Status
 
-<img width="1055" height="1491" alt="MinecraftAI mod update discovery, validation, release, and deployment workflow" src="Server%20App/Docs/assets/readme-mod-update-workflow.png" />
+`main` is intentionally a clean slate. A new concept is being designed from scratch, and no part of the retired architecture should be treated as a constraint on it.
 
-## What the project manages
+## The retired implementation
 
-- Server and client mods, shaders, resource packs, and configuration files.
-- Mod provider discovery, dependency resolution, compatibility diagnostics, and rejected-candidate reporting.
-- Server smoke tests and macOS DMG-backed headless client soak tests.
-- Immutable releases with manifests, checksums, metadata, and DuckDB audit records.
-- Multiple Minecraft versions with isolated runtime, database, API, and service boundaries.
-- macOS client installation, repair, Java and NeoForge setup, inventory reporting, and verified self-update.
-- Caddy-served HTTPS website, versioned APIs, and static release downloads.
-- systemd-managed Swift services, Minecraft supervision, scheduled scanning, and operational logging.
+Everything that previously lived here is preserved in full and remains checkoutable:
 
-## Architecture
-
-| Component | Responsibility |
+| Reference | What it is |
 |---|---|
-| `MCPummelchenModServer` | Operator CLI, local HTTP API, mod pipelines, release orchestration, Minecraft supervision, and guarded world operations. |
-| `MCPummelchenModClient` | macOS status UI, synchronization, repair, managed Java and NeoForge, local inventory, and self-update. |
-| `MCPummelchenModShared` | Shared API models, release and manifest validation, safe paths, hashing, defaults, and embedded DuckDB access. |
-| DuckDB | Version, mod, scan, release, client, control, world, reporting, and audit state. |
-| Caddy | Public HTTPS, versioned reverse proxying, website delivery, static downloads, cache policy, and access logging. |
-| systemd | Version-specific service isolation, hardening, Minecraft process boundaries, and scheduled operations. |
-
-Tracked deployment configuration defines these isolated service boundaries:
-
-| Minecraft version | Swift API | Minecraft endpoint |
-|---|---|---|
-| 26.1.2 | `127.0.0.1:8787` | `91.99.176.243:25565` |
-| 26.2 | `127.0.0.1:8788` | `91.99.176.243:25566` |
-| 26.3 | `127.0.0.1:8789` | `91.99.176.243:25567` |
-
-The repository defines desired deployment state. The live version, active release, deployed binaries, and production DuckDB contents must be verified from the operator environment rather than inferred from Git.
-
-## Release workflow
-
-`MCPummelchenModServer add-mod` can run the complete managed pipeline: resolve a candidate and its dependencies, apply compatibility checks, run a server smoke test, build a release, build the version-scoped macOS client DMG, require headless soak evidence, and publish release artifacts. Dry-run mode should be used first when investigating candidates or configuration.
-
-Release directories are immutable. Only the Minecraft version marked live in DuckDB may publish global current-release aliases; staging versions use version-scoped metadata and download aliases. Clients verify manifest paths, file sizes, and SHA-256 values before replacing managed files.
-
-The tracked `MCPummelchenModUpdateScan.service` performs a daily, exclusive 26.1.2 scan. The CLI also supports intentional all-supported scans for a suitable multi-version project root; dedicated version services require an explicit Minecraft version.
-
-## API security status
-
-Caddy exposes the public HTTPS edge while Swift services remain bound to loopback. Client registration, heartbeat, sync, inventory, diagnostics, and defaults-report endpoints require the configured bearer token. Control-event creation, polling, and acknowledgement currently validate payloads and client identifiers but do not enforce the same bearer guard. Minecraft server start/stop requests use a separate server-control password. This asymmetry is documented as an open security decision and must not be changed without reviewing client compatibility and deployment policy.
-
-Large artifacts are always served as static Caddy downloads. Control-event payloads must not contain download URLs or downloadable file references.
-
-## Development requirements
-
-- Swift tools version 6.2 or a compatible newer toolchain.
-- Native DuckDB available to the linker.
-- Caddy for the public-edge integration tests.
-- macOS 26 on Apple Silicon for the client GUI, DMG build, signing, and headless client acceptance workflow.
-- Debian 13 x86-64 for the production server runtime.
-
-Package paths contain spaces and must be quoted in shell commands.
+| `v1-retired` | Annotated tag at the final v1 commit (`47458eb`) |
+| `archive/v1` | Branch pinned to the same commit, for browsing on GitHub |
 
 ```bash
-swift build --package-path "Server App/MCPummelchenModShared"
-swift build --package-path "Client App/MCPummelchenModClient"
-swift build --package-path "Server App/MCPummelchenModServer"
-Scripts/test-all.sh
+git checkout v1-retired
 ```
 
-`Scripts/test-all.sh` runs all three Swift package test suites and the isolated Caddy edge integration suite. It requires both DuckDB and Caddy to be installed.
+Nothing was deleted from history. The retirement commit removes the files from `main` only; all 128 tracked files, the full commit history, the design contracts, and the tracked DuckDB snapshot are reachable from the tag and the archive branch.
 
-## Production safety
+### What v1 was
 
-Release activation, live-version promotion, production database changes, world reset, RCON, service deployment, secrets, and client update control require explicit operator approval. Prefer dry-run or disposable state where supported. Never bypass checksum, manifest, DMG, smoke-test, or headless-soak validation.
+An AI-assisted release and operations platform for a large modded Minecraft environment across Debian servers and macOS clients. Three Swift 6.2 packages (server, client, shared), DuckDB as the sole database, Caddy as the public HTTPS edge, and systemd for per-version service isolation. It covered mod discovery and dependency resolution, compatibility scanning, immutable releases with checksum-verified manifests, macOS DMG builds with headless soak gating, client synchronization and self-update, and guarded server administration.
 
-`Live Backup/` contains a tracked point-in-time DuckDB snapshot for recovery and audit. It is sensitive operational data and must not be assumed to match the current production database.
+It was verified green at the retirement commit: `Scripts/test-all.sh` passed all four suites (shared, client, server — 47 tests, and 8 Caddy edge tests).
 
-## Documentation
+### Why it is worth reading before redesigning
 
-The [MinecraftAI Wiki](https://github.com/Pummelchen/MinecraftAI/wiki) contains the complete human-readable project guide:
+v1 accumulated operational rules that were learned rather than designed, and those are cheaper to inherit than to rediscover. The most load-bearing ones live in:
 
-- Architecture and component ownership.
-- Repository navigation and development standards.
-- Verified command and testing references.
-- API, client, DuckDB, Caddy, systemd, deployment, and operations guides.
-- Security boundaries, known limitations, release evidence, and human approval rules.
+- `Server App/Docs/contracts/PRODUCTION_CONTRACTS.md` — release immutability, client sync manifest format, DMG acceptance and live-soak gating, safe world-reset behavior, mod-scan throttling and provider rules.
+- `Server App/Docs/contracts/CLIENT_IDENTITY.md` — per-client identity, token storage, transport authentication, and rotation.
 
-Current source, package configuration, tracked deployment configuration, canonical DuckDB migrations, and tests take precedence if documentation and implementation disagree.
+Read them as a record of hard-won constraints, not as a specification the new concept must satisfy.
 
-## Server monitor
+### Known issues in v1, for the record
 
-![MinecraftAI live server monitor](https://github.com/user-attachments/assets/6396c290-6f26-4cee-8e6a-996cd6bd9b54)
+These were identified during the review that preceded retirement and are documented so the redesign does not reintroduce them:
+
+- `CLIENT_IDENTITY.md` declared "no unauthenticated client write APIs" as a non-goal, but `POST /api/v1/control/events` and `POST /api/v1/control/acks` validated only the payload and client ID, with no bearer check — while every `/api/v1/clients/*` handler did enforce one.
+- Documentation referred to `/opt/pummelchen-swift/runtime`, while the shipped systemd units used `/var/minecraftai/<version>/runtime`.
+- `Server App/Database/duckdb/schema.sql` referenced `database/duckdb/migrations/...`, a path that did not resolve from the repository root.
+- A single 2717-line file held the router and all 24 API handlers.
+- There was no CI; the test suite existed and passed but nothing ran it automatically.
+
+## Next
+
+The new architecture is not yet defined. Design work starts from the problem, not from the retired code.

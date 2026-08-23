@@ -1,5 +1,0 @@
-# Pummelchen client sync manifest v1
-# section	name	size	sha256	url_path
-mods	example-mod.jar	12345	sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	downloads/releases/release_20260612_V6_modernarch-refresh/client-files/mods/example-mod.jar
-resourcepacks	ModernArch v2.8.2 [26.1] [128x].zip	67890	sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb	downloads/releases/release_20260612_V6_modernarch-refresh/client-files/resourcepacks/ModernArch v2.8.2 [26.1] [128x].zip
-shaderpacks	BSL_v10.0.zip	45678	sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc	downloads/releases/release_20260612_V6_modernarch-refresh/client-files/shaderpacks/BSL_v10.0.zip
