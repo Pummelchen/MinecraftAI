@@ -1,23 +1,36 @@
-# Master edge for this VPS.
+# Master edge — host-wide TLS terminator and router.
 #
-# Owns :80 and :443 for every nip.io project on the host, terminates TLS and
-# HTTP/3, and routes by Host header. Individual projects contribute one file
-# each to projects/ — nobody edits this file to add a project.
+# Owns :80 and :443, obtains a certificate for every project hostname, and
+# forwards each to that project's own web server. It holds no project's web
+# configuration: roots, headers, cache policy, API routes and deploys all stay
+# inside the project that owns them.
 #
-# Deployed to /var/caddy/Caddyfile. Import paths below are relative to this
-# file, so the same config validates from the repository and runs on the VPS.
+# That boundary is deliberate. This host previously ran one shared
+# /etc/caddy/Caddyfile holding several projects' real configs, and each
+# project's deploy overwrote the others'. Entries in projects/ are four lines
+# saying which hostname goes to which port — a deploy never rewrites them, so
+# that failure cannot recur.
+#
+# Deployed to /var/caddy/Caddyfile. Import paths are relative to this file, so
+# the same config validates from a checkout and runs from /var/caddy.
 {
-	# Uncomment and set a contact address for expiry warnings from Let's Encrypt.
-	# email ops@example.com
+	# Its own admin socket. Every Caddy on this host uses one, because two
+	# processes cannot share the default 127.0.0.1:2019 endpoint and whichever
+	# started second would fail to boot.
+	admin {$CADDY_ADMIN:unix//var/caddy/admin.sock}
 
 	servers {
-		# HTTP/3 is on by default in Caddy 2.6+. Explicit so it survives review.
+		# HTTP/3 is on by default in this Caddy, but state it: it is a property
+		# of the deployment we care about, and a default is a quiet thing to
+		# lose on an upgrade. QUIC is UDP — a firewall rule allowing TCP on a
+		# port does not allow UDP on it.
 		protocols h1 h2 h3
-
-		# Without this, every project behind the master logs 127.0.0.1 as the
-		# client and {remote_host} is useless.
-		trusted_proxies static private_ranges
 	}
+
+	# No trusted_proxies here, deliberately. This is the outermost hop, so the
+	# client address Caddy sees IS the truth. Trusting a forwarded header at
+	# the edge would let a client claim any address it likes. The per-project
+	# servers behind this one are where trusted_proxies belongs.
 }
 
 import projects/*.caddy

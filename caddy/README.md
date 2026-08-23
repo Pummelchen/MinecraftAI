@@ -1,17 +1,27 @@
 # Master edge
 
 One Caddy instance owns ports 80 and 443 for this VPS, terminates TLS and
-HTTP/3, and routes by Host header to each project. Deployed to `/var/caddy`.
+HTTP/3, and routes by Host header to each project's own web server. Deployed to
+`/var/caddy`. **Live.**
+
+It holds no project's web configuration. Roots, headers, cache policy, API
+routes and deploys all stay inside the project that owns them; an entry here is
+four lines saying which hostname goes to which port.
+
+That boundary is deliberate. This host previously ran one shared
+`/etc/caddy/Caddyfile` holding several projects' real configs, and each
+project's deploy overwrote the others'. A routing entry is not something a
+deploy rewrites, so that failure cannot recur.
 
 ```
-                          minecraft.*.nip.io ──▶ /var/minecraftai   static + API proxy
-:80 :443   master Caddy ──┬─ roomcad.*.nip.io ──▶ /var/roomcad      static
-  TLS + h3                ├─── xaios.*.nip.io ──▶ /var/xaios_updater
-                          └─ <next>.*.nip.io  ──▶ /var/<next>
+                        minecraft.*.nip.io ──▶ 127.0.0.1:8801  minecraftai-caddy
+:80 :443  master Caddy ─┬ roomcad.*.nip.io ──▶ 127.0.0.1:8443  roomcad-caddy (https)
+ TLS + h3               ├─── xaios.*.nip.io ──▶ 127.0.0.1:8090  xaios-caddy
+                        └─ <next>.*.nip.io  ──▶ 127.0.0.1:88xx  <next>'s own server
 ```
 
 Every project gets its own hostname on the same IP — `nip.io` accepts arbitrary
-prefixes — and a real certificate, with no port in any URL.
+prefixes — and a real Let's Encrypt certificate, with no port in any URL.
 
 ## Why a master edge
 
@@ -75,6 +85,12 @@ only be checked on the production host is a config nobody checks.
 
 **`trusted_proxies` everywhere.** Without it every project behind the master
 logs `127.0.0.1` as the client address.
+
+**Forward the client's Host.** `header_up Host {host}` on every entry. Without
+it Caddy sends the dial address upstream, and a project whose own config matches
+a specific hostname then matches nothing and returns a bare empty 200 — success
+status, no body, nothing logged as an error. RoomCAD hit exactly this; projects
+that match any host hide the bug.
 
 **Order-sensitive directives go inside `route`.** Caddy sorts directives by its
 own standard order, not the order written. A `respond` guarding sensitive paths

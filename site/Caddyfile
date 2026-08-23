@@ -1,0 +1,86 @@
+# MinecraftAI's own web server.
+#
+# A PRIVATE Caddy instance, matching the convention every project on this host
+# follows: its own config here, its own storage under /var/minecraftai/caddy,
+# its own unix user and its own systemd unit. It shares no configuration file
+# with any other project, so no other project's deploy can touch it and this
+# project's deploy cannot touch theirs.
+#
+# The master edge on :443 terminates TLS and forwards here. This instance never
+# speaks TLS and never talks to an ACME server — see auto_https off below.
+{
+	# The master owns 80 and 443 and issues the certificate for this hostname.
+	# Without this, Caddy would try ACME itself, fail because it cannot bind
+	# those ports, and retry forever.
+	auto_https off
+
+	# Its own admin socket. Two Caddy processes cannot share the default
+	# 127.0.0.1:2019 endpoint; the second to start would fail.
+	admin unix//var/minecraftai/caddy/admin.sock
+
+	servers {
+		# This one IS behind a proxy, so the forwarded client address is
+		# trustworthy here — unlike at the master, which must not trust it.
+		trusted_proxies static private_ranges
+	}
+}
+
+# Port only, with an explicit bind. Two things worth knowing here:
+#
+#   - `bind 127.0.0.1` is what restricts the listener to loopback. Writing the
+#     address as `127.0.0.1:8801` does NOT do that — Caddy reads the host part
+#     of a site address as a Host *matcher* and still listens on all
+#     interfaces, so the site answers only requests whose Host header is
+#     literally "127.0.0.1" and rejects everything else with a bare 400.
+#   - Matching any Host means the public hostname can change in the master's
+#     routing entry without touching this file.
+#
+# Only the master can reach this, so accepting any Host here is safe.
+:8801 {
+	bind {$MINECRAFTAI_BIND:127.0.0.1}
+
+	encode zstd gzip
+
+	header {
+		-Server
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+	}
+
+	# Must stay inside `route`. Caddy sorts directives by its own standard
+	# order, not the order written: outside a route block, file_server runs
+	# before this matcher and serves the very files it exists to block.
+	# Verified by caddy/scripts/test-edge.sh.
+	route {
+		@sensitive path_regexp (?i)(?:^|/)(?:.*\.db|.*\.db-wal|.*\.db-shm|.*\.sqlite3?|.*\.duckdb|.*\.bak|.*\.old|.*\.tmp|\.env)$
+		respond @sensitive 404
+
+		handle /api/* {
+			header Cache-Control "no-store, max-age=0"
+			reverse_proxy {$MINECRAFTAI_API:127.0.0.1:8787} {
+				transport http {
+					dial_timeout 5s
+					response_header_timeout 30s
+				}
+			}
+		}
+
+		handle {
+			root * {$MINECRAFTAI_SITE_ROOT:/var/minecraftai/web}
+			try_files {path} {path}/ /index.html
+			file_server
+			# Revalidate every time, so a browser never keeps serving the
+			# previous build after a deploy.
+			header Cache-Control "no-cache"
+		}
+	}
+
+	log {
+		output file {$CADDY_LOG_DIR:/var/log/caddy}/minecraftai-site.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format json
+	}
+}

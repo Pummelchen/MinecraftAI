@@ -2,7 +2,7 @@
 
 A mod release and conflict-validation system for three NeoForge Minecraft servers — one Swift engine, behind Caddy.
 
-> **Status: design stage**, with one exception — the [master Caddy edge](caddy/) is built and tested. The engine itself is not implemented. The previous implementation was retired — see [Archive](#the-retired-v1-system).
+> **Status: design stage**, with one exception — the [master Caddy edge](caddy/) is built, tested and **live on the VPS**. The engine itself is not implemented. The previous implementation was retired — see [Archive](#the-retired-v1-system).
 
 ## The problem
 
@@ -44,9 +44,9 @@ A **master Caddy** owns ports 80 and 443 for the whole VPS, terminates TLS and H
 
 | Hostname | Project |
 |---|---|
-| `minecraft.91.99.176.243.nip.io` | this one — `/var/minecraftai` |
-| `roomcad.91.99.176.243.nip.io` | `/var/roomcad` |
-| `xaios.91.99.176.243.nip.io` | `/var/xaios_updater` |
+| [`minecraft.91.99.176.243.nip.io`](https://minecraft.91.99.176.243.nip.io) | this one — `/var/minecraftai` |
+| [`roomcad.91.99.176.243.nip.io`](https://roomcad.91.99.176.243.nip.io) | `/var/roomcad` |
+| [`xaios.91.99.176.243.nip.io`](https://xaios.91.99.176.243.nip.io) | `/var/xaios_updater` |
 
 This exists because ports 80 and 443 can only be held once, and Let's Encrypt validates on nothing else, so whichever process owns them is the only one that can obtain certificates. Centralising that gives every project automatic HTTPS on a clean URL with no port number, instead of each fighting for a certificate it cannot get.
 

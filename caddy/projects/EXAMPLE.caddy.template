@@ -1,34 +1,27 @@
-# Template for a new project behind the master edge.
+# Template for adding a project to the edge.
 #
 #   cp EXAMPLE.caddy.template <project>.caddy
-#   edit the hostname and the upstream
-#   scripts/validate.sh
-#   scripts/reload.sh
+#   set the hostname and the upstream
+#   ../scripts/validate.sh
 #
-# The hostname prefix is free-form: <anything>.91.99.176.243.nip.io resolves to
-# this host. Pick something stable — it ends up in the certificate.
+# Keep this file to routing only. The project's roots, headers, cache policy
+# and API routes belong in the project's own web server, so its deploy never
+# touches anything here.
 #
-# Keep the {$VAR:default} form on paths and upstreams so the config stays
-# validatable without root.
+# Any <name>.91.99.176.243.nip.io resolves to this host, so the prefix is free
+# to choose. It ends up in the certificate — pick something stable.
 
 {$MYPROJECT_SITE_ADDRESS:myproject.91.99.176.243.nip.io} {
-	encode zstd gzip
-
-	header {
-		-Server
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options "nosniff"
-		Referrer-Policy "no-referrer"
-	}
-
-	# Option A — the project runs its own Caddy or app server on a loopback port.
-	reverse_proxy {$MYPROJECT_UPSTREAM:127.0.0.1:8802} {
+	reverse_proxy {$MYPROJECT_UPSTREAM:127.0.0.1:8804} {
+		# Preserve the client's Host. Caddy sends the dial address as Host to an
+		# HTTPS upstream otherwise, so a project whose own config matches a
+		# specific hostname sees "127.0.0.1:<port>", matches nothing, and returns
+		# a bare empty 200 — a success status with no body and no error anywhere.
+		# Projects matching any host hide the bug; this one is what makes the
+		# router correct for all of them.
+		header_up Host {host}
 		header_up X-Real-IP {remote_host}
 	}
-
-	# Option B — static site served straight from here. Delete Option A if used.
-	# root * {$MYPROJECT_SITE_ROOT:/var/myproject/public}
-	# file_server
 
 	log {
 		output file {$CADDY_LOG_DIR:/var/log/caddy}/myproject.log {

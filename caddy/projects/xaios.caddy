@@ -1,44 +1,21 @@
-# XAIOS updater — /var/xaios_updater
+# XAIOS updater — https://xaios.91.99.176.243.nip.io
+# Own web server: /var/xaios_updater/caddy, xaios-caddy.service
 #
-# https://xaios.91.99.176.243.nip.io
+# Serves plain HTTP on 8090, so this hop is the only TLS in front of it — which
+# is new: before the master existed it was reachable over unencrypted HTTP only.
 #
-# ASSUMPTION: serves static files from /var/xaios_updater/public. If the
-# updater is an app server instead, delete the handle block and uncomment
-# the proxy.
+# Follow-up for XAIOS: bind loopback-only, so 8090 stops answering directly.
 
 {$XAIOS_SITE_ADDRESS:xaios.91.99.176.243.nip.io} {
-	encode zstd gzip
-
-	header {
-		-Server
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options "nosniff"
-		Referrer-Policy "no-referrer"
-	}
-
-	route {
-		@sensitive path_regexp (?i)(?:^|/)(?:.*\.db|.*\.db-wal|.*\.db-shm|.*\.sqlite3?|.*\.bak|.*\.old|.*\.tmp|\.env)$
-		respond @sensitive 404
-
-		# An updater usually serves immutable versioned artifacts plus a mutable
-		# manifest that must never be cached. Uncomment and adjust the paths once
-		# the layout is known — serving a stale manifest is how clients get stuck
-		# on an old version.
-		# @manifest path /latest.json /manifest.json
-		# header @manifest Cache-Control "no-store, max-age=0"
-		# @versioned path /releases/*
-		# header @versioned Cache-Control "public, max-age=31536000, immutable"
-
-		# App server instead of static files:
-		# reverse_proxy {$XAIOS_UPSTREAM:127.0.0.1:8803} {
-		# 	header_up X-Real-IP {remote_host}
-		# }
-
-		handle {
-			root * {$XAIOS_SITE_ROOT:/var/xaios_updater/public}
-			try_files {path} {path}/ /index.html
-			file_server
-		}
+	reverse_proxy {$XAIOS_UPSTREAM:127.0.0.1:8090} {
+		# Preserve the client's Host. Caddy sends the dial address as Host to an
+		# HTTPS upstream otherwise, so a project whose own config matches a
+		# specific hostname sees "127.0.0.1:<port>", matches nothing, and returns
+		# a bare empty 200 — a success status with no body and no error anywhere.
+		# Projects matching any host hide the bug; this one is what makes the
+		# router correct for all of them.
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
 	}
 
 	log {

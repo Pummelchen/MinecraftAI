@@ -1,10 +1,14 @@
 #!/bin/sh
-# Exercise the master edge for real: start Caddy with the production config,
-# scratch site roots and a stub API, then assert hostname routing, headers and
-# the sensitive-file blocks. Runs without root and touches no production path.
+# Exercise the master edge for real: start Caddy with the production routing
+# config against stub upstreams, and assert that each hostname reaches the right
+# one and arrives with the client's Host intact. Runs without root and touches
+# no production path.
 #
-# Both projects are bound to one port here so that routing is genuinely tested
-# by Host header — which is how the master distinguishes them in production.
+# The Host assertion is the important one. Caddy sends the dial address as Host
+# to an HTTPS upstream unless told otherwise, and a project whose own config
+# matches a specific hostname then matches nothing and returns a bare empty 200
+# — success status, no body, no error logged anywhere. That reached production
+# once; these stubs echo the Host they received so it cannot again.
 
 set -eu
 
@@ -13,13 +17,13 @@ caddy_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 [ -n "$CADDY_BIN" ] || { echo "error: caddy not found; set CADDY_BIN" >&2; exit 1; }
 
 edge_port=${EDGE_PORT:-8899}
-api_port=${API_PORT:-8898}
+stub_base=${STUB_BASE:-8901}   # must not collide with edge_port
 scratch=$(mktemp -d)
 fails=0
 
 cleanup() {
 	[ -n "${caddy_pid:-}" ] && kill "$caddy_pid" 2>/dev/null || true
-	[ -n "${api_pid:-}" ] && kill "$api_pid" 2>/dev/null || true
+	for p in ${api_pid:-}; do kill "$p" 2>/dev/null || true; done
 	wait 2>/dev/null || true
 	rm -rf "$scratch"
 }
@@ -41,36 +45,36 @@ pad() {
 	i=0
 	while [ $i -lt 40 ]; do echo '<p>padding to clear the compression threshold</p>'; i=$((i + 1)); done
 }
-mkdir -p "$scratch/minecraft" "$scratch/roomcad" "$scratch/xaios" "$scratch/logs"
-{ echo '<h1>minecraft</h1>'; pad; } > "$scratch/minecraft/index.html"
-{ echo '<h1>roomcad</h1>';   pad; } > "$scratch/roomcad/index.html"
-{ echo '<h1>xaios</h1>';     pad; } > "$scratch/xaios/index.html"
-echo secret > "$scratch/minecraft/state.db"
-echo wal    > "$scratch/minecraft/state.db-wal"
-echo secret > "$scratch/roomcad/.env"
+mkdir -p "$scratch/logs"
 
-python3 -c "
+# Each stub reports which upstream it is and what Host it was given.
+start_stub() {
+	python3 -c "
 import http.server, socketserver
+name = '$1'
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
+        body = ('upstream=%s host=%s' % (name, self.headers.get('Host'))).encode()
         self.send_response(200)
-        self.send_header('Content-Type','application/json')
+        self.send_header('Content-Type','text/plain')
+        self.send_header('Content-Length', str(len(body)))
         self.end_headers()
-        self.wfile.write(b'{\"stub\":true}')
+        self.wfile.write(body)
     def log_message(self, *a): pass
 socketserver.TCPServer.allow_reuse_address = True
-socketserver.TCPServer(('127.0.0.1', $api_port), H).serve_forever()
+socketserver.TCPServer(('127.0.0.1', $2), H).serve_forever()
 " 2>/dev/null &
-api_pid=$!
+}
+start_stub minecraft $((stub_base + 0)); s1=$!
+start_stub xaios     $((stub_base + 2)); s3=$!
+api_pid="$s1 $s3"
 
 MINECRAFTAI_SITE_ADDRESS="http://minecraft.localhost:$edge_port" \
-MINECRAFTAI_SITE_ROOT="$scratch/minecraft" \
-MINECRAFTAI_API="127.0.0.1:$api_port" \
-ROOMCAD_SITE_ADDRESS="http://roomcad.localhost:$edge_port" \
-ROOMCAD_SITE_ROOT="$scratch/roomcad" \
+MINECRAFTAI_UPSTREAM="127.0.0.1:$((stub_base + 0))" \
 XAIOS_SITE_ADDRESS="http://xaios.localhost:$edge_port" \
-XAIOS_SITE_ROOT="$scratch/xaios" \
+XAIOS_UPSTREAM="127.0.0.1:$((stub_base + 2))" \
 CADDY_LOG_DIR="$scratch/logs" \
+CADDY_ADMIN="unix/$scratch/admin.sock" \
 	"$CADDY_BIN" run --config "$caddy_root/Caddyfile" --adapter caddyfile >"$scratch/caddy.log" 2>&1 &
 caddy_pid=$!
 
@@ -81,47 +85,55 @@ while [ $i -lt 50 ]; do
 done
 [ $i -lt 50 ] || { echo "edge did not come up:"; cat "$scratch/caddy.log"; exit 1; }
 
-mc() { curl -s -H 'Host: minecraft.localhost' "$@"; }
-rc() { curl -s -H 'Host: roomcad.localhost' "$@"; }
-xa() { curl -s -H 'Host: xaios.localhost' "$@"; }
 base="http://127.0.0.1:$edge_port"
-hdr() { tr -d '\r' | awk -F': ' -v k="$1" 'tolower($1)==k{print $2}'; }
+get() { curl -s -H "Host: $1.localhost" "$base${2:-/}"; }
 
-echo "hostname routing:"
-check "minecraft host -> its site"  "1" "$(mc "$base/" | grep -c '<h1>minecraft</h1>')"
-check "roomcad host -> its site"    "1" "$(rc "$base/" | grep -c '<h1>roomcad</h1>')"
-check "xaios host -> its site"      "1" "$(xa "$base/" | grep -c '<h1>xaios</h1>')"
-# Caddy answers an unmatched Host with an empty response rather than 404, and
-# an explicit http:// catch-all cannot be added — it would override Caddy's
-# auto-generated redirect server and break ACME challenges. What matters is
-# that no project's content is reachable under the wrong hostname.
-check "unknown host gets no content" "0" "$(curl -s -H 'Host: nobody.localhost' "$base/" | grep -c '<h1>' || true)"
+echo "routing — each hostname reaches its own upstream:"
+check "minecraft -> minecraft stub" "upstream=minecraft" "$(get minecraft | awk '{print $1}')"
+check "xaios     -> xaios stub"     "upstream=xaios"     "$(get xaios     | awk '{print $1}')"
 
-echo "minecraft site:"
-check "static index served"         "200" "$(mc -o /dev/null -w '%{http_code}' "$base/")"
-check "SPA fallback"                "200" "$(mc -o /dev/null -w '%{http_code}' "$base/no/such/page")"
-check "api proxied"                 '{"stub":true}' "$(mc "$base/api/v1/versions")"
-check "api uncacheable"             "no-store, max-age=0" "$(mc -I "$base/api/v1/versions" | hdr cache-control)"
-check "sqlite blocked"              "404" "$(mc -o /dev/null -w '%{http_code}' "$base/state.db")"
-check "wal sidecar blocked"         "404" "$(mc -o /dev/null -w '%{http_code}' "$base/state.db-wal")"
-check "frame options"               "DENY" "$(mc -I "$base/" | hdr x-frame-options)"
+echo "host preservation — upstream sees the client's Host, not the dial address:"
+check "minecraft Host forwarded"    "host=minecraft.localhost" "$(get minecraft | awk '{print $2}')"
+check "xaios Host forwarded"        "host=xaios.localhost"     "$(get xaios     | awk '{print $2}')"
 
-echo "roomcad site:"
-check "static index served"         "200" "$(rc -o /dev/null -w '%{http_code}' "$base/")"
-check "SPA fallback"                "200" "$(rc -o /dev/null -w '%{http_code}' "$base/deep/link")"
-check "dotenv blocked"              "404" "$(rc -o /dev/null -w '%{http_code}' "$base/.env")"
-check "no api route leaks in"       "200" "$(rc -o /dev/null -w '%{http_code}' "$base/api/v1/versions")"
+echo "isolation:"
+check "unknown host reaches nothing" "0" "$(curl -s -H 'Host: nobody.localhost' "$base/" | grep -c 'upstream=' || true)"
 
-echo "xaios site:"
-check "static index served"         "200" "$(xa -o /dev/null -w '%{http_code}' "$base/")"
-check "dotenv blocked"              "404" "$(xa -o /dev/null -w '%{http_code}' "$base/.env")"
+echo "edge policy:"
+check "deep paths route too"        "upstream=xaios"   "$(get xaios /os/some/deep/path | awk '{print $1}')"
 
-echo "shared policy:"
-check "server header removed"       "" "$(mc -I "$base/" | hdr server)"
-check "nosniff on minecraft"        "nosniff" "$(mc -I "$base/" | hdr x-content-type-options)"
-check "nosniff on roomcad"          "nosniff" "$(rc -I "$base/" | hdr x-content-type-options)"
-check "nosniff on xaios"            "nosniff" "$(xa -I "$base/" | hdr x-content-type-options)"
-check "compression offered"         "gzip" "$(mc -I -H 'Accept-Encoding: gzip' "$base/" | hdr content-encoding)"
+# RoomCAD's own Caddy terminates TLS on 8443, so a plain stub cannot stand in
+# for it. Its two correctness properties are asserted against the adapted
+# config instead: SNI must name RoomCAD's certificate, or the handshake fails,
+# and Host must be forwarded, or its hostname-matched site block matches
+# nothing and returns a bare empty 200. Both regressed in development.
+echo "roomcad https upstream (from adapted config):"
+adapted=$(CADDY_LOG_DIR="$scratch/logs" CADDY_ADMIN="unix/$scratch/adapt.sock" \
+	"$CADDY_BIN" adapt --config "$caddy_root/Caddyfile" --adapter caddyfile 2>/dev/null)
+rc_sni=$(printf '%s' "$adapted" | python3 -c "
+import sys, json
+c = json.load(sys.stdin)
+for s in c['apps']['http']['servers'].values():
+    for r in s.get('routes', []):
+        if any('roomcad' in h for m in r.get('match', []) for h in m.get('host', [])):
+            for sub in r['handle'][0]['routes']:
+                for h in sub['handle']:
+                    if h.get('handler') == 'reverse_proxy':
+                        print(h.get('transport', {}).get('tls', {}).get('server_name', ''))
+")
+rc_host=$(printf '%s' "$adapted" | python3 -c "
+import sys, json
+c = json.load(sys.stdin)
+for s in c['apps']['http']['servers'].values():
+    for r in s.get('routes', []):
+        if any('roomcad' in h for m in r.get('match', []) for h in m.get('host', [])):
+            for sub in r['handle'][0]['routes']:
+                for h in sub['handle']:
+                    if h.get('handler') == 'reverse_proxy':
+                        print(h.get('headers', {}).get('request', {}).get('set', {}).get('Host', [''])[0])
+")
+check "sni names roomcad cert"      "roomcad.91.99.176.243.nip.io" "$rc_sni"
+check "host header forwarded"       "{http.request.host}"          "$rc_host"
 
 if [ "$fails" -eq 0 ]; then
 	echo "all edge tests passed"

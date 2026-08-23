@@ -15,7 +15,7 @@ fi
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 
-if CADDY_LOG_DIR="$scratch" "$CADDY_BIN" validate \
+if CADDY_LOG_DIR="$scratch" CADDY_ADMIN="unix/$scratch/admin.sock" "$CADDY_BIN" validate \
 	--config "$caddy_root/Caddyfile" --adapter caddyfile >"$scratch/out" 2>&1; then
 	printf 'ok: %s and %d project fragment(s) are valid\n' \
 		"Caddyfile" "$(find "$caddy_root/projects" -name '*.caddy' | wc -l | tr -d ' ')"

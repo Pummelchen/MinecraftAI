@@ -1,0 +1,26 @@
+[Unit]
+Description=MinecraftAI site web server
+Documentation=https://github.com/Pummelchen/MinecraftAI/wiki/Edge-and-TLS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=minecraftaiweb
+Group=minecraftaiweb
+Environment=XDG_DATA_HOME=/var/minecraftai/caddy/data
+Environment=XDG_CONFIG_HOME=/var/minecraftai/caddy/config
+Environment=CADDY_LOG_DIR=/var/log/caddy
+ExecStart=/usr/bin/caddy run --environ --config /var/minecraftai/caddy/Caddyfile
+ExecReload=/usr/bin/caddy reload --config /var/minecraftai/caddy/Caddyfile --address unix//var/minecraftai/caddy/admin.sock --force
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+RestrictSUIDSGID=true
+ReadWritePaths=/var/minecraftai /var/log/caddy
+
+[Install]
+WantedBy=multi-user.target
