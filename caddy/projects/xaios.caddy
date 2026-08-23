@@ -1,29 +1,63 @@
-# XAIOS updater — https://xaios.91.99.176.243.nip.io
+# XAIOS updater — /var/xaios_updater
 # Own web server: /var/xaios_updater/caddy, xaios-caddy.service
 #
 # OWNERSHIP: this entry lives here only because the updater has no repository
 # of its own yet. It should move there, as RoomCAD's has — a routing entry
 # belongs with the project it routes to, or it drifts from what is deployed.
-#
-# Serves plain HTTP on 8090, so this hop is the only TLS in front of it — which
-# is new: before the master existed it was reachable over unencrypted HTTP only.
-#
-# Follow-up for XAIOS: bind loopback-only, so 8090 stops answering directly.
 
+# HTTPS. What a browser gets, and what a device gets once it has DNS and a clock.
 {$XAIOS_SITE_ADDRESS:xaios.91.99.176.243.nip.io} {
+	# TLS-ALPN-01 only, on purpose. The plain-HTTP site below occupies :80 for
+	# this hostname and swallows /.well-known/acme-challenge/, so an HTTP-01
+	# attempt would be proxied to the updater and fail. Caddy happens to prefer
+	# TLS-ALPN-01 today, which is why issuance worked — but relying on that
+	# preference means a silent renewal failure the first time it falls back.
+	# Saying so here turns an accident into a decision.
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+
 	reverse_proxy {$XAIOS_UPSTREAM:127.0.0.1:8090} {
-		# Preserve the client's Host. Caddy sends the dial address as Host to an
-		# HTTPS upstream otherwise, so a project whose own config matches a
-		# specific hostname sees "127.0.0.1:<port>", matches nothing, and returns
-		# a bare empty 200 — a success status with no body and no error anywhere.
-		# Projects matching any host hide the bug; this one is what makes the
-		# router correct for all of them.
 		header_up Host {host}
 		header_up X-Real-IP {remote_host}
 	}
 
 	log {
 		output file {$CADDY_LOG_DIR:/var/log/caddy}/xaios.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format json
+	}
+}
+
+# Plain HTTP on :80, deliberately NOT redirected to HTTPS.
+#
+# Declaring the scheme explicitly is what suppresses the automatic redirect for
+# this one hostname; every other host on this edge still gets a 308.
+#
+# The reason is the updater's clients. XAIOS devices have no real-time clock —
+# PL031 reads zero under QEMU and nothing calls ntp_sync at boot — so they
+# cannot check certificate validity and cannot complete a TLS handshake at all.
+# Redirecting them to HTTPS is redirecting them to a wall.
+#
+# Serving artifacts over plain HTTP is acceptable *here specifically* because
+# integrity does not rest on the transport: catalog entries carry a sha256, a
+# signature and a key, so a tampered artifact is rejected by the device however
+# it arrived. TLS is defence in depth for this endpoint, not the control.
+#
+# Browsers are unaffected: the HTTPS response above sets HSTS, so any browser
+# that has seen this host once upgrades itself and never uses this route.
+http://{$XAIOS_HTTP_HOST:xaios.91.99.176.243.nip.io} {
+	reverse_proxy {$XAIOS_UPSTREAM:127.0.0.1:8090} {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+	}
+
+	log {
+		output file {$CADDY_LOG_DIR:/var/log/caddy}/xaios-http.log {
 			roll_size 20MiB
 			roll_keep 5
 		}
