@@ -102,38 +102,6 @@ check "unknown host reaches nothing" "0" "$(curl -s -H 'Host: nobody.localhost' 
 echo "edge policy:"
 check "deep paths route too"        "upstream=xaios"   "$(get xaios /os/some/deep/path | awk '{print $1}')"
 
-# RoomCAD's own Caddy terminates TLS on 8443, so a plain stub cannot stand in
-# for it. Its two correctness properties are asserted against the adapted
-# config instead: SNI must name RoomCAD's certificate, or the handshake fails,
-# and Host must be forwarded, or its hostname-matched site block matches
-# nothing and returns a bare empty 200. Both regressed in development.
-echo "roomcad https upstream (from adapted config):"
-adapted=$(CADDY_LOG_DIR="$scratch/logs" CADDY_ADMIN="unix/$scratch/adapt.sock" \
-	"$CADDY_BIN" adapt --config "$caddy_root/Caddyfile" --adapter caddyfile 2>/dev/null)
-rc_sni=$(printf '%s' "$adapted" | python3 -c "
-import sys, json
-c = json.load(sys.stdin)
-for s in c['apps']['http']['servers'].values():
-    for r in s.get('routes', []):
-        if any('roomcad' in h for m in r.get('match', []) for h in m.get('host', [])):
-            for sub in r['handle'][0]['routes']:
-                for h in sub['handle']:
-                    if h.get('handler') == 'reverse_proxy':
-                        print(h.get('transport', {}).get('tls', {}).get('server_name', ''))
-")
-rc_host=$(printf '%s' "$adapted" | python3 -c "
-import sys, json
-c = json.load(sys.stdin)
-for s in c['apps']['http']['servers'].values():
-    for r in s.get('routes', []):
-        if any('roomcad' in h for m in r.get('match', []) for h in m.get('host', [])):
-            for sub in r['handle'][0]['routes']:
-                for h in sub['handle']:
-                    if h.get('handler') == 'reverse_proxy':
-                        print(h.get('headers', {}).get('request', {}).get('set', {}).get('Host', [''])[0])
-")
-check "sni names roomcad cert"      "roomcad.91.99.176.243.nip.io" "$rc_sni"
-check "host header forwarded"       "{http.request.host}"          "$rc_host"
 
 if [ "$fails" -eq 0 ]; then
 	echo "all edge tests passed"

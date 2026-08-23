@@ -1,6 +1,10 @@
 # XAIOS updater — https://xaios.91.99.176.243.nip.io
 # Own web server: /var/xaios_updater/caddy, xaios-caddy.service
 #
+# OWNERSHIP: this entry lives here only because the updater has no repository
+# of its own yet. It should move there, as RoomCAD's has — a routing entry
+# belongs with the project it routes to, or it drifts from what is deployed.
+#
 # Serves plain HTTP on 8090, so this hop is the only TLS in front of it — which
 # is new: before the master existed it was reachable over unencrypted HTTP only.
 #

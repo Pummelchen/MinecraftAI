@@ -31,18 +31,37 @@ certificates. Centralising that means every project gets automatic HTTPS on a
 clean URL with no port number, instead of each fighting for a certificate it
 cannot get.
 
+## Who owns a routing entry
+
+`/var/caddy/projects/` on the host is an **assembly point**, not a directory
+this repository owns. Each project installs its own entry there from its own
+repository, as part of its own deploy.
+
+RoomCAD does this already — its entry is installed by its deploy and is
+deliberately **not** kept here, because a second copy drifts from the deployed
+one. That happened within a day of the edge going live: RoomCAD moved its server
+to loopback and added an SSE flush setting, and the copy here went stale
+immediately.
+
+What this repository ships is the master config, MinecraftAI's own entry, and
+the XAIOS updater's — the last only because that project has no repository yet,
+and it should move.
+
+`install.sh` installs only the entries here and never removes others, so one
+project's deploy cannot clobber another's.
+
 ## Layout
 
 | Path | Purpose |
 |---|---|
-| `Caddyfile` | Master config. Global options and one import. Adding a project never edits this. |
-| `projects/*.caddy` | One fragment per project. Owned by that project. |
+| `Caddyfile` | Master config: global options and one import. Adding a project never edits it. |
+| `projects/*.caddy` | Routing entries this repository owns. |
 | `projects/EXAMPLE.caddy.template` | Copy this to start a new project. |
 | `systemd/caddy.service.d/override.conf` | Points the packaged unit at `/var/caddy`. |
-| `scripts/validate.sh` | Validates everything. Needs no root. |
-| `scripts/test-edge.sh` | Starts the real config against a scratch root and stub API, then asserts routing, headers and the sensitive-file block. Needs no root. |
-| `scripts/install.sh` | Stages onto the VPS. Starts nothing, takes no port. |
-| `MIGRATION.md` | Taking 80 and 443 from whatever holds them now. |
+| `scripts/validate.sh` | Validates the master and every entry here. No root. |
+| `scripts/test-edge.sh` | Runs the real config against stub upstreams and asserts routing, Host preservation and isolation. No root. |
+| `scripts/install.sh` | Installs onto the VPS. |
+| `MIGRATION.md` | How the edge took 80 and 443, and what was found there. |
 
 Import paths are relative to the Caddyfile, so the same config validates from a
 checkout and runs from `/var/caddy`.

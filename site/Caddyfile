@@ -46,6 +46,15 @@
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "no-referrer"
+		# The master terminates TLS for this hostname, so it is only ever
+		# reached over HTTPS. No includeSubDomains — this is one name under a
+		# shared wildcard DNS service — and no preload, which cannot be undone
+		# in any useful time frame.
+		Strict-Transport-Security "max-age=31536000"
+		# TODO: add a Content-Security-Policy when the real site replaces the
+		# placeholder. The placeholder carries inline <style>, so a policy now
+		# would need 'unsafe-inline' and would assert protection it does not
+		# provide.
 	}
 
 	# Must stay inside `route`. Caddy sorts directives by its own standard
