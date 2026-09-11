@@ -2,7 +2,7 @@
 
 A mod release and conflict-validation system for three NeoForge Minecraft servers — one Swift engine, behind Caddy.
 
-> **Status: design stage**, with one exception — the [master Caddy edge](caddy/) is built, tested and **live on the VPS**. The engine itself is not implemented. The previous implementation was retired — see [Archive](#the-retired-v1-system).
+> **Status: design complete, implementation not started.** The [master Caddy edge](caddy/) is built, tested and **live on the VPS**. The engine is planned phase by phase in [`PLAN.md`](PLAN.md). The previous implementation was retired — see [Archive](#the-retired-v1-system).
 
 ## The problem
 
@@ -62,7 +62,9 @@ caddy/scripts/test-edge.sh
 
 ## Documentation
 
-The full design lives in the [wiki](https://github.com/Pummelchen/MinecraftAI/wiki):
+**[`PLAN.md`](PLAN.md)** is the build plan: phases, deliverables, exit criteria and prerequisites. It is updated in the same commit that completes each phase.
+
+The reasoning behind the design lives in the [wiki](https://github.com/Pummelchen/MinecraftAI/wiki):
 
 - [Architecture](https://github.com/Pummelchen/MinecraftAI/wiki/Architecture) — shape, components, filesystem layout
 - [Engine](https://github.com/Pummelchen/MinecraftAI/wiki/Engine) — the Swift process, dependencies, command surface, API
@@ -78,7 +80,7 @@ The full design lives in the [wiki](https://github.com/Pummelchen/MinecraftAI/wi
 - [Edge and TLS](https://github.com/Pummelchen/MinecraftAI/wiki/Edge-and-TLS) — Caddy, HTTP/3, and the certificate problem
 - [Website](https://github.com/Pummelchen/MinecraftAI/wiki/Website) — pages, API, and what latency can honestly be measured
 - [Deployment and Rollback](https://github.com/Pummelchen/MinecraftAI/wiki/Deployment-and-Rollback) — the live gate
-- [Build Order](https://github.com/Pummelchen/MinecraftAI/wiki/Build-Order) — what to build first, and what never to build
+- [Build Order](https://github.com/Pummelchen/MinecraftAI/wiki/Build-Order) — why the phases run in this order, and what never to build
 - [Open Decisions](https://github.com/Pummelchen/MinecraftAI/wiki/Open-Decisions) — what is still undecided
 
 ## The retired v1 system
